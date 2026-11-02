@@ -1,0 +1,6 @@
+{
+  "name": "حسابي للمحل",
+  "description": "برنامج محاسبة ومخزون بسيط لمحل الملابس الرجالية: مبيعات سريعة، مشتريات، مخزون، مصروفات، رواتب، ديون وتقارير سهلة",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
