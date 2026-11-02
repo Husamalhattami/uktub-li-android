@@ -734,7 +734,8 @@ class StoreRepository(private val dao: StoreDao) {
         type: String,
         amount: Double,
         notes: String,
-        paidFromCashDrawer: Boolean
+        paidFromCashDrawer: Boolean,
+        exchangeAccount: ExchangeAccount? = null
     ): Long {
         val activeShiftObj = dao.getActiveShift().firstOrNull()
         val shiftId = activeShiftObj?.id ?: 0L
@@ -747,7 +748,10 @@ class StoreRepository(private val dao: StoreDao) {
             amount = amount,
             notes = notes,
             timestamp = now,
-            shiftId = shiftId
+            shiftId = shiftId,
+            paidFromCash = paidFromCashDrawer,
+            exchangeAccountId = exchangeAccount?.id ?: 0L,
+            exchangeAccountName = exchangeAccount?.name ?: ""
         )
         val id = dao.insertEmployeeTransaction(tx)
 
@@ -760,6 +764,20 @@ class StoreRepository(private val dao: StoreDao) {
                     isIncome = false,
                     title = "$type للعامل: $employeeName",
                     details = notes,
+                    timestamp = now
+                )
+            )
+        } else if (exchangeAccount != null && (type == "سلفة" || type == "صرف راتب" || type == "مكافأة")) {
+            dao.updateExchangeBalance(exchangeAccount.id, -amount)
+            dao.insertExchangeTransfer(
+                ExchangeTransfer(
+                    accountId = exchangeAccount.id,
+                    accountName = exchangeAccount.name,
+                    type = type,
+                    amount = amount,
+                    isCredit = false,
+                    title = "$type للعامل: $employeeName",
+                    notes = notes,
                     timestamp = now
                 )
             )

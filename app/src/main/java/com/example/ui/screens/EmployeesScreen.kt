@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.Employee
 import com.example.data.model.EmployeeTransaction
+import com.example.data.model.ExchangeAccount
 import com.example.ui.StoreViewModel
 import com.example.ui.components.QuickThousandAdder
 import com.example.ui.components.StoreTopBar
@@ -37,6 +38,7 @@ fun EmployeesScreen(
     val employees by viewModel.employees.collectAsStateWithLifecycle()
     val employeeTransactions by viewModel.employeeTransactions.collectAsStateWithLifecycle()
     val sales by viewModel.sales.collectAsStateWithLifecycle()
+    val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
     val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
 
     var showAddEmployeeDialog by remember { mutableStateOf(false) }
@@ -150,6 +152,7 @@ fun EmployeesScreen(
         var amountStr by remember { mutableStateOf("") }
         var notes by remember { mutableStateOf(defaultNote) }
         var paidFromCash by remember { mutableStateOf(true) }
+        var selectedExchangeAccount by remember { mutableStateOf<ExchangeAccount?>(null) }
 
         AlertDialog(
             onDismissRequest = { actionDialogState = null },
@@ -192,11 +195,40 @@ fun EmployeesScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("صرف المبلغ نقداً من الصندوق:")
+                            Text(if (paidFromCash) "مصدر الدفع: الصندوق النقدي" else "مصدر الدفع: الصراف / المحفظة")
                             Switch(
                                 checked = paidFromCash,
-                                onCheckedChange = { paidFromCash = it }
+                                onCheckedChange = {
+                                    paidFromCash = it
+                                    if (it) selectedExchangeAccount = null
+                                }
                             )
+                        }
+                        if (!paidFromCash) {
+                            Text(
+                                text = "اختر الحساب الذي سيُخصم منه المبلغ:",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            if (exchangeAccounts.isEmpty()) {
+                                Text(
+                                    text = "لا توجد حسابات صرافة. أضف حساباً من شاشة الصرافين والمحافظ أولاً.",
+                                    color = RubyExpense,
+                                    fontSize = 12.sp
+                                )
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    exchangeAccounts.forEach { account ->
+                                        FilterChip(
+                                            selected = selectedExchangeAccount?.id == account.id,
+                                            onClick = { selectedExchangeAccount = account },
+                                            label = {
+                                                Text("${account.name} — الرصيد: ${FormatUtils.formatCurrency(account.balance)}")
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -212,6 +244,7 @@ fun EmployeesScreen(
                             amount = amount,
                             notes = notes,
                             paidFromCashDrawer = if (actionType == "خصم غياب") false else paidFromCash,
+                            exchangeAccount = if (actionType == "خصم غياب") null else selectedExchangeAccount,
                             onSuccess = { actionDialogState = null }
                         )
                     },
@@ -347,6 +380,15 @@ fun EmployeesScreen(
                                         Text(text = tx.type, fontWeight = FontWeight.Bold)
                                         if (tx.notes.isNotBlank()) {
                                             Text(text = tx.notes, style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted))
+                                        }
+                                        if (tx.type == "سلفة" || tx.type == "صرف راتب" || tx.type == "مكافأة") {
+                                            Text(
+                                                text = if (tx.paidFromCash) "المصدر: الصندوق النقدي" else "المصدر: ${tx.exchangeAccountName.ifBlank { "حساب صرافة" }}",
+                                                style = MaterialTheme.typography.bodySmall.copy(
+                                                    color = if (tx.paidFromCash) LuxuryGold else MaterialTheme.colorScheme.primary,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            )
                                         }
                                         Text(text = FormatUtils.formatDateTime(tx.timestamp), fontSize = 10.sp, color = SlateMuted)
                                     }

@@ -116,7 +116,10 @@ data class EmployeeTransaction(
     val amount: Double,
     val notes: String = "",
     val timestamp: Long = System.currentTimeMillis(),
-    val shiftId: Long = 0
+    val shiftId: Long = 0,
+    val paidFromCash: Boolean = true,
+    val exchangeAccountId: Long = 0,
+    val exchangeAccountName: String = ""
 )
 
 @Entity(tableName = "debts")

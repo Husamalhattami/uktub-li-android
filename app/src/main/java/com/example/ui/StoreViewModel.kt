@@ -37,9 +37,6 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     init {
         val db = AppDatabase.getInstance(application)
         repository = StoreRepository(db.storeDao())
-        viewModelScope.launch {
-            repository.seedInitialDataIfEmpty()
-        }
     }
 
     // --- Navigation State ---
@@ -378,6 +375,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         amount: Double,
         notes: String,
         paidFromCashDrawer: Boolean,
+        exchangeAccount: ExchangeAccount? = null,
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -391,7 +389,8 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 type = type,
                 amount = amount,
                 notes = notes,
-                paidFromCashDrawer = paidFromCashDrawer
+                paidFromCashDrawer = paidFromCashDrawer,
+                exchangeAccount = exchangeAccount
             )
             _userMessage.value = "تم تسجيل $type للعامل $employeeName بنجاح"
             onSuccess()
