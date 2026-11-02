@@ -35,7 +35,8 @@ fun StoreTopBar(
     showBackButton: Boolean = false,
     activeShift: CashDrawerShift? = null,
     onBackClick: () -> Unit = {},
-    onShiftClick: () -> Unit = {}
+    onShiftClick: () -> Unit = {},
+    trailingAction: @Composable (() -> Unit)? = null
 ) {
     TopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(
@@ -124,6 +125,7 @@ fun StoreTopBar(
                     )
                 }
             }
+            trailingAction?.invoke()
         }
     )
 }

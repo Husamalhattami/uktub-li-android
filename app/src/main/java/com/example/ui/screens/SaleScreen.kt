@@ -38,6 +38,7 @@ fun SaleScreen(
 ) {
     val products by viewModel.products.collectAsStateWithLifecycle()
     val employees by viewModel.employees.collectAsStateWithLifecycle()
+    val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
     val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
 
     var searchQuery by remember { mutableStateOf("") }
@@ -52,7 +53,11 @@ fun SaleScreen(
     var discountStr by remember { mutableStateOf("0") }
     var customerName by remember { mutableStateOf("") }
     var customerPhone by remember { mutableStateOf("") }
-    var paymentType by remember { mutableStateOf("نقداً") } // "نقداً" or "بالدين"
+    var paymentType by remember { mutableStateOf("نقداً") } // "نقداً", "تحويل صرافة", "نصف كاش ونصف حوالة", "بالدين"
+    var selectedExchangeAccount by remember { mutableStateOf<com.example.data.model.ExchangeAccount?>(null) }
+    var cashPartStr by remember { mutableStateOf("") }
+    var transferPartStr by remember { mutableStateOf("") }
+    var transferRef by remember { mutableStateOf("") }
     var selectedEmployee by remember { mutableStateOf<Employee?>(null) }
 
     // When product or unit changes, recalculate suggested unit price
@@ -459,50 +464,168 @@ fun SaleScreen(
                                 )
                             }
 
-                            // Payment Type Toggle (نقداً vs بالدين)
+                            // Default account selector
+                            LaunchedEffect(exchangeAccounts) {
+                                if (selectedExchangeAccount == null && exchangeAccounts.isNotEmpty()) {
+                                    selectedExchangeAccount = exchangeAccounts.firstOrNull()
+                                }
+                            }
+
+                            // Auto calculate split when totalAmount changes
+                            LaunchedEffect(totalAmount, paymentType) {
+                                if (paymentType == "نصف كاش ونصف حوالة") {
+                                    val half = (totalAmount / 2).toLong()
+                                    cashPartStr = half.toString()
+                                    transferPartStr = (totalAmount.toLong() - half).toString()
+                                }
+                            }
+
+                            // Payment Type Selection (كاش، تحويل، نص كاش ونص حوالة، بالدين)
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(
                                     text = "طريقة الدفع:",
                                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
                                 )
+
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     val isCash = paymentType == "نقداً"
                                     Button(
                                         onClick = { paymentType = "نقداً" },
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(48.dp)
-                                            .testTag("pay_cash_button"),
-                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.weight(1f).height(44.dp).testTag("pay_cash_button"),
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 4.dp),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = if (isCash) EmeraldProfit else SlateBorder,
                                             contentColor = if (isCash) Color.White else MaterialTheme.colorScheme.onSurface
                                         )
                                     ) {
-                                        Icon(Icons.Default.Payments, contentDescription = null)
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("نقداً (كاش)", fontWeight = FontWeight.Bold)
+                                        Text("نقداً (كاش)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+
+                                    val isTransfer = paymentType == "تحويل صرافة"
+                                    Button(
+                                        onClick = { paymentType = "تحويل صرافة" },
+                                        modifier = Modifier.weight(1f).height(44.dp).testTag("pay_transfer_button"),
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 4.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isTransfer) Color(0xFF0D9488) else SlateBorder,
+                                            contentColor = if (isTransfer) Color.White else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    ) {
+                                        Text("تحويل صرافة", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+
+                                    val isSplit = paymentType == "نصف كاش ونصف حوالة"
+                                    Button(
+                                        onClick = {
+                                            paymentType = "نصف كاش ونصف حوالة"
+                                            val half = (totalAmount / 2).toLong()
+                                            cashPartStr = half.toString()
+                                            transferPartStr = (totalAmount.toLong() - half).toString()
+                                        },
+                                        modifier = Modifier.weight(1.2f).height(44.dp).testTag("pay_split_button"),
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 4.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isSplit) Color(0xFF6366F1) else SlateBorder,
+                                            contentColor = if (isSplit) Color.White else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    ) {
+                                        Text("نصف كاش ونصف حوالة", fontWeight = FontWeight.Bold, fontSize = 11.sp)
                                     }
 
                                     val isDebt = paymentType == "بالدين"
                                     Button(
                                         onClick = { paymentType = "بالدين" },
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(48.dp)
-                                            .testTag("pay_debt_button"),
-                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.weight(0.9f).height(44.dp).testTag("pay_debt_button"),
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 4.dp),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = if (isDebt) RubyExpense else SlateBorder,
                                             contentColor = if (isDebt) Color.White else MaterialTheme.colorScheme.onSurface
                                         )
                                     ) {
-                                        Icon(Icons.Default.CreditCard, contentDescription = null)
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("بالدين (آجل)", fontWeight = FontWeight.Bold)
+                                        Text("بالدين", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+
+                                // When transfer or split is selected, choose exchange account
+                                if (paymentType == "تحويل صرافة" || paymentType == "نصف كاش ونصف حوالة") {
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text(
+                                                text = "اختر حساب الصراف أو المحفظة المحول إليها:",
+                                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold)
+                                            )
+
+                                            if (exchangeAccounts.isEmpty()) {
+                                                Text(
+                                                    text = "تنبيه: لا يوجد حساب صراف مضاف بعد، سيتم قيد الحوالة برقم الفاتورة.",
+                                                    style = MaterialTheme.typography.bodySmall.copy(color = RubyExpense)
+                                                )
+                                            } else {
+                                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    items(exchangeAccounts) { acc ->
+                                                        FilterChip(
+                                                            selected = selectedExchangeAccount?.id == acc.id,
+                                                            onClick = { selectedExchangeAccount = acc },
+                                                            label = { Text("${acc.name} (${acc.balance.toLong()} ريال)") }
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            if (paymentType == "نصف كاش ونصف حوالة") {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                ) {
+                                                    OutlinedTextField(
+                                                        value = cashPartStr,
+                                                        onValueChange = {
+                                                            cashPartStr = it
+                                                            val cash = it.toDoubleOrNull() ?: 0.0
+                                                            transferPartStr = (totalAmount - cash).coerceAtLeast(0.0).toLong().toString()
+                                                        },
+                                                        label = { Text("المبلغ كاش (ريال)") },
+                                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                                        modifier = Modifier.weight(1f),
+                                                        singleLine = true
+                                                    )
+                                                    OutlinedTextField(
+                                                        value = transferPartStr,
+                                                        onValueChange = {
+                                                            transferPartStr = it
+                                                            val tr = it.toDoubleOrNull() ?: 0.0
+                                                            cashPartStr = (totalAmount - tr).coerceAtLeast(0.0).toLong().toString()
+                                                        },
+                                                        label = { Text("المبلغ تحويل (ريال)") },
+                                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                                        modifier = Modifier.weight(1f),
+                                                        singleLine = true
+                                                    )
+                                                }
+                                            }
+
+                                            OutlinedTextField(
+                                                value = transferRef,
+                                                onValueChange = { transferRef = it },
+                                                label = { Text("رقم الحوالة أو الإشعار (اختياري)") },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                singleLine = true
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -575,6 +698,8 @@ fun SaleScreen(
                             // Big Confirmation Button
                             Button(
                                 onClick = {
+                                    val cashPart = cashPartStr.toDoubleOrNull() ?: 0.0
+                                    val transferPart = transferPartStr.toDoubleOrNull() ?: 0.0
                                     viewModel.executeSale(
                                         product = prod,
                                         quantity = qty,
@@ -585,10 +710,15 @@ fun SaleScreen(
                                         paymentType = paymentType,
                                         employee = selectedEmployee,
                                         unit = selectedSaleUnit,
+                                        cashPart = cashPart,
+                                        transferPart = transferPart,
+                                        exchangeAccount = selectedExchangeAccount,
+                                        transferRef = transferRef,
                                         onSuccess = {
                                             selectedProduct = null
                                             customerName = ""
                                             customerPhone = ""
+                                            transferRef = ""
                                         }
                                     )
                                 },

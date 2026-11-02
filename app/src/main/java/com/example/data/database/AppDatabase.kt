@@ -18,9 +18,11 @@ import com.example.data.model.*
         DebtRecord::class,
         DebtPayment::class,
         CashDrawerShift::class,
-        CashDrawerMovement::class
+        CashDrawerMovement::class,
+        ExchangeAccount::class,
+        ExchangeTransfer::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

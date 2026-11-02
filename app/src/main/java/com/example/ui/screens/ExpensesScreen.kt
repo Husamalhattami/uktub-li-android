@@ -35,9 +35,11 @@ fun ExpensesScreen(
     onBack: () -> Unit
 ) {
     val expenses by viewModel.expenses.collectAsStateWithLifecycle()
+    val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
     val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
 
     var showAddDialog by remember { mutableStateOf(false) }
+    var expenseToEdit by remember { mutableStateOf<ExpenseRecord?>(null) }
 
     val presetCategories = listOf(
         "إيجار المحل",
@@ -163,6 +165,7 @@ fun ExpensesScreen(
                 items(expenses, key = { it.id }) { expense ->
                     ExpenseItemCard(
                         expense = expense,
+                        onEdit = { expenseToEdit = expense },
                         onDelete = { viewModel.deleteExpense(expense.id) }
                     )
                 }
@@ -176,7 +179,8 @@ fun ExpensesScreen(
         var amountStr by remember { mutableStateOf("") }
         var notes by remember { mutableStateOf("") }
         var receiptNo by remember { mutableStateOf("") }
-        var paidFromCash by remember { mutableStateOf(true) }
+        var paymentSource by remember { mutableStateOf("كاش") } // "كاش" or "صراف"
+        var selectedExchangeAcc by remember { mutableStateOf(exchangeAccounts.firstOrNull()) }
 
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
@@ -209,7 +213,7 @@ fun ExpensesScreen(
                     OutlinedTextField(
                         value = amountStr,
                         onValueChange = { amountStr = it },
-                        label = { Text("المبلغ (ريال)") },
+                        label = { Text("المبلغ (ريال) *") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -235,16 +239,53 @@ fun ExpensesScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
+                    Text(
+                        text = "مصدر دفع المصروف:",
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold)
+                    )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("خصم المبلغ من الصندوق النقدي:")
-                        Switch(
-                            checked = paidFromCash,
-                            onCheckedChange = { paidFromCash = it }
-                        )
+                        Button(
+                            onClick = { paymentSource = "كاش" },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (paymentSource == "كاش") EmeraldProfit else SlateBorder,
+                                contentColor = if (paymentSource == "كاش") Color.White else MaterialTheme.colorScheme.onSurface
+                            )
+                        ) {
+                            Text("كاش من الصندوق", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = { paymentSource = "صراف" },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (paymentSource == "صراف") Color(0xFF0D9488) else SlateBorder,
+                                contentColor = if (paymentSource == "صراف") Color.White else MaterialTheme.colorScheme.onSurface
+                            )
+                        ) {
+                            Text("من حساب صراف/محفظة", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (paymentSource == "صراف") {
+                        if (exchangeAccounts.isEmpty()) {
+                            Text("لا توجد حسابات صرافة مضافة بعد.", color = RubyExpense, fontSize = 11.sp)
+                        } else {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(exchangeAccounts) { acc ->
+                                    FilterChip(
+                                        selected = selectedExchangeAcc?.id == acc.id,
+                                        onClick = { selectedExchangeAcc = acc },
+                                        label = { Text(acc.name, fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             },
@@ -252,12 +293,14 @@ fun ExpensesScreen(
                 Button(
                     onClick = {
                         val amount = amountStr.toDoubleOrNull() ?: 0.0
+                        val isCash = paymentSource == "كاش"
                         viewModel.recordExpense(
                             category = selectedCat,
                             amount = amount,
                             notes = notes,
                             receiptNumber = receiptNo,
-                            paidFromCash = paidFromCash,
+                            paidFromCash = isCash,
+                            exchangeAccount = if (!isCash) selectedExchangeAcc else null,
                             onSuccess = { showAddDialog = false }
                         )
                     },
@@ -274,11 +317,80 @@ fun ExpensesScreen(
             }
         )
     }
+
+    // Edit Expense Dialog
+    expenseToEdit?.let { exp ->
+        var cat by remember { mutableStateOf(exp.category) }
+        var amountStr by remember { mutableStateOf(exp.amount.toLong().toString()) }
+        var notes by remember { mutableStateOf(exp.notes) }
+        var receiptNo by remember { mutableStateOf(exp.receiptNumber) }
+
+        AlertDialog(
+            onDismissRequest = { expenseToEdit = null },
+            title = { Text("تعديل بيانات المصروف", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedTextField(
+                        value = cat,
+                        onValueChange = { cat = it },
+                        label = { Text("نوع المصروف") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = amountStr,
+                        onValueChange = { amountStr = it },
+                        label = { Text("المبلغ (ريال)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = notes,
+                        onValueChange = { notes = it },
+                        label = { Text("ملاحظات") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = receiptNo,
+                        onValueChange = { receiptNo = it },
+                        label = { Text("رقم الوصل") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val newAmount = amountStr.toDoubleOrNull() ?: exp.amount
+                        viewModel.updateExpense(
+                            exp.copy(
+                                category = cat,
+                                amount = newAmount,
+                                notes = notes,
+                                receiptNumber = receiptNo
+                            ),
+                            onSuccess = { expenseToEdit = null }
+                        )
+                    }
+                ) {
+                    Text("حفظ التعديل")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { expenseToEdit = null }) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
 }
 
 @Composable
 fun ExpenseItemCard(
     expense: ExpenseRecord,
+    onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(
@@ -324,8 +436,9 @@ fun ExpenseItemCard(
                             style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted)
                         )
                     }
+                    val sourceText = if (expense.paidFromCash) "الصندوق (كاش)" else "حساب صرافة: ${expense.exchangeAccountName}"
                     Text(
-                        text = FormatUtils.formatDateTime(expense.timestamp) + if (expense.receiptNumber.isNotBlank()) " | وصل #${expense.receiptNumber}" else "",
+                        text = "${FormatUtils.formatDateTime(expense.timestamp)} | $sourceText",
                         style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted, fontSize = 10.sp)
                     )
                 }
@@ -339,13 +452,23 @@ fun ExpenseItemCard(
                         color = RubyExpense
                     )
                 )
-                IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
-                    Icon(
-                        imageVector = Icons.Default.DeleteOutline,
-                        contentDescription = "حذف",
-                        tint = SlateMuted,
-                        modifier = Modifier.size(18.dp)
-                    )
+                Row {
+                    IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "تعديل",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteOutline,
+                            contentDescription = "حذف",
+                            tint = RubyExpense,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
         }

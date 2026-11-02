@@ -10,8 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -19,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -40,17 +40,33 @@ fun HomeScreen(
     val todaySales by viewModel.todaySalesTotal.collectAsStateWithLifecycle()
     val todayProfit by viewModel.todayProfitTotal.collectAsStateWithLifecycle()
     val cashBalance by viewModel.currentCashBalance.collectAsStateWithLifecycle()
+    val totalExchangeBalance by viewModel.totalExchangeBalance.collectAsStateWithLifecycle()
     val inventoryValue by viewModel.inventoryCostValue.collectAsStateWithLifecycle()
     val lowStockCount by viewModel.lowStockCount.collectAsStateWithLifecycle()
     val totalCustDebts by viewModel.totalCustomerDebts.collectAsStateWithLifecycle()
     val cashMovements by viewModel.cashMovements.collectAsStateWithLifecycle()
+    val accounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
+
+    var showClearDataDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             StoreTopBar(
                 title = "حسابي للمحل",
                 activeShift = activeShift,
-                onShiftClick = { onNavigate(AppScreen.CASH_DRAWER) }
+                onShiftClick = { onNavigate(AppScreen.CASH_DRAWER) },
+                trailingAction = {
+                    IconButton(
+                        onClick = { showClearDataDialog = true },
+                        modifier = Modifier.testTag("btn_clear_data_menu")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteSweep,
+                            contentDescription = "تصفير وحذف البيانات",
+                            tint = Color.White
+                        )
+                    }
+                }
             )
         }
     ) { paddingValues ->
@@ -62,7 +78,7 @@ fun HomeScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Section 1: Welcome & Store Identity Banner
+            // Section 1: Welcome & Store Identity Banner (Fixed layout: zero squishing, generous padding)
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -73,52 +89,67 @@ fun HomeScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(20.dp)
+                            .padding(18.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 10.dp)
+                            ) {
                                 Text(
                                     text = "محل الأناقة للملابس الرجالية",
-                                    style = MaterialTheme.typography.titleLarge.copy(
+                                    style = MaterialTheme.typography.titleMedium.copy(
                                         color = Color.White,
                                         fontWeight = FontWeight.Bold
-                                    )
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
+                                Spacer(modifier = Modifier.height(3.dp))
                                 Text(
                                     text = "اليوم: ${FormatUtils.formatDate(System.currentTimeMillis())}",
-                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                    style = MaterialTheme.typography.bodySmall.copy(
                                         color = Color.White.copy(alpha = 0.8f)
                                     )
                                 )
                             }
-                            // Quick sale floating trigger button
+
+                            // Quick sale button - fixed width and no line wrap
                             Button(
                                 onClick = { onNavigate(AppScreen.SALE) },
                                 colors = ButtonDefaults.buttonColors(containerColor = LuxuryGoldLight),
                                 shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.testTag("hero_quick_sale_button")
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                                modifier = Modifier
+                                    .defaultMinSize(minWidth = 110.dp)
+                                    .testTag("hero_quick_sale_button")
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.PointOfSale,
                                     contentDescription = null,
-                                    tint = MidnightNavy
+                                    tint = MidnightNavy,
+                                    modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = "بيع سريع",
                                     fontWeight = FontWeight.Bold,
-                                    color = MidnightNavy
+                                    color = MidnightNavy,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    fontSize = 14.sp
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(16.dp))
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.15f))
                         Spacer(modifier = Modifier.height(14.dp))
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.15f))
+                        Spacer(modifier = Modifier.height(12.dp))
 
                         // Primary Drawer & Today metrics
                         Row(
@@ -127,28 +158,29 @@ fun HomeScreen(
                         ) {
                             Column {
                                 Text(
-                                    text = "رصيد الصندوق الحالي",
-                                    style = MaterialTheme.typography.labelMedium.copy(
+                                    text = "رصيد الصندوق الحالي (كاش)",
+                                    style = MaterialTheme.typography.labelSmall.copy(
                                         color = Color.White.copy(alpha = 0.75f)
                                     )
                                 )
                                 Text(
                                     text = FormatUtils.formatCurrency(cashBalance),
-                                    style = MaterialTheme.typography.headlineSmall.copy(
+                                    style = MaterialTheme.typography.titleLarge.copy(
                                         color = Color.White,
                                         fontWeight = FontWeight.ExtraBold
                                     )
                                 )
                             }
+
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(
-                                    text = "مبيعات اليوم",
-                                    style = MaterialTheme.typography.labelMedium.copy(
+                                    text = "أرصدة الصرافين والمحافظ",
+                                    style = MaterialTheme.typography.labelSmall.copy(
                                         color = Color.White.copy(alpha = 0.75f)
                                     )
                                 )
                                 Text(
-                                    text = FormatUtils.formatCurrency(todaySales),
+                                    text = FormatUtils.formatCurrency(totalExchangeBalance),
                                     style = MaterialTheme.typography.titleLarge.copy(
                                         color = LuxuryGoldLight,
                                         fontWeight = FontWeight.Bold
@@ -185,16 +217,27 @@ fun HomeScreen(
                 }
             }
 
-            // Section 3: 8 Main Action Cards (Grid)
+            // Section 3: Main Action Cards (10 Cards Grid)
             item {
-                Text(
-                    text = "أقسام المحل",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    ),
-                    modifier = Modifier.padding(vertical = 4.dp)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "أقسام المحل",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    )
+
+                    TextButton(onClick = { showClearDataDialog = true }) {
+                        Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp), tint = RubyExpense)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("تصفير البيانات", color = RubyExpense, fontSize = 12.sp)
+                    }
+                }
             }
 
             // Grid Row 1: بيع + شراء بضاعة
@@ -205,7 +248,7 @@ fun HomeScreen(
                 ) {
                     MainActionCard(
                         title = "1. بيع",
-                        subtitle = "تسجيل بيع فوري ونقدي أو دين",
+                        subtitle = "كاش، تحويل، نص كاش، آجل",
                         icon = Icons.Default.ShoppingCartCheckout,
                         accentColor = EmeraldProfit,
                         modifier = Modifier
@@ -265,7 +308,7 @@ fun HomeScreen(
                 ) {
                     MainActionCard(
                         title = "5. العمال والرواتب",
-                        subtitle = "الرواتب، السلف، العمولات",
+                        subtitle = "تعديل، حذف، سلف، رواتب",
                         icon = Icons.Default.Badge,
                         accentColor = Color(0xFF6366F1),
                         modifier = Modifier
@@ -317,6 +360,37 @@ fun HomeScreen(
                 }
             }
 
+            // Grid Row 5: الصرافين والمحافظ + سجل وتعديل العمليات
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    MainActionCard(
+                        title = "9. الصرافين والمحافظ",
+                        subtitle = "الكريمي، النجم، العمقي...",
+                        badge = if (accounts.isNotEmpty()) "${accounts.size} حسابات" else null,
+                        badgeColor = Color(0xFF0D9488),
+                        icon = Icons.Default.AccountBalance,
+                        accentColor = Color(0xFF0D9488),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("nav_exchange_card"),
+                        onClick = { onNavigate(AppScreen.EXCHANGE_ACCOUNTS) }
+                    )
+                    MainActionCard(
+                        title = "سجل العمليات",
+                        subtitle = "حذف وتعديل المبيعات والمشتريات",
+                        icon = Icons.Default.HistoryEdu,
+                        accentColor = Color(0xFF8B5CF6),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("nav_transactions_log_card"),
+                        onClick = { onNavigate(AppScreen.TRANSACTIONS_LOG) }
+                    )
+                }
+            }
+
             // Section 4: Daily Ledger / Recent Activity (دفتر اليومية المباشر)
             item {
                 Row(
@@ -334,9 +408,9 @@ fun HomeScreen(
                         )
                     )
                     TextButton(
-                        onClick = { onNavigate(AppScreen.CASH_DRAWER) }
+                        onClick = { onNavigate(AppScreen.TRANSACTIONS_LOG) }
                     ) {
-                        Text("عرض الكل", style = MaterialTheme.typography.labelLarge)
+                        Text("إدارة العمليات", style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }
@@ -361,6 +435,100 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    // Dialog: Reset / Clear Demo Data
+    if (showClearDataDialog) {
+        var clearOption by remember { mutableStateOf(1) } // 1: Transactions only, 2: Everything completely
+
+        AlertDialog(
+            onDismissRequest = { showClearDataDialog = false },
+            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = RubyExpense) },
+            title = { Text("تصفير وحذف البيانات السابقة", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "اختر ما تريد حذفه وتصفيره للبدء في استخدام التطبيق:",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { clearOption = 1 },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (clearOption == 1) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (clearOption == 1) MaterialTheme.colorScheme.primary else SlateBorder
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "1. تصفير الحركات والفواتير فقط",
+                                fontWeight = FontWeight.Bold,
+                                color = if (clearOption == 1) Color.White else MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "حذف جميع المبيعات، المشتريات، المصروفات، حركات الصندوق والديون مع الإبقاء على الأصناف والعمال.",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = if (clearOption == 1) Color.White.copy(alpha = 0.8f) else SlateMuted
+                                )
+                            )
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { clearOption = 2 },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (clearOption == 2) RubyExpense.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (clearOption == 2) RubyExpense else SlateBorder
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "2. حذف شامل لجميع البيانات (بدء من الصفر)",
+                                fontWeight = FontWeight.Bold,
+                                color = RubyExpense
+                            )
+                            Text(
+                                text = "حذف كل شيء بالكامل: الأصناف، المخزون، العمال، الحسابات، والفواتير للحصول على تطبيق فارغ تماماً.",
+                                style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.clearData(transactionsOnly = (clearOption == 1)) {
+                            showClearDataDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = RubyExpense),
+                    modifier = Modifier.testTag("confirm_clear_data_button")
+                ) {
+                    Text("تنفيذ الحذف والتصفير")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showClearDataDialog = false }) {
+                    Text("إلغاء")
+                }
+            }
+        )
     }
 }
 
@@ -399,7 +567,7 @@ fun MainActionCard(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(42.dp)
+                            .size(46.dp)
                             .clip(CircleShape)
                             .background(accentColor.copy(alpha = 0.12f)),
                         contentAlignment = Alignment.Center
@@ -415,15 +583,14 @@ fun MainActionCard(
                     if (badge != null) {
                         Surface(
                             shape = RoundedCornerShape(10.dp),
-                            color = badgeColor.copy(alpha = 0.15f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, badgeColor)
+                            color = badgeColor.copy(alpha = 0.15f)
                         ) {
                             Text(
                                 text = badge,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                 style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.Bold,
                                     color = badgeColor,
+                                    fontWeight = FontWeight.Bold,
                                     fontSize = 10.sp
                                 )
                             )
@@ -446,11 +613,11 @@ fun MainActionCard(
                             color = SlateMuted,
                             fontSize = 11.sp
                         ),
-                        maxLines = 1
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
         }
     }
 }
-

@@ -19,7 +19,9 @@ enum class AppScreen {
     EMPLOYEES,
     DEBTS,
     REPORTS,
-    CASH_DRAWER
+    CASH_DRAWER,
+    EXCHANGE_ACCOUNTS,
+    TRANSACTIONS_LOG
 }
 
 data class CompletedSaleReceipt(
@@ -90,6 +92,12 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     val cashMovements: StateFlow<List<CashDrawerMovement>> = repository.allCashMovements
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val exchangeAccounts: StateFlow<List<ExchangeAccount>> = repository.allExchangeAccounts
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val exchangeTransfers: StateFlow<List<ExchangeTransfer>> = repository.allExchangeTransfers
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     // --- Completed Receipt Dialog Event ---
     private val _completedReceipt = MutableStateFlow<CompletedSaleReceipt?>(null)
     val completedReceipt: StateFlow<CompletedSaleReceipt?> = _completedReceipt.asStateFlow()
@@ -147,6 +155,10 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         list.filter { it.type == "SUPPLIER" && !it.isSettled }.sumOf { it.remainingAmount }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
+    val totalExchangeBalance: StateFlow<Double> = exchangeAccounts.map { list ->
+        list.sumOf { it.balance }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
     // --- User Actions ---
 
     fun executeSale(
@@ -159,6 +171,10 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         paymentType: String,
         employee: Employee?,
         unit: String = com.example.ui.util.ClothingUnits.PIECE,
+        cashPart: Double = 0.0,
+        transferPart: Double = 0.0,
+        exchangeAccount: ExchangeAccount? = null,
+        transferRef: String = "",
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -181,7 +197,11 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 customerPhone = customerPhone,
                 paymentType = paymentType,
                 employee = employee,
-                unit = unit
+                unit = unit,
+                cashPart = cashPart,
+                transferPart = transferPart,
+                exchangeAccount = exchangeAccount,
+                transferRef = transferRef
             )
 
             _completedReceipt.value = CompletedSaleReceipt(
@@ -191,6 +211,20 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
             )
             _userMessage.value = "تم إتمام عملية البيع بنجاح!"
             onSuccess()
+        }
+    }
+
+    fun deleteSale(saleId: Long) {
+        viewModelScope.launch {
+            repository.deleteSale(saleId)
+            _userMessage.value = "تم حذف فاتورة البيع واسترجاع البضاعة والمبالغ"
+        }
+    }
+
+    fun updateSale(sale: SaleTransaction) {
+        viewModelScope.launch {
+            repository.updateSale(sale)
+            _userMessage.value = "تم تحديث بيانات فاتورة البيع"
         }
     }
 
@@ -211,6 +245,9 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         notes: String,
         colorsCount: Int,
         colorDetails: String,
+        cashPaid: Double = 0.0,
+        transferPaid: Double = 0.0,
+        exchangeAccount: ExchangeAccount? = null,
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -234,13 +271,29 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 barcode = barcode,
                 notes = notes,
                 colorsCount = colorsCount,
-                colorDetails = colorDetails
+                colorDetails = colorDetails,
+                cashPaidPart = cashPaid,
+                transferPaidPart = transferPaid,
+                exchangeAccount = exchangeAccount
             )
             _userMessage.value = "تم تسجيل شراء البضاعة وإضافتها إلى المخزون!"
             onSuccess()
         }
     }
 
+    fun deletePurchase(purchaseId: Long) {
+        viewModelScope.launch {
+            repository.deletePurchase(purchaseId)
+            _userMessage.value = "تم حذف فاتورة الشراء وخصم الكمية واسترداد الدفعات"
+        }
+    }
+
+    fun updatePurchase(purchase: PurchaseRecord) {
+        viewModelScope.launch {
+            repository.updatePurchase(purchase)
+            _userMessage.value = "تم تحديث بيانات فاتورة الشراء"
+        }
+    }
 
     fun saveProduct(product: ProductItem, onSuccess: () -> Unit) {
         viewModelScope.launch {
@@ -263,6 +316,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         notes: String,
         receiptNumber: String,
         paidFromCash: Boolean,
+        exchangeAccount: ExchangeAccount? = null,
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -275,9 +329,18 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 amount = amount,
                 notes = notes,
                 receiptNumber = receiptNumber,
-                paidFromCash = paidFromCash
+                paidFromCash = paidFromCash,
+                exchangeAccount = exchangeAccount
             )
             _userMessage.value = "تم تسجيل المصروف بنجاح"
+            onSuccess()
+        }
+    }
+
+    fun updateExpense(expense: ExpenseRecord, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.updateExpense(expense)
+            _userMessage.value = "تم تعديل بيانات المصروف بنجاح"
             onSuccess()
         }
     }
@@ -285,7 +348,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteExpense(id: Long) {
         viewModelScope.launch {
             repository.deleteExpense(id)
-            _userMessage.value = "تم حذف المصروف"
+            _userMessage.value = "تم حذف المصروف واسترجاع الرصيد"
         }
     }
 
@@ -296,8 +359,15 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
             repository.saveEmployee(employee)
-            _userMessage.value = "تم حفظ بيانات العامل"
+            _userMessage.value = "تم حفظ بيانات العامل بنجاح"
             onSuccess()
+        }
+    }
+
+    fun deleteEmployee(employeeId: Long) {
+        viewModelScope.launch {
+            repository.deleteEmployee(employeeId)
+            _userMessage.value = "تم حذف بيانات العامل من المحل"
         }
     }
 
@@ -328,10 +398,50 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun saveExchangeAccount(account: ExchangeAccount, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            if (account.name.isBlank()) {
+                _userMessage.value = "يرجى إدخال اسم الصراف أو المحفظة"
+                return@launch
+            }
+            repository.saveExchangeAccount(account)
+            _userMessage.value = "تم حفظ بيانات حساب الصراف/المحفظة"
+            onSuccess()
+        }
+    }
+
+    fun deleteExchangeAccount(id: Long) {
+        viewModelScope.launch {
+            repository.deleteExchangeAccount(id)
+            _userMessage.value = "تم حذف حساب الصراف"
+        }
+    }
+
+    fun transferBetweenCashAndExchange(
+        accountId: Long,
+        amount: Double,
+        fromCashToExchange: Boolean,
+        notes: String,
+        onSuccess: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            if (amount <= 0) {
+                _userMessage.value = "يرجى تحديد مبلغ التحويل"
+                return@launch
+            }
+            repository.transferBetweenCashAndExchange(accountId, amount, fromCashToExchange, notes)
+            val actionName = if (fromCashToExchange) "إيداع كاش لحساب الصراف" else "سحب كاش من الصراف للصندوق"
+            _userMessage.value = "تم تنفيذ $actionName بنجاح!"
+            onSuccess()
+        }
+    }
+
     fun recordDebtPayment(
         debt: DebtRecord,
         amount: Double,
         notes: String,
+        paymentMethod: String = "نقداً",
+        exchangeAccount: ExchangeAccount? = null,
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -343,8 +453,8 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "مبلغ الدفعة أكبر من المبلغ المتبقي (${FormatUtils.formatCurrency(debt.remainingAmount)})"
                 return@launch
             }
-            repository.recordDebtPayment(debt, amount, notes)
-            _userMessage.value = "تم تسجيل الدفعة بنجاح وتحديث الصندوق والدين"
+            repository.recordDebtPayment(debt, amount, notes, paymentMethod, exchangeAccount)
+            _userMessage.value = "تم تسجيل الدفعة بنجاح وتحديث الصندوق/الصراف والدين"
             onSuccess()
         }
     }
@@ -404,6 +514,19 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
             }
             repository.recordManualDeposit(amount, reason)
             _userMessage.value = "تم تسجيل الإيداع النقدي في الصندوق"
+            onSuccess()
+        }
+    }
+
+    fun clearData(transactionsOnly: Boolean, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            if (transactionsOnly) {
+                repository.clearTransactionsOnly()
+                _userMessage.value = "تم تصفير وحذف جميع حركات البيع والشراء والمصروفات والديون"
+            } else {
+                repository.clearEverythingCompletely()
+                _userMessage.value = "تم حذف جميع البيانات والمخزون والبدء من جديد بحساب فارغ"
+            }
             onSuccess()
         }
     }

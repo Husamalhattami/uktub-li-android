@@ -109,6 +109,14 @@ fun MainAppContent(viewModel: StoreViewModel) {
                     viewModel = viewModel,
                     onBack = { viewModel.navigateBack() }
                 )
+                AppScreen.EXCHANGE_ACCOUNTS -> ExchangeAccountsScreen(
+                    viewModel = viewModel,
+                    onBack = { viewModel.navigateBack() }
+                )
+                AppScreen.TRANSACTIONS_LOG -> TransactionsManagerScreen(
+                    viewModel = viewModel,
+                    onBack = { viewModel.navigateBack() }
+                )
             }
         }
     }

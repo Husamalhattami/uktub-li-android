@@ -40,7 +40,12 @@ data class SaleTransaction(
     val profit: Double,
     val customerName: String = "",
     val customerPhone: String = "",
-    val paymentType: String = "نقداً", // "نقداً" or "بالدين"
+    val paymentType: String = "نقداً", // "نقداً", "تحويل صرافة", "نصف كاش ونصف حوالة", "بالدين"
+    val cashAmount: Double = 0.0,
+    val transferAmount: Double = 0.0,
+    val exchangeAccountId: Long = 0,
+    val exchangeAccountName: String = "",
+    val transferRef: String = "",
     val employeeName: String = "",
     val employeeId: Long = 0,
     val timestamp: Long = System.currentTimeMillis(),
@@ -63,13 +68,17 @@ data class PurchaseRecord(
     val paidAmount: Double,
     val remainingDebt: Double,
     val invoiceNumber: String = "",
-    val paymentMethod: String = "نقداً من الصندوق", // "نقداً من الصندوق" or "آجل للمورد"
+    val paymentMethod: String = "نقداً من الصندوق", // "نقداً من الصندوق", "تحويل صرافة", "نصف كاش ونصف حوالة", "آجل للمورد"
+    val cashPaid: Double = 0.0,
+    val transferPaid: Double = 0.0,
+    val exchangeAccountId: Long = 0,
+    val exchangeAccountName: String = "",
     val timestamp: Long = System.currentTimeMillis(),
     val unit: String = "حبه",
     val unitCount: Double = 1.0,
-    val colorsCount: Int = 1
+    val colorsCount: Int = 1,
+    val notes: String = ""
 )
-
 
 @Entity(tableName = "expenses")
 data class ExpenseRecord(
@@ -80,6 +89,8 @@ data class ExpenseRecord(
     val receiptNumber: String = "",
     val timestamp: Long = System.currentTimeMillis(),
     val paidFromCash: Boolean = true,
+    val exchangeAccountId: Long = 0,
+    val exchangeAccountName: String = "",
     val shiftId: Long = 0
 )
 
@@ -133,7 +144,9 @@ data class DebtPayment(
     val amount: Double,
     val timestamp: Long = System.currentTimeMillis(),
     val notes: String = "",
-    val shiftId: Long = 0
+    val shiftId: Long = 0,
+    val paymentMethod: String = "نقداً", // "نقداً" or "صرافة/محفظة"
+    val exchangeAccountId: Long = 0
 )
 
 @Entity(tableName = "shifts")
@@ -157,5 +170,34 @@ data class CashDrawerMovement(
     val isIncome: Boolean, // true = دخل للصندوق, false = خرج من الصندوق
     val title: String,
     val details: String = "",
+    val timestamp: Long = System.currentTimeMillis(),
+    val referenceSaleId: Long? = null,
+    val referencePurchaseId: Long? = null,
+    val referenceExpenseId: Long? = null
+)
+
+@Entity(tableName = "exchange_accounts")
+data class ExchangeAccount(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String, // اسم الصراف أو المحفظة (مثال: صرافة الكريمي، النجم، العمقي، محفظة جوالي، كاش)
+    val accountNumber: String = "",
+    val phone: String = "",
+    val balance: Double = 0.0,
+    val type: String = "صراف", // "صراف", "محفظة", "حساب بنكي"
+    val notes: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "exchange_transfers")
+data class ExchangeTransfer(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val accountId: Long,
+    val accountName: String,
+    val type: String, // "إيداع من الكاش", "سحب للكاش", "مبيعات تحويل", "مشتريات تحويل", "تعديل رصيد"
+    val amount: Double,
+    val isCredit: Boolean, // true = زيادة رصيد الصراف، false = سحب من الصراف
+    val title: String,
+    val referenceNumber: String = "",
+    val notes: String = "",
     val timestamp: Long = System.currentTimeMillis()
 )

@@ -40,6 +40,8 @@ fun EmployeesScreen(
     val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
 
     var showAddEmployeeDialog by remember { mutableStateOf(false) }
+    var employeeToEdit by remember { mutableStateOf<Employee?>(null) }
+    var employeeToDelete by remember { mutableStateOf<Employee?>(null) }
     var actionDialogState by remember { mutableStateOf<Triple<Employee, String, String>?>(null) } // (Employee, ActionType: "سلفة" | "خصم غياب" | "صرف راتب", defaultNotes)
     var viewHistoryEmployee by remember { mutableStateOf<Employee?>(null) }
 
@@ -134,7 +136,9 @@ fun EmployeesScreen(
                         onAddAdvance = { actionDialogState = Triple(employee, "سلفة", "سلفة نقدية على الحساب") },
                         onAddDeduction = { actionDialogState = Triple(employee, "خصم غياب", "خصم غياب يوم") },
                         onPaySalary = { actionDialogState = Triple(employee, "صرف راتب", "صرف دفعة من الراتب") },
-                        onViewHistory = { viewHistoryEmployee = employee }
+                        onViewHistory = { viewHistoryEmployee = employee },
+                        onEdit = { employeeToEdit = employee },
+                        onDelete = { employeeToDelete = employee }
                     )
                 }
             }
@@ -364,6 +368,118 @@ fun EmployeesScreen(
             }
         )
     }
+
+    // Edit Employee Dialog
+    employeeToEdit?.let { emp ->
+        var name by remember { mutableStateOf(emp.name) }
+        var phone by remember { mutableStateOf(emp.phone) }
+        var role by remember { mutableStateOf(emp.role) }
+        var salaryStr by remember { mutableStateOf(emp.baseSalary.toLong().toString()) }
+        var commissionStr by remember { mutableStateOf(emp.commissionPercent.toString()) }
+
+        AlertDialog(
+            onDismissRequest = { employeeToEdit = null },
+            title = { Text("تعديل بيانات العامل", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("اسم العامل الكامل") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = phone,
+                        onValueChange = { phone = it },
+                        label = { Text("رقم الهاتف") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = role,
+                        onValueChange = { role = it },
+                        label = { Text("المسمى الوظيفي (بائع، كاشير...)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = salaryStr,
+                        onValueChange = { salaryStr = it },
+                        label = { Text("الراتب الأساسي (ريال)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = commissionStr,
+                        onValueChange = { commissionStr = it },
+                        label = { Text("نسبة العمولة (%)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val base = salaryStr.toDoubleOrNull() ?: emp.baseSalary
+                        val comm = commissionStr.toDoubleOrNull() ?: emp.commissionPercent
+                        viewModel.saveEmployee(
+                            emp.copy(
+                                name = name,
+                                phone = phone,
+                                role = role,
+                                baseSalary = base,
+                                commissionPercent = comm
+                            ),
+                            onSuccess = { employeeToEdit = null }
+                        )
+                    }
+                ) {
+                    Text("حفظ التعديلات")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { employeeToEdit = null }) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
+
+    // Delete Employee Confirmation Dialog
+    employeeToDelete?.let { emp ->
+        AlertDialog(
+            onDismissRequest = { employeeToDelete = null },
+            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = RubyExpense) },
+            title = { Text("تأكيد حذف العامل", fontWeight = FontWeight.Bold) },
+            text = {
+                Text("هل أنت متأكد من حذف العامل (${emp.name}) من قائمة عمال المحل؟")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteEmployee(emp.id)
+                        employeeToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = RubyExpense)
+                ) {
+                    Text("تأكيد الحذف")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { employeeToDelete = null }) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -378,7 +494,9 @@ fun EmployeeCard(
     onAddAdvance: () -> Unit,
     onAddDeduction: () -> Unit,
     onPaySalary: () -> Unit,
-    onViewHistory: () -> Unit
+    onViewHistory: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -392,13 +510,16 @@ fun EmployeeCard(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Header: Name, Role, Phone
+            // Header: Name, Role, Phone & Action Icons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Box(
                         modifier = Modifier
                             .size(44.dp)
@@ -425,18 +546,27 @@ fun EmployeeCard(
                     }
                 }
 
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = GoldContainer
-                ) {
-                    Text(
-                        text = "عمولة ${employee.commissionPercent}%",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = LuxuryGold
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = GoldContainer
+                    ) {
+                        Text(
+                            text = "عمولة ${employee.commissionPercent}%",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = LuxuryGold
+                            )
                         )
-                    )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Edit, contentDescription = "تعديل", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                    }
+                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.DeleteOutline, contentDescription = "حذف", tint = RubyExpense, modifier = Modifier.size(18.dp))
+                    }
                 }
             }
 
