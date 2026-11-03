@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -12,12 +13,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ui.AppScreen
 import com.example.ui.StoreViewModel
 import com.example.ui.components.MovementItemRow
 import com.example.ui.components.QuickThousandAdder
@@ -68,17 +72,16 @@ fun CashDrawerScreen(
         ) {
             // Hero: Current Cash & Shift Status Card
             item {
-                Card(
+                Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                    color = BrandNavy
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -87,13 +90,13 @@ fun CashDrawerScreen(
                         ) {
                             Column {
                                 Text(
-                                    text = "الرصيد الفعلي الموجود بالصندوق",
+                                    text = "الرصيد الفعلي الموجود بالصندوق (كاش)",
                                     style = MaterialTheme.typography.bodyMedium.copy(color = Color.White.copy(alpha = 0.8f))
                                 )
                                 Text(
                                     text = FormatUtils.formatCurrency(cashBalance),
                                     style = MaterialTheme.typography.headlineMedium.copy(
-                                        color = LuxuryGoldLight,
+                                        color = FintechAmberLight,
                                         fontWeight = FontWeight.ExtraBold
                                     )
                                 )
@@ -101,16 +104,31 @@ fun CashDrawerScreen(
 
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = if (isOpen) EmeraldProfit.copy(alpha = 0.25f) else RubyExpense.copy(alpha = 0.25f)
-                            ) {
-                                Text(
-                                    text = if (isOpen) "وردية نشطة" else "الوردية مغلقة",
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                    style = MaterialTheme.typography.labelMedium.copy(
-                                        color = if (isOpen) EmeraldProfit else RubyExpense,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                color = if (isOpen) FintechEmerald.copy(alpha = 0.2f) else FintechRose.copy(alpha = 0.2f),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    if (isOpen) FintechEmeraldLight else FintechRoseLight
                                 )
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isOpen) FintechEmeraldLight else FintechRoseLight)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (isOpen) "وردية مفتوحة" else "وردية مغلقة",
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    )
+                                }
                             }
                         }
 
@@ -138,12 +156,12 @@ fun CashDrawerScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Column {
-                                Text("إجمالي المقبوضات (+)", style = MaterialTheme.typography.labelSmall.copy(color = EmeraldProfit))
-                                Text(FormatUtils.formatCurrency(totalIncome), style = MaterialTheme.typography.titleSmall.copy(color = EmeraldProfit, fontWeight = FontWeight.Bold))
+                                Text("إجمالي المقبوضات (+)", style = MaterialTheme.typography.labelSmall.copy(color = FintechEmeraldLight))
+                                Text(FormatUtils.formatCurrency(totalIncome), style = MaterialTheme.typography.titleSmall.copy(color = FintechEmeraldLight, fontWeight = FontWeight.Bold))
                             }
                             Column(horizontalAlignment = Alignment.End) {
-                                Text("إجمالي المدفوعات (-)", style = MaterialTheme.typography.labelSmall.copy(color = RubyExpense))
-                                Text(FormatUtils.formatCurrency(totalExpense), style = MaterialTheme.typography.titleSmall.copy(color = RubyExpense, fontWeight = FontWeight.Bold))
+                                Text("إجمالي المدفوعات (-)", style = MaterialTheme.typography.labelSmall.copy(color = FintechRoseLight))
+                                Text(FormatUtils.formatCurrency(totalExpense), style = MaterialTheme.typography.titleSmall.copy(color = FintechRoseLight, fontWeight = FontWeight.Bold))
                             }
                         }
                     }
@@ -164,11 +182,11 @@ fun CashDrawerScreen(
                                 .height(48.dp)
                                 .testTag("close_shift_button"),
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = RubyExpense)
+                            colors = ButtonDefaults.buttonColors(containerColor = FintechRose)
                         ) {
-                            Icon(Icons.Default.LockClock, contentDescription = null)
+                            Icon(Icons.Default.LockClock, contentDescription = null, tint = Color.White)
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("إغلاق الوردية", fontWeight = FontWeight.Bold)
+                            Text("إغلاق الوردية", fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     } else {
                         Button(
@@ -178,11 +196,11 @@ fun CashDrawerScreen(
                                 .height(48.dp)
                                 .testTag("open_shift_button"),
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldProfit)
+                            colors = ButtonDefaults.buttonColors(containerColor = FintechEmerald)
                         ) {
-                            Icon(Icons.Default.LockOpen, contentDescription = null)
+                            Icon(Icons.Default.LockOpen, contentDescription = null, tint = Color.White)
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("فتح وردية جديدة", fontWeight = FontWeight.Bold)
+                            Text("فتح وردية جديدة", fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     }
 
@@ -194,7 +212,7 @@ fun CashDrawerScreen(
                             .testTag("owner_withdrawal_button"),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(Icons.Default.Output, contentDescription = null)
+                        Icon(Icons.Default.Output, contentDescription = null, tint = FintechRose)
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("سحب المالك", fontWeight = FontWeight.Bold)
                     }
@@ -207,7 +225,7 @@ fun CashDrawerScreen(
                             .testTag("owner_deposit_button"),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(Icons.Default.Input, contentDescription = null)
+                        Icon(Icons.Default.Input, contentDescription = null, tint = FintechEmerald)
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("إيداع سيولة", fontWeight = FontWeight.Bold)
                     }
@@ -216,18 +234,33 @@ fun CashDrawerScreen(
 
             // Store Audit & Reset Card
             item {
-                OutlinedButton(
-                    onClick = { viewModel.navigateTo(com.example.ui.AppScreen.STORE_AUDIT) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("launch_audit_from_drawer_button"),
+                Surface(
+                    onClick = { viewModel.navigateTo(AppScreen.STORE_AUDIT) },
+                    modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = LuxuryGold)
+                    color = FintechAmberBg,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, FintechAmberBorder)
                 ) {
-                    Icon(Icons.Default.FactCheck, contentDescription = null, tint = LuxuryGold)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("معالج جرد المحل وتصفير/ضبط الأرصدة", fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Default.FactCheck, contentDescription = null, tint = FintechAmber)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "معالج جرد المحل وتصفير / ضبط الأرصدة",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = SlateTextPrimary)
+                            )
+                            Text(
+                                text = "لبدء النظام من الصفر أو ضبط رصيد الصندوق والصراف والمخزون بدقة",
+                                style = MaterialTheme.typography.bodySmall.copy(color = SlateTextSecondary, fontSize = 11.sp)
+                            )
+                        }
+                        Icon(Icons.Default.ChevronLeft, contentDescription = null, tint = FintechAmber)
+                    }
                 }
             }
 
@@ -235,20 +268,22 @@ fun CashDrawerScreen(
             item {
                 Text(
                     text = "سجل حركة أموال الصندوق",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = SlateTextPrimary)
                 )
             }
 
             if (allMovements.isEmpty()) {
                 item {
-                    Card(
+                    Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        shape = RoundedCornerShape(14.dp),
+                        color = SlateCard,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
                     ) {
                         Text(
                             text = "لا توجد حركات نقدية مسجلة في الصندوق بعد.",
                             modifier = Modifier.padding(20.dp),
-                            style = MaterialTheme.typography.bodyMedium.copy(color = SlateMuted)
+                            style = MaterialTheme.typography.bodyMedium.copy(color = SlateTextMuted)
                         )
                     }
                 }
@@ -263,12 +298,12 @@ fun CashDrawerScreen(
     // Open Shift Dialog
     if (showOpenShiftDialog) {
         var cashierName by remember { mutableStateOf("صاحب المحل") }
-        var openingCashStr by remember { mutableStateOf("1500") }
+        var openingCashStr by remember { mutableStateOf("50000") }
         var notes by remember { mutableStateOf("افتتاح الوردية") }
 
         AlertDialog(
             onDismissRequest = { showOpenShiftDialog = false },
-            title = { Text("فتح وردية جديدة بالصندوق", fontWeight = FontWeight.Bold) },
+            title = { Text("فتح وردية جديدة بالصندوق", fontWeight = FontWeight.Bold, color = SlateTextPrimary) },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -278,14 +313,16 @@ fun CashDrawerScreen(
                         value = cashierName,
                         onValueChange = { cashierName = it },
                         label = { Text("اسم الكاشير / المسؤول") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
                     )
                     OutlinedTextField(
                         value = openingCashStr,
                         onValueChange = { openingCashStr = it },
                         label = { Text("المبلغ النقدي الافتتاحي بالصندوق (ريال)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
                     )
                     QuickThousandAdder(
                         currentValue = openingCashStr,
@@ -295,7 +332,8 @@ fun CashDrawerScreen(
                         value = notes,
                         onValueChange = { notes = it },
                         label = { Text("ملاحظات") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
                     )
                 }
             },
@@ -306,13 +344,15 @@ fun CashDrawerScreen(
                         viewModel.openShift(cashierName, openingBalance, notes) {
                             showOpenShiftDialog = false
                         }
-                    }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = FintechEmerald),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("فتح الوردية")
+                    Text("فتح الوردية", color = Color.White)
                 }
             },
             dismissButton = {
-                OutlinedButton(onClick = { showOpenShiftDialog = false }) {
+                OutlinedButton(onClick = { showOpenShiftDialog = false }, shape = RoundedCornerShape(10.dp)) {
                     Text("إلغاء")
                 }
             }
@@ -330,7 +370,7 @@ fun CashDrawerScreen(
 
         AlertDialog(
             onDismissRequest = { showCloseShiftDialog = false },
-            title = { Text("إغلاق الوردية وجرد الصندوق", fontWeight = FontWeight.Bold) },
+            title = { Text("إغلاق الوردية وجرد الصندوق", fontWeight = FontWeight.Bold, color = SlateTextPrimary) },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -338,14 +378,14 @@ fun CashDrawerScreen(
                 ) {
                     Surface(
                         shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer,
+                        color = BrandNavy,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
-                            Text("المبلغ المفترض رياضياً بالصندوق:", color = Color.White)
+                            Text("المبلغ المفترض رياضياً بالصندوق:", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
                             Text(
                                 text = FormatUtils.formatCurrency(cashBalance),
-                                style = MaterialTheme.typography.titleLarge.copy(color = LuxuryGoldLight, fontWeight = FontWeight.Bold)
+                                style = MaterialTheme.typography.titleLarge.copy(color = FintechAmberLight, fontWeight = FontWeight.Bold)
                             )
                         }
                     }
@@ -355,17 +395,21 @@ fun CashDrawerScreen(
                         onValueChange = { actualCashStr = it },
                         label = { Text("المبلغ الفعلي الموجود باليد (ريال)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
                     )
                     QuickThousandAdder(
                         currentValue = actualCashStr,
                         onValueChange = { actualCashStr = it }
                     )
 
-                    // Difference alert
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = if (difference == 0.0) EmeraldLight else if (difference > 0) GoldContainer else RubyLight,
+                        color = if (difference == 0.0) FintechEmeraldBg else if (difference > 0) FintechAmberBg else FintechRoseBg,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (difference == 0.0) FintechEmeraldBorder else if (difference > 0) FintechAmberBorder else FintechRoseBorder
+                        ),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
@@ -375,7 +419,7 @@ fun CashDrawerScreen(
                             modifier = Modifier.padding(10.dp),
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 fontWeight = FontWeight.Bold,
-                                color = if (difference == 0.0) EmeraldProfit else if (difference > 0) LuxuryGold else RubyExpense
+                                color = if (difference == 0.0) FintechEmerald else if (difference > 0) FintechAmber else FintechRose
                             )
                         )
                     }
@@ -384,7 +428,8 @@ fun CashDrawerScreen(
                         value = notes,
                         onValueChange = { notes = it },
                         label = { Text("ملاحظات إغلاق الوردية") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
                     )
                 }
             },
@@ -395,13 +440,14 @@ fun CashDrawerScreen(
                             showCloseShiftDialog = false
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = RubyExpense)
+                    colors = ButtonDefaults.buttonColors(containerColor = FintechRose),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("إغلاق وتوثيق الوردية")
+                    Text("إغلاق وتوثيق الوردية", color = Color.White)
                 }
             },
             dismissButton = {
-                OutlinedButton(onClick = { showCloseShiftDialog = false }) {
+                OutlinedButton(onClick = { showCloseShiftDialog = false }, shape = RoundedCornerShape(10.dp)) {
                     Text("إلغاء")
                 }
             }
@@ -415,7 +461,7 @@ fun CashDrawerScreen(
 
         AlertDialog(
             onDismissRequest = { showWithdrawalDialog = false },
-            title = { Text("تسجيل سحب صاحب المحل من الصندوق", fontWeight = FontWeight.Bold) },
+            title = { Text("تسجيل سحب صاحب المحل من الصندوق", fontWeight = FontWeight.Bold, color = SlateTextPrimary) },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -426,7 +472,8 @@ fun CashDrawerScreen(
                         onValueChange = { amountStr = it },
                         label = { Text("مبلغ السحب (ريال)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
                     )
                     QuickThousandAdder(
                         currentValue = amountStr,
@@ -436,7 +483,8 @@ fun CashDrawerScreen(
                         value = reason,
                         onValueChange = { reason = it },
                         label = { Text("السبب أو البيان") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
                     )
                 }
             },
@@ -447,13 +495,15 @@ fun CashDrawerScreen(
                         viewModel.recordOwnerWithdrawal(amount, reason) {
                             showWithdrawalDialog = false
                         }
-                    }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = FintechRose),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("تأكيد السحب")
+                    Text("تأكيد السحب", color = Color.White)
                 }
             },
             dismissButton = {
-                OutlinedButton(onClick = { showWithdrawalDialog = false }) {
+                OutlinedButton(onClick = { showWithdrawalDialog = false }, shape = RoundedCornerShape(10.dp)) {
                     Text("إلغاء")
                 }
             }
@@ -467,7 +517,7 @@ fun CashDrawerScreen(
 
         AlertDialog(
             onDismissRequest = { showDepositDialog = false },
-            title = { Text("إيداع نقدي في الصندوق", fontWeight = FontWeight.Bold) },
+            title = { Text("إيداع نقدي في الصندوق", fontWeight = FontWeight.Bold, color = SlateTextPrimary) },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -478,7 +528,8 @@ fun CashDrawerScreen(
                         onValueChange = { amountStr = it },
                         label = { Text("مبلغ الإيداع (ريال)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
                     )
                     QuickThousandAdder(
                         currentValue = amountStr,
@@ -488,7 +539,8 @@ fun CashDrawerScreen(
                         value = reason,
                         onValueChange = { reason = it },
                         label = { Text("السبب أو البيان") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
                     )
                 }
             },
@@ -499,13 +551,15 @@ fun CashDrawerScreen(
                         viewModel.recordManualDeposit(amount, reason) {
                             showDepositDialog = false
                         }
-                    }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = FintechEmerald),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("تأكيد الإيداع")
+                    Text("تأكيد الإيداع", color = Color.White)
                 }
             },
             dismissButton = {
-                OutlinedButton(onClick = { showDepositDialog = false }) {
+                OutlinedButton(onClick = { showDepositDialog = false }, shape = RoundedCornerShape(10.dp)) {
                     Text("إلغاء")
                 }
             }

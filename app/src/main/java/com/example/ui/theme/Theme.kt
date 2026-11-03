@@ -11,36 +11,36 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 
 private val DarkColorScheme = darkColorScheme(
-    primary = LuxuryGoldLight,
-    onPrimary = MidnightNavy,
-    primaryContainer = DeepNavy,
+    primary = BrandBlueLight,
+    onPrimary = Color.White,
+    primaryContainer = BrandNavyLight,
     onPrimaryContainer = Color.White,
-    secondary = LuxuryGoldLight,
-    onSecondary = MidnightNavy,
-    secondaryContainer = DeepNavy,
-    tertiary = EmeraldProfit,
+    secondary = FintechTeal,
+    onSecondary = Color.White,
+    secondaryContainer = BrandNavyLight,
+    tertiary = FintechEmeraldLight,
     background = DarkBackground,
     surface = DarkSurface,
     surfaceVariant = DarkCard,
     outline = DarkBorder,
-    error = RubyExpense
+    error = FintechRoseLight
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = MidnightNavy,
+    primary = BrandNavy,
     onPrimary = Color.White,
-    primaryContainer = DeepNavy,
+    primaryContainer = BrandNavyLight,
     onPrimaryContainer = Color.White,
-    secondary = LuxuryGold,
+    secondary = BrandBlue,
     onSecondary = Color.White,
-    secondaryContainer = GoldContainer,
-    onSecondaryContainer = LuxuryGold,
-    tertiary = EmeraldProfit,
-    background = SlateBackground,
-    surface = SlateSurface,
-    surfaceVariant = SlateBorder,
+    secondaryContainer = BrandBlueBg,
+    onSecondaryContainer = BrandBlue,
+    tertiary = FintechEmerald,
+    background = SlateBg,
+    surface = SlateCard,
+    surfaceVariant = SlateBorderLight,
     outline = SlateBorder,
-    error = RubyExpense
+    error = FintechRose
 )
 
 @Composable

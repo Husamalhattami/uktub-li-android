@@ -21,8 +21,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.model.CashDrawerMovement
 import com.example.data.model.CashDrawerShift
 import com.example.ui.CompletedSaleReceipt
 import com.example.ui.theme.*
@@ -40,7 +42,7 @@ fun StoreTopBar(
 ) {
     TopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.primary,
+            containerColor = BrandNavy,
             titleContentColor = Color.White,
             navigationIconContentColor = Color.White,
             actionIconContentColor = Color.White
@@ -53,22 +55,23 @@ fun StoreTopBar(
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "رجوع"
+                        contentDescription = "رجوع",
+                        tint = Color.White
                     )
                 }
             } else {
                 Box(
                     modifier = Modifier
                         .padding(horizontal = 12.dp)
-                        .size(36.dp)
+                        .size(38.dp)
                         .clip(CircleShape)
-                        .background(LuxuryGoldLight),
+                        .background(BrandBlue),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Storefront,
                         contentDescription = null,
-                        tint = MidnightNavy,
+                        tint = Color.White,
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -81,46 +84,50 @@ fun StoreTopBar(
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = Color.White
-                    )
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "دفتر المحل والمخزون الذكي",
+                    text = "نظام المحاسبة وإدارة المحل المبسط",
                     style = MaterialTheme.typography.labelSmall.copy(
-                        color = Color.White.copy(alpha = 0.75f)
+                        color = Color.White.copy(alpha = 0.75f),
+                        fontSize = 11.sp
                     )
                 )
             }
         },
         actions = {
-            // Shift status badge
+            // Shift status pill
             Surface(
                 shape = RoundedCornerShape(16.dp),
-                color = if (activeShift?.isOpen == true) EmeraldProfit.copy(alpha = 0.2f) else RubyExpense.copy(alpha = 0.2f),
+                color = if (activeShift?.isOpen == true) FintechEmerald.copy(alpha = 0.18f) else FintechRose.copy(alpha = 0.18f),
                 border = androidx.compose.foundation.BorderStroke(
                     1.dp,
-                    if (activeShift?.isOpen == true) EmeraldProfit else RubyExpense
+                    if (activeShift?.isOpen == true) FintechEmeraldLight else FintechRoseLight
                 ),
                 modifier = Modifier
-                    .padding(end = 12.dp)
+                    .padding(end = 8.dp)
                     .clickable { onShiftClick() }
                     .testTag("shift_status_badge")
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                 ) {
                     Box(
                         modifier = Modifier
                             .size(8.dp)
                             .clip(CircleShape)
-                            .background(if (activeShift?.isOpen == true) EmeraldProfit else RubyExpense)
+                            .background(if (activeShift?.isOpen == true) FintechEmeraldLight else FintechRoseLight)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = if (activeShift?.isOpen == true) "وردية مفتوحة" else "وردية مغلقة",
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = Color.White,
+                            fontSize = 11.sp
                         )
                     )
                 }
@@ -135,41 +142,44 @@ fun QuickThousandAdder(
     currentValue: String,
     onValueChange: (String) -> Unit
 ) {
+    val quickAdders = listOf("+1,000", "+5,000", "+10,000", "+50,000", "+100,000")
+
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        val quickAdders = listOf("+10", "+50", "+100", "+200", "+500")
         quickAdders.forEach { label ->
-            OutlinedButton(
-                onClick = {
-                    val toAdd = label.replace("+", "").replace(",", "").toDoubleOrNull() ?: 0.0
-                    val currentNum = currentValue.replace(",", "").toDoubleOrNull() ?: 0.0
-                    onValueChange((currentNum + toAdd).toLong().toString())
-                },
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = BrandBlueBg,
+                border = androidx.compose.foundation.BorderStroke(1.dp, BrandBlue.copy(alpha = 0.3f)),
                 modifier = Modifier
                     .weight(1f)
-                    .height(36.dp)
-                    .testTag("quick_add_$label"),
-                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp),
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.primary
-                )
+                    .height(34.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable {
+                        val toAdd = label.replace("+", "").replace(",", "").toDoubleOrNull() ?: 0.0
+                        val currentNum = currentValue.replace(",", "").toDoubleOrNull() ?: 0.0
+                        onValueChange((currentNum + toAdd).toLong().toString())
+                    }
+                    .testTag("quick_add_$label")
             ) {
-                Text(
-                    text = label,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = label,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = BrandBlue,
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
         }
     }
 }
-
 
 @Composable
 fun StatCard(
@@ -185,7 +195,7 @@ fun StatCard(
         modifier = modifier,
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
             modifier = Modifier
@@ -195,40 +205,46 @@ fun StatCard(
         ) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(42.dp)
                     .clip(CircleShape)
-                    .background(contentColor.copy(alpha = 0.15f)),
+                    .background(contentColor.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
                     tint = contentColor,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.labelMedium.copy(
                         color = contentColor.copy(alpha = 0.85f),
-                        fontWeight = FontWeight.Medium
-                    )
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 11.sp
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = value,
-                    style = MaterialTheme.typography.titleLarge.copy(
+                    style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = contentColor
-                    )
+                    ),
+                    maxLines = 1
                 )
                 if (subtitle != null) {
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall.copy(
-                            color = contentColor.copy(alpha = 0.7f)
-                        )
+                            color = contentColor.copy(alpha = 0.7f),
+                            fontSize = 10.sp
+                        ),
+                        maxLines = 1
                     )
                 }
             }
@@ -279,55 +295,57 @@ fun SaleReceiptDialog(
                 Icon(
                     imageVector = Icons.Default.CheckCircle,
                     contentDescription = null,
-                    tint = EmeraldProfit,
+                    tint = FintechEmerald,
                     modifier = Modifier.size(28.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "تم البيع بنجاح!",
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                    text = "تمت عملية البيع بنجاح!",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                 )
             }
         },
         text = {
             Card(
                 shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                colors = CardDefaults.cardColors(containerColor = SlateBg),
                 modifier = Modifier
                     .fillMaxWidth()
                     .border(1.dp, SlateBorder, RoundedCornerShape(12.dp))
             ) {
                 Column(
                     modifier = Modifier
-                        .padding(16.dp)
+                        .padding(14.dp)
                         .fillMaxWidth()
                 ) {
                     Text(
-                        text = "فاتورة بيع #${sale.id}",
+                        text = "فاتورة بيع رقم #${sale.id}",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     HorizontalDivider(color = SlateBorder)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     ReceiptRow("الصنف:", sale.productName)
-                    ReceiptRow("اللون والقياس:", "${sale.color} - ${sale.size}")
-                    ReceiptRow("الكمية:", "${sale.quantity} قطعة")
+                    ReceiptRow("اللون والمقاس:", "${sale.color} - ${sale.size}")
+                    ReceiptRow("الكمية:", "${sale.quantity} قطعة (${sale.unit})")
                     ReceiptRow("سعر الوحدة:", FormatUtils.formatCurrency(sale.unitSellPrice))
                     if (sale.discount > 0) {
-                        ReceiptRow("الخصم:", "- " + FormatUtils.formatCurrency(sale.discount), color = RubyExpense)
+                        ReceiptRow("الخصم الممنوح:", "- " + FormatUtils.formatCurrency(sale.discount), color = FintechRose)
                     }
                     ReceiptRow("طريقة الدفع:", sale.paymentType, isBold = true)
                     if (sale.customerName.isNotBlank()) {
                         ReceiptRow("الزبون:", sale.customerName)
                     }
-                    ReceiptRow("البائع:", sale.employeeName)
+                    if (sale.employeeName.isNotBlank()) {
+                        ReceiptRow("البائع:", sale.employeeName)
+                    }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     HorizontalDivider(color = SlateBorder)
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -342,30 +360,29 @@ fun SaleReceiptDialog(
                             text = FormatUtils.formatCurrency(sale.totalAmount),
                             style = MaterialTheme.typography.titleLarge.copy(
                                 fontWeight = FontWeight.Bold,
-                                color = EmeraldProfit
+                                color = FintechEmerald
                             )
                         )
                     }
 
-                    // Profit calculated automatically
                     Surface(
-                        color = EmeraldLight,
+                        color = FintechEmeraldBg,
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 10.dp)
                     ) {
                         Row(
-                            modifier = Modifier.padding(8.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "الربح المحقق في هذه العملية:",
-                                style = MaterialTheme.typography.bodySmall.copy(color = EmeraldProfit, fontWeight = FontWeight.Bold)
+                                text = "الربح المحقق:",
+                                style = MaterialTheme.typography.bodySmall.copy(color = FintechEmerald, fontWeight = FontWeight.Bold)
                             )
                             Text(
                                 text = "+ " + FormatUtils.formatCurrency(sale.profit),
-                                style = MaterialTheme.typography.bodySmall.copy(color = EmeraldProfit, fontWeight = FontWeight.Bold)
+                                style = MaterialTheme.typography.bodySmall.copy(color = FintechEmerald, fontWeight = FontWeight.Bold)
                             )
                         }
                     }
@@ -381,7 +398,8 @@ fun SaleReceiptDialog(
                     }
                     context.startActivity(Intent.createChooser(shareIntent, "مشاركة الفاتورة عبر"))
                 },
-                modifier = Modifier.testTag("share_receipt_button")
+                modifier = Modifier.testTag("share_receipt_button"),
+                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
             ) {
                 Icon(imageVector = Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
@@ -409,11 +427,11 @@ private fun ReceiptRow(label: String, value: String, isBold: Boolean = false, co
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.bodyMedium.copy(color = SlateMuted)
+            style = MaterialTheme.typography.bodySmall.copy(color = SlateTextSecondary)
         )
         Text(
             text = value,
-            style = MaterialTheme.typography.bodyMedium.copy(
+            style = MaterialTheme.typography.bodySmall.copy(
                 fontWeight = if (isBold) FontWeight.Bold else FontWeight.Medium,
                 color = color
             )
@@ -422,11 +440,11 @@ private fun ReceiptRow(label: String, value: String, isBold: Boolean = false, co
 }
 
 @Composable
-fun MovementItemRow(movement: com.example.data.model.CashDrawerMovement) {
+fun MovementItemRow(movement: CashDrawerMovement) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = SlateCard),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
@@ -444,13 +462,13 @@ fun MovementItemRow(movement: com.example.data.model.CashDrawerMovement) {
                     modifier = Modifier
                         .size(38.dp)
                         .clip(CircleShape)
-                        .background(if (movement.isIncome) EmeraldLight else RubyLight),
+                        .background(if (movement.isIncome) FintechEmeraldBg else FintechRoseBg),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = if (movement.isIncome) Icons.Default.ArrowDownward else Icons.Default.ArrowUpward,
                         contentDescription = null,
-                        tint = if (movement.isIncome) EmeraldProfit else RubyExpense,
+                        tint = if (movement.isIncome) FintechEmerald else FintechRose,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -465,6 +483,8 @@ fun MovementItemRow(movement: com.example.data.model.CashDrawerMovement) {
                         val badgeLabel = when (movement.type) {
                             "SALE_CASH" -> "مبيعات كاش"
                             "PURCHASE_PAID" -> "مشتريات كاش"
+                            "DEBT_COLLECTED" -> "قبض دين"
+                            "SUPPLIER_PAID" -> "سداد مورد"
                             "SALARY_PAID" -> "صرف راتب"
                             "ADVANCE_PAID" -> "سلفة عامل"
                             "EXPENSE_PAID" -> "مصروف نقدي"
@@ -475,14 +495,14 @@ fun MovementItemRow(movement: com.example.data.model.CashDrawerMovement) {
                         }
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = if (movement.isIncome) EmeraldLight else RubyLight
+                            color = if (movement.isIncome) FintechEmeraldBg else FintechRoseBg
                         ) {
                             Text(
                                 text = badgeLabel,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
                                 style = MaterialTheme.typography.labelSmall.copy(
-                                    color = if (movement.isIncome) EmeraldProfit else RubyExpense,
-                                    fontSize = 9.sp,
+                                    color = if (movement.isIncome) FintechEmerald else FintechRose,
+                                    fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             )
@@ -491,12 +511,14 @@ fun MovementItemRow(movement: com.example.data.model.CashDrawerMovement) {
                     if (movement.details.isNotBlank()) {
                         Text(
                             text = movement.details,
-                            style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted)
+                            style = MaterialTheme.typography.bodySmall.copy(color = SlateTextSecondary, fontSize = 11.sp),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                     Text(
                         text = FormatUtils.formatDateTime(movement.timestamp),
-                        style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted, fontSize = 10.sp)
+                        style = MaterialTheme.typography.labelSmall.copy(color = SlateTextMuted, fontSize = 10.sp)
                     )
                 }
             }
@@ -505,10 +527,9 @@ fun MovementItemRow(movement: com.example.data.model.CashDrawerMovement) {
                 text = (if (movement.isIncome) "+ " else "- ") + FormatUtils.formatCurrency(movement.amount),
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontWeight = FontWeight.Bold,
-                    color = if (movement.isIncome) EmeraldProfit else RubyExpense
+                    color = if (movement.isIncome) FintechEmerald else FintechRose
                 )
             )
         }
     }
 }
-

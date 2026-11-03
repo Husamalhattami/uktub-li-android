@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.ExchangeAccount
+import com.example.data.model.ExchangeTransfer
 import com.example.ui.StoreViewModel
 import com.example.ui.components.QuickThousandAdder
 import com.example.ui.components.StoreTopBar
@@ -40,7 +41,7 @@ fun ExchangeAccountsScreen(
     val totalExchangeBalance by viewModel.totalExchangeBalance.collectAsStateWithLifecycle()
     val cashBalance by viewModel.currentCashBalance.collectAsStateWithLifecycle()
 
-    var showAddEditDialog by remember { mutableStateOf<ExchangeAccount?>(null) } // null = closed, id=0 -> new, id>0 -> edit
+    var showAddEditDialog by remember { mutableStateOf<ExchangeAccount?>(null) }
     var showTransferDialog by remember { mutableStateOf<ExchangeAccount?>(null) }
     var accountToDelete by remember { mutableStateOf<ExchangeAccount?>(null) }
 
@@ -64,10 +65,9 @@ fun ExchangeAccountsScreen(
                         notes = ""
                     )
                 },
-                icon = { Icon(Icons.Default.AddCard, contentDescription = null) },
-                text = { Text("إضافة حساب صراف / محفظة") },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White,
+                icon = { Icon(Icons.Default.AddCard, contentDescription = null, tint = Color.White) },
+                text = { Text("إضافة حساب صراف / محفظة", fontWeight = FontWeight.Bold, color = Color.White) },
+                containerColor = BrandNavy,
                 modifier = Modifier.testTag("fab_add_exchange_account")
             )
         }
@@ -82,52 +82,84 @@ fun ExchangeAccountsScreen(
         ) {
             // Header KPI Banner
             item {
-                Card(
+                Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+                    color = BrandNavy
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(20.dp)
                     ) {
-                        Text(
-                            text = "إجمالي أرصدة الصرافين والمحافظ",
-                            style = MaterialTheme.typography.labelLarge.copy(color = Color.White.copy(alpha = 0.8f))
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = FormatUtils.formatCurrency(totalExchangeBalance),
-                            style = MaterialTheme.typography.headlineMedium.copy(
-                                fontWeight = FontWeight.ExtraBold,
-                                color = LuxuryGoldLight
-                            )
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.15f))
-                        Spacer(modifier = Modifier.height(10.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "رصيد الصندوق النقدي (كاش): ${FormatUtils.formatCurrency(cashBalance)}",
-                                style = MaterialTheme.typography.bodySmall.copy(color = Color.White)
+                                text = "إجمالي أرصدة الصرافين والمحافظ",
+                                style = MaterialTheme.typography.labelLarge.copy(color = Color.White.copy(alpha = 0.8f))
                             )
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
-                                color = EmeraldProfit.copy(alpha = 0.25f)
+                                color = FintechIndigoLight.copy(alpha = 0.3f)
                             ) {
                                 Text(
-                                    text = "${accounts.size} حسابات نشطة",
+                                    text = "${accounts.size} حسابات مسجلة",
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                     style = MaterialTheme.typography.labelSmall.copy(
                                         color = Color.White,
                                         fontWeight = FontWeight.Bold
                                     )
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = FormatUtils.formatCurrency(totalExchangeBalance),
+                            style = MaterialTheme.typography.headlineMedium.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = FintechAmberLight
+                            )
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.15f))
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(FintechEmeraldLight)
+                                )
+                                Text(
+                                    text = "رصيد الكاش بالصندوق: ${FormatUtils.formatCurrency(cashBalance)}",
+                                    style = MaterialTheme.typography.bodySmall.copy(color = Color.White, fontWeight = FontWeight.SemiBold)
+                                )
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(FintechIndigoLight)
+                                )
+                                Text(
+                                    text = "الإجمالي العام: ${FormatUtils.formatCurrency(totalExchangeBalance + cashBalance)}",
+                                    style = MaterialTheme.typography.bodySmall.copy(color = Color.White.copy(alpha = 0.9f))
                                 )
                             }
                         }
@@ -143,10 +175,10 @@ fun ExchangeAccountsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "قائمة حسابات الصرافين والمحافظ",
+                        text = "قائمة حسابات الصرافين والمحافظ (${accounts.size})",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground
+                            color = SlateTextPrimary
                         )
                     )
                 }
@@ -154,16 +186,29 @@ fun ExchangeAccountsScreen(
 
             if (accounts.isEmpty()) {
                 item {
-                    Card(
+                    Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        shape = RoundedCornerShape(14.dp)
+                        shape = RoundedCornerShape(16.dp),
+                        color = SlateCard,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
                     ) {
-                        Text(
-                            text = "لا توجد حسابات صرافة أو محافظ مسجلة حتى الآن. اضغط زر الإضافة لتسجيل حساباتك (الكريمي، النجم، العمقي، جوالي، كاش...).",
-                            modifier = Modifier.padding(20.dp),
-                            style = MaterialTheme.typography.bodyMedium.copy(color = SlateMuted)
-                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(28.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(Icons.Default.AccountBalance, contentDescription = null, tint = SlateTextMuted, modifier = Modifier.size(48.dp))
+                            Text(
+                                text = "لا توجد حسابات صرافة أو محافظ مسجلة بعد",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, color = SlateTextPrimary)
+                            )
+                            Text(
+                                text = "اضغط زر '+ إضافة حساب' لتسجيل حسابك لدى الكريمي، النجم، العمقي، أو محافظ كاش وجوالي",
+                                style = MaterialTheme.typography.bodySmall.copy(color = SlateTextMuted)
+                            )
+                        }
                     }
                 }
             } else {
@@ -184,7 +229,7 @@ fun ExchangeAccountsScreen(
                         text = "سجل التحويلات والمناقلات (آخر العمليات)",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground
+                            color = SlateTextPrimary
                         ),
                         modifier = Modifier.padding(top = 8.dp)
                     )
@@ -212,7 +257,8 @@ fun ExchangeAccountsScreen(
             title = {
                 Text(
                     text = if (currentAcc.id == 0L) "إضافة حساب صراف أو محفظة" else "تعديل بيانات الحساب",
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = SlateTextPrimary
                 )
             },
             text = {
@@ -220,16 +266,21 @@ fun ExchangeAccountsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text("اختر اسم شائع أو اكتب الاسم:", style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted))
+                    Text("اختر اسماً شائعاً أو اكتب الاسم:", style = MaterialTheme.typography.labelSmall.copy(color = SlateTextSecondary))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         commonPresets.take(3).forEach { preset ->
+                            val isSelected = name == preset
                             FilterChip(
-                                selected = name == preset,
+                                selected = isSelected,
                                 onClick = { name = preset },
-                                label = { Text(preset, fontSize = 11.sp) }
+                                label = { Text(preset, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = FintechIndigoBg,
+                                    selectedLabelColor = FintechIndigo
+                                )
                             )
                         }
                     }
@@ -241,6 +292,7 @@ fun ExchangeAccountsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("exchange_account_name_input"),
+                        shape = RoundedCornerShape(10.dp),
                         singleLine = true
                     )
 
@@ -250,6 +302,7 @@ fun ExchangeAccountsScreen(
                         label = { Text("رقم الحساب أو الآيبان") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
                         singleLine = true
                     )
 
@@ -259,6 +312,7 @@ fun ExchangeAccountsScreen(
                         label = { Text("رقم هاتف الصراف أو المحفظة") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                         modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
                         singleLine = true
                     )
 
@@ -269,6 +323,7 @@ fun ExchangeAccountsScreen(
                             label = { Text("الرصيد الافتتاحي المتوفر حالياً (ريال)") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
                             singleLine = true
                         )
                         QuickThousandAdder(
@@ -281,7 +336,8 @@ fun ExchangeAccountsScreen(
                         value = notes,
                         onValueChange = { notes = it },
                         label = { Text("ملاحظات (فرع، اسم الوكيل، الخ)") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
                     )
                 }
             },
@@ -300,32 +356,34 @@ fun ExchangeAccountsScreen(
                             onSuccess = { showAddEditDialog = null }
                         )
                     },
-                    modifier = Modifier.testTag("confirm_save_exchange_account")
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandNavy),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.testTag("confirm_save_exchange_account_button")
                 ) {
-                    Text("حفظ الحساب")
+                    Text("حفظ الحساب", color = Color.White)
                 }
             },
             dismissButton = {
-                OutlinedButton(onClick = { showAddEditDialog = null }) {
+                OutlinedButton(onClick = { showAddEditDialog = null }, shape = RoundedCornerShape(10.dp)) {
                     Text("إلغاء")
                 }
             }
         )
     }
 
-    // Transfer (Cash <-> Exchange) Dialog
+    // Transfer Dialog (Between Cash and Exchange or Between Accounts)
     showTransferDialog?.let { acc ->
         var amountStr by remember { mutableStateOf("") }
-        var fromCashToExchange by remember { mutableStateOf(true) } // true: إيداع كاش للصراف, false: سحب كاش من الصراف للصندوق
+        var fromCashToExchange by remember { mutableStateOf(true) }
         var transferNotes by remember { mutableStateOf("") }
 
         AlertDialog(
             onDismissRequest = { showTransferDialog = null },
             title = {
-                Text(
-                    text = "مناقلة / تحويل أموال مع ${acc.name}",
-                    fontWeight = FontWeight.Bold
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = FintechIndigo)
+                    Text("مناقلة رصيد: ${acc.name}", fontWeight = FontWeight.Bold, color = SlateTextPrimary)
+                }
             },
             text = {
                 Column(
@@ -333,53 +391,53 @@ fun ExchangeAccountsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = "الرصيد الحالي لدى الصراف: ${FormatUtils.formatCurrency(acc.balance)}",
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        text = "اختر اتجاه المناقلة:",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, color = SlateTextSecondary)
                     )
-                    Text(
-                        text = "الرصيد في الصندوق النقدي: ${FormatUtils.formatCurrency(cashBalance)}",
-                        style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted)
-                    )
-
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Button(
-                            onClick = { fromCashToExchange = true },
-                            modifier = Modifier.weight(1f),
+                        Surface(
                             shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (fromCashToExchange) EmeraldProfit else SlateBorder,
-                                contentColor = if (fromCashToExchange) Color.White else MaterialTheme.colorScheme.onSurface
-                            )
+                            color = if (fromCashToExchange) FintechIndigo else SlateBg,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (fromCashToExchange) FintechIndigo else SlateBorder),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { fromCashToExchange = true }
                         ) {
-                            Text("إيداع للصراف (من الكاش)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("إيداع بالصراف", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (fromCashToExchange) Color.White else SlateTextPrimary)
+                                Text("(من الصندوق إلى الصراف)", fontSize = 9.sp, color = if (fromCashToExchange) Color.White.copy(alpha = 0.8f) else SlateTextMuted)
+                            }
                         }
 
-                        Button(
-                            onClick = { fromCashToExchange = false },
-                            modifier = Modifier.weight(1f),
+                        Surface(
                             shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (!fromCashToExchange) RubyExpense else SlateBorder,
-                                contentColor = if (!fromCashToExchange) Color.White else MaterialTheme.colorScheme.onSurface
-                            )
+                            color = if (!fromCashToExchange) FintechEmerald else SlateBg,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (!fromCashToExchange) FintechEmerald else SlateBorder),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { fromCashToExchange = false }
                         ) {
-                            Text("سحب من الصراف (للكاش)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("سحب إلى الصندوق", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (!fromCashToExchange) Color.White else SlateTextPrimary)
+                                Text("(من الصراف إلى الصندوق)", fontSize = 9.sp, color = if (!fromCashToExchange) Color.White.copy(alpha = 0.8f) else SlateTextMuted)
+                            }
                         }
                     }
 
                     OutlinedTextField(
                         value = amountStr,
                         onValueChange = { amountStr = it },
-                        label = { Text("المبلغ بالريال *") },
+                        label = { Text("المبلغ المحول (ريال) *") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("transfer_amount_input"),
-                        singleLine = true
+                        shape = RoundedCornerShape(10.dp)
                     )
+
                     QuickThousandAdder(
                         currentValue = amountStr,
                         onValueChange = { amountStr = it }
@@ -388,8 +446,9 @@ fun ExchangeAccountsScreen(
                     OutlinedTextField(
                         value = transferNotes,
                         onValueChange = { transferNotes = it },
-                        label = { Text("ملاحظات أو رقم الإشعار / الحوالة") },
-                        modifier = Modifier.fillMaxWidth()
+                        label = { Text("ملاحظات (رقم الحوالة، اسم المرسل...)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
                     )
                 }
             },
@@ -405,13 +464,15 @@ fun ExchangeAccountsScreen(
                             onSuccess = { showTransferDialog = null }
                         )
                     },
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandNavy),
+                    shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.testTag("confirm_transfer_button")
                 ) {
-                    Text("تنفيذ المناقلة")
+                    Text("تنفيذ المناقلة", color = Color.White)
                 }
             },
             dismissButton = {
-                OutlinedButton(onClick = { showTransferDialog = null }) {
+                OutlinedButton(onClick = { showTransferDialog = null }, shape = RoundedCornerShape(10.dp)) {
                     Text("إلغاء")
                 }
             }
@@ -422,8 +483,8 @@ fun ExchangeAccountsScreen(
     accountToDelete?.let { acc ->
         AlertDialog(
             onDismissRequest = { accountToDelete = null },
-            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = RubyExpense) },
-            title = { Text("تأكيد حذف حساب الصراف", fontWeight = FontWeight.Bold) },
+            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = FintechRose) },
+            title = { Text("تأكيد حذف حساب الصراف", fontWeight = FontWeight.Bold, color = SlateTextPrimary) },
             text = {
                 Text("هل أنت متأكد من حذف حساب (${acc.name})؟ رصيده الحالي هو ${FormatUtils.formatCurrency(acc.balance)}. سيتم حذف بيانات الحساب.")
             },
@@ -433,14 +494,15 @@ fun ExchangeAccountsScreen(
                         viewModel.deleteExchangeAccount(acc.id)
                         accountToDelete = null
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = RubyExpense),
+                    colors = ButtonDefaults.buttonColors(containerColor = FintechRose),
+                    shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.testTag("confirm_delete_account_button")
                 ) {
-                    Text("تأكيد الحذف")
+                    Text("تأكيد الحذف", color = Color.White)
                 }
             },
             dismissButton = {
-                OutlinedButton(onClick = { accountToDelete = null }) {
+                OutlinedButton(onClick = { accountToDelete = null }, shape = RoundedCornerShape(10.dp)) {
                     Text("إلغاء")
                 }
             }
@@ -455,17 +517,17 @@ fun ExchangeAccountCard(
     onEditClick: () -> Unit,
     onDeleteClick: () -> Unit
 ) {
-    Card(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        color = SlateCard,
+        border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -475,15 +537,15 @@ fun ExchangeAccountCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(46.dp)
                             .clip(CircleShape)
-                            .background(LuxuryGoldLight),
+                            .background(FintechIndigoBg),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.AccountBalance,
                             contentDescription = null,
-                            tint = MidnightNavy,
+                            tint = FintechIndigo,
                             modifier = Modifier.size(24.dp)
                         )
                     }
@@ -491,7 +553,7 @@ fun ExchangeAccountCard(
                     Column {
                         Text(
                             text = account.name,
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = SlateTextPrimary)
                         )
                         val extra = buildList {
                             if (account.accountNumber.isNotBlank()) add("حساب: ${account.accountNumber}")
@@ -500,7 +562,7 @@ fun ExchangeAccountCard(
                         if (extra.isNotBlank()) {
                             Text(
                                 text = extra,
-                                style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted)
+                                style = MaterialTheme.typography.bodySmall.copy(color = SlateTextSecondary)
                             )
                         }
                     }
@@ -511,7 +573,7 @@ fun ExchangeAccountCard(
                         Icon(
                             imageVector = Icons.Default.Edit,
                             contentDescription = "تعديل",
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = BrandBlue,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -519,7 +581,7 @@ fun ExchangeAccountCard(
                         Icon(
                             imageVector = Icons.Default.DeleteOutline,
                             contentDescription = "حذف",
-                            tint = RubyExpense,
+                            tint = FintechRose,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -536,13 +598,13 @@ fun ExchangeAccountCard(
                 Column {
                     Text(
                         text = "الرصيد المتوفر لدى الصراف:",
-                        style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted)
+                        style = MaterialTheme.typography.labelSmall.copy(color = SlateTextSecondary)
                     )
                     Text(
                         text = FormatUtils.formatCurrency(account.balance),
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.ExtraBold,
-                            color = if (account.balance >= 0) EmeraldProfit else RubyExpense
+                            color = if (account.balance >= 0) FintechEmerald else FintechRose
                         )
                     )
                 }
@@ -550,16 +612,17 @@ fun ExchangeAccountCard(
                 Button(
                     onClick = onTransferClick,
                     shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    colors = ButtonDefaults.buttonColors(containerColor = FintechIndigo),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.SwapHoriz,
                         contentDescription = null,
+                        tint = Color.White,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("مناقلة / إيداع / سحب", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("مناقلة رصيد", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
         }
@@ -567,12 +630,12 @@ fun ExchangeAccountCard(
 }
 
 @Composable
-fun ExchangeTransferRow(transfer: com.example.data.model.ExchangeTransfer) {
-    Card(
+fun ExchangeTransferRow(transfer: ExchangeTransfer) {
+    Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        color = SlateCard,
+        border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
     ) {
         Row(
             modifier = Modifier
@@ -589,13 +652,13 @@ fun ExchangeTransferRow(transfer: com.example.data.model.ExchangeTransfer) {
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(if (transfer.isCredit) EmeraldLight else RubyLight),
+                        .background(if (transfer.isCredit) FintechEmeraldBg else FintechRoseBg),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = if (transfer.isCredit) Icons.Default.ArrowDownward else Icons.Default.ArrowUpward,
                         contentDescription = null,
-                        tint = if (transfer.isCredit) EmeraldProfit else RubyExpense,
+                        tint = if (transfer.isCredit) FintechEmerald else FintechRose,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -603,16 +666,16 @@ fun ExchangeTransferRow(transfer: com.example.data.model.ExchangeTransfer) {
                 Column {
                     Text(
                         text = transfer.title,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, color = SlateTextPrimary)
                     )
                     Text(
                         text = "${transfer.accountName} | ${FormatUtils.formatDateTime(transfer.timestamp)}",
-                        style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted)
+                        style = MaterialTheme.typography.labelSmall.copy(color = SlateTextMuted)
                     )
                     if (transfer.notes.isNotBlank()) {
                         Text(
                             text = transfer.notes,
-                            style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted, fontSize = 11.sp)
+                            style = MaterialTheme.typography.bodySmall.copy(color = SlateTextSecondary, fontSize = 11.sp)
                         )
                     }
                 }
@@ -622,7 +685,7 @@ fun ExchangeTransferRow(transfer: com.example.data.model.ExchangeTransfer) {
                 text = (if (transfer.isCredit) "+ " else "- ") + FormatUtils.formatCurrency(transfer.amount),
                 style = MaterialTheme.typography.bodyMedium.copy(
                     fontWeight = FontWeight.Bold,
-                    color = if (transfer.isCredit) EmeraldProfit else RubyExpense
+                    color = if (transfer.isCredit) FintechEmerald else FintechRose
                 )
             )
         }
