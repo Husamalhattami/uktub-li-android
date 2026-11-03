@@ -383,6 +383,10 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "يرجى إدخال المبلغ"
                 return@launch
             }
+            if (!paidFromCashDrawer && exchangeAccount == null && type != "خصم غياب") {
+                _userMessage.value = "اختر الصراف أو المحفظة التي سيُخصم منها المبلغ"
+                return@launch
+            }
             repository.recordEmployeeTransaction(
                 employeeId = employeeId,
                 employeeName = employeeName,
