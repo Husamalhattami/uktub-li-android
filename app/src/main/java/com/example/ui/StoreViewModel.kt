@@ -21,7 +21,8 @@ enum class AppScreen {
     REPORTS,
     CASH_DRAWER,
     EXCHANGE_ACCOUNTS,
-    TRANSACTIONS_LOG
+    TRANSACTIONS_LOG,
+    STORE_AUDIT
 }
 
 data class CompletedSaleReceipt(
@@ -94,6 +95,17 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
 
     val exchangeTransfers: StateFlow<List<ExchangeTransfer>> = repository.allExchangeTransfers
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val parties: StateFlow<List<PartyAccount>> = repository.allParties
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val customerParties: StateFlow<List<PartyAccount>> = parties.map { list ->
+        list.filter { it.type == "CUSTOMER" }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val supplierParties: StateFlow<List<PartyAccount>> = parties.map { list ->
+        list.filter { it.type == "SUPPLIER" }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // --- Completed Receipt Dialog Event ---
     private val _completedReceipt = MutableStateFlow<CompletedSaleReceipt?>(null)
@@ -401,6 +413,13 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deleteEmployeeTransaction(txId: Long) {
+        viewModelScope.launch {
+            repository.deleteEmployeeTransaction(txId)
+            _userMessage.value = "تم حذف حركة العامل بنجاح"
+        }
+    }
+
     fun saveExchangeAccount(account: ExchangeAccount, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
             if (account.name.isBlank()) {
@@ -481,6 +500,63 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun saveParty(
+        party: PartyAccount,
+        initialDebt: Double = 0.0,
+        debtNotes: String = "",
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            if (party.name.isBlank()) {
+                _userMessage.value = "يرجى إدخال الاسم"
+                return@launch
+            }
+            repository.saveParty(party, initialDebt, debtNotes)
+            val typeTitle = if (party.type == "CUSTOMER") "العميل" else "المورد"
+            _userMessage.value = "تم حفظ وفتح حساب $typeTitle بنجاح"
+            onSuccess()
+        }
+    }
+
+    fun deleteParty(id: Long) {
+        viewModelScope.launch {
+            repository.deleteParty(id)
+            _userMessage.value = "تم حذف الحساب بنجاح"
+        }
+    }
+
+    fun recordPartyPayment(
+        partyName: String,
+        partyType: String,
+        totalPayment: Double,
+        notes: String,
+        paymentMethod: String = "نقداً",
+        exchangeAccount: ExchangeAccount? = null,
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            if (totalPayment <= 0) {
+                _userMessage.value = "يرجى إدخال مبلغ الدفعة"
+                return@launch
+            }
+            val result = repository.recordPartyPayment(
+                partyName = partyName,
+                partyType = partyType,
+                totalPayment = totalPayment,
+                notes = notes,
+                paymentMethod = paymentMethod,
+                exchangeAccount = exchangeAccount
+            )
+            if (result) {
+                val actionType = if (partyType == "CUSTOMER") "قبض زلط من العميل" else "سداد دفعة للمورد"
+                _userMessage.value = "تم توثيق $actionType بنجاح وتحديث الحساب والأرصدة"
+                onSuccess()
+            } else {
+                _userMessage.value = "تعذر تسجيل الدفعة، تأكد من وجود ديون مستحقة"
+            }
+        }
+    }
+
     fun openShift(cashierName: String, openingBalance: Double, notes: String, onSuccess: () -> Unit) {
         viewModelScope.launch {
             repository.openShift(cashierName, openingBalance, notes)
@@ -530,6 +606,25 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 repository.clearEverythingCompletely()
                 _userMessage.value = "تم حذف جميع البيانات والمخزون والبدء من جديد بحساب فارغ"
             }
+            onSuccess()
+        }
+    }
+
+    fun executeStoreFullAudit(
+        actualDrawerCash: Double,
+        exchangeBalances: Map<Long, Double>,
+        resetTransactions: Boolean,
+        notes: String,
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            repository.executeStoreFullAudit(
+                actualDrawerCash = actualDrawerCash,
+                exchangeBalances = exchangeBalances,
+                resetTransactions = resetTransactions,
+                notes = notes
+            )
+            _userMessage.value = "تم اعتماد الجرد الفعلي وتحديث الصندوق وحسابات الصرافين بنجاح"
             onSuccess()
         }
     }

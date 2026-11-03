@@ -121,6 +121,9 @@ interface StoreDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEmployeeTransaction(transaction: EmployeeTransaction): Long
 
+    @Query("SELECT * FROM employee_transactions WHERE id = :id")
+    suspend fun getEmployeeTransactionById(id: Long): EmployeeTransaction?
+
     @Query("DELETE FROM employee_transactions WHERE id = :id")
     suspend fun deleteEmployeeTransaction(id: Long)
 
@@ -203,6 +206,9 @@ interface StoreDao {
     @Query("DELETE FROM cash_movements WHERE referenceExpenseId = :expenseId")
     suspend fun deleteCashMovementsForExpense(expenseId: Long)
 
+    @Query("DELETE FROM cash_movements WHERE referenceEmployeeTxId = :txId")
+    suspend fun deleteCashMovementsForEmployeeTx(txId: Long)
+
     @Query("DELETE FROM cash_movements")
     suspend fun deleteAllCashMovements()
 
@@ -221,6 +227,9 @@ interface StoreDao {
 
     @Query("UPDATE exchange_accounts SET balance = balance + :amountDelta WHERE id = :id")
     suspend fun updateExchangeBalance(id: Long, amountDelta: Double)
+
+    @Query("UPDATE exchange_accounts SET balance = :newBalance WHERE id = :id")
+    suspend fun setExchangeBalance(id: Long, newBalance: Double)
 
     @Query("DELETE FROM exchange_accounts WHERE id = :id")
     suspend fun deleteExchangeAccount(id: Long)
@@ -243,4 +252,41 @@ interface StoreDao {
 
     @Query("DELETE FROM exchange_transfers")
     suspend fun deleteAllExchangeTransfers()
+
+    // --- Parties (Customers & Suppliers) ---
+    @Query("SELECT * FROM parties ORDER BY name ASC")
+    fun getAllParties(): Flow<List<PartyAccount>>
+
+    @Query("SELECT * FROM parties WHERE type = :type ORDER BY name ASC")
+    fun getPartiesByType(type: String): Flow<List<PartyAccount>>
+
+    @Query("SELECT * FROM parties WHERE id = :id")
+    suspend fun getPartyById(id: Long): PartyAccount?
+
+    @Query("SELECT * FROM parties WHERE name = :name LIMIT 1")
+    suspend fun getPartyByName(name: String): PartyAccount?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertParty(party: PartyAccount): Long
+
+    @Update
+    suspend fun updateParty(party: PartyAccount)
+
+    @Query("DELETE FROM parties WHERE id = :id")
+    suspend fun deleteParty(id: Long)
+
+    @Query("DELETE FROM parties")
+    suspend fun deleteAllParties()
+
+    @Query("SELECT * FROM debts WHERE partyName = :partyName ORDER BY createdAt DESC")
+    fun getDebtsByPartyName(partyName: String): Flow<List<DebtRecord>>
+
+    @Query("SELECT * FROM debt_payments WHERE partyName = :partyName ORDER BY timestamp DESC")
+    fun getPaymentsByPartyName(partyName: String): Flow<List<DebtPayment>>
+
+    @Query("SELECT * FROM sales WHERE customerName = :customerName ORDER BY timestamp DESC")
+    fun getSalesByCustomerName(customerName: String): Flow<List<SaleTransaction>>
+
+    @Query("SELECT * FROM purchases WHERE supplierName = :supplierName ORDER BY timestamp DESC")
+    fun getPurchasesBySupplierName(supplierName: String): Flow<List<PurchaseRecord>>
 }

@@ -456,10 +456,38 @@ fun MovementItemRow(movement: com.example.data.model.CashDrawerMovement) {
                 }
                 Spacer(modifier = Modifier.width(10.dp))
                 Column {
-                    Text(
-                        text = movement.title,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = movement.title,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        val badgeLabel = when (movement.type) {
+                            "SALE_CASH" -> "مبيعات كاش"
+                            "PURCHASE_PAID" -> "مشتريات كاش"
+                            "SALARY_PAID" -> "صرف راتب"
+                            "ADVANCE_PAID" -> "سلفة عامل"
+                            "EXPENSE_PAID" -> "مصروف نقدي"
+                            "WITHDRAWAL" -> "سحب المالك"
+                            "CAPITAL_DEPOSIT" -> "إيداع سيولة"
+                            "TRANSFER_TO_EXCHANGE" -> "تحويل للصراف"
+                            else -> "حركة صندوق"
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = if (movement.isIncome) EmeraldLight else RubyLight
+                        ) {
+                            Text(
+                                text = badgeLabel,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = if (movement.isIncome) EmeraldProfit else RubyExpense,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                        }
+                    }
                     if (movement.details.isNotBlank()) {
                         Text(
                             text = movement.details,

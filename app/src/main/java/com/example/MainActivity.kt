@@ -117,6 +117,10 @@ fun MainAppContent(viewModel: StoreViewModel) {
                     viewModel = viewModel,
                     onBack = { viewModel.navigateBack() }
                 )
+                AppScreen.STORE_AUDIT -> StoreAuditScreen(
+                    viewModel = viewModel,
+                    onBack = { viewModel.navigateBack() }
+                )
             }
         }
     }

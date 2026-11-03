@@ -20,6 +20,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.model.PartyAccount
 import com.example.ui.StoreViewModel
 import com.example.ui.components.QuickThousandAdder
 import com.example.ui.components.StoreTopBar
@@ -35,6 +36,11 @@ fun PurchaseScreen(
 ) {
     val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
     val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
+    val parties by viewModel.parties.collectAsStateWithLifecycle()
+    val debts by viewModel.debts.collectAsStateWithLifecycle()
+
+    val supplierParties = remember(parties) { parties.filter { it.type == "SUPPLIER" } }
+    var autoSaveSupplier by remember { mutableStateOf(true) }
 
     val clothingTypes = listOf("بشت", "كوت", "دجلة", "جاكت", "ثوب", "قميص", "بنطلون", "دشداشة", "بدلة", "شال/غترة")
     val standardSizes = listOf(ClothingSizes.BIG, ClothingSizes.MEDIUM, ClothingSizes.SMALL, ClothingSizes.YOUTH)
@@ -418,20 +424,104 @@ fun PurchaseScreen(
                         HorizontalDivider(color = SlateBorder)
 
                         // 9. Supplier & Payment
-                        Text(
-                            text = "بيانات المورد وطريقة الدفع",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "بيانات المورد / فتح حساب:",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            if (supplierParties.isNotEmpty()) {
+                                Text(
+                                    text = "أو اختر من حسابات الموردين",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, color = SlateMuted)
+                                )
+                            }
+                        }
+
+                        // Supplier chips
+                        if (supplierParties.isNotEmpty()) {
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                items(supplierParties) { s ->
+                                    val isSelected = supplierName.trim().equals(s.name.trim(), ignoreCase = true)
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = { supplierName = s.name },
+                                        label = { Text(s.name, fontSize = 11.sp) },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Default.Storefront,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                    )
+                                }
+                            }
+                        }
 
                         OutlinedTextField(
                             value = supplierName,
                             onValueChange = { supplierName = it },
-                            label = { Text("اسم المورد أو المعمل") },
+                            label = { Text("اسم المورد أو المعمل (أو اكتب اسماً جديداً)") },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("purchase_supplier_name"),
                             shape = RoundedCornerShape(12.dp)
                         )
+
+                        // Real-time debt status for this supplier
+                        if (supplierName.isNotBlank()) {
+                            val matchingSupplierDebts = debts.filter {
+                                it.partyName.trim().equals(supplierName.trim(), ignoreCase = true) &&
+                                it.type == "SUPPLIER" &&
+                                !it.isSettled
+                            }
+                            val activeDebtAmount = matchingSupplierDebts.sumOf { it.remainingAmount }
+
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (activeDebtAmount > 0.01) RubyLight else EmeraldLight,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (activeDebtAmount > 0.01) Icons.Default.Warning else Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        tint = if (activeDebtAmount > 0.01) RubyExpense else EmeraldProfit,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = if (activeDebtAmount > 0.01) "عليا زلط سابقة لهذا المورد: ${FormatUtils.formatCurrency(activeDebtAmount)}" else "حساب هذا المورد خالص (لا توجد عليه مستحقات سابقة)",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (activeDebtAmount > 0.01) RubyExpense else EmeraldProfit
+                                    )
+                                }
+                            }
+
+                            if (supplierParties.none { it.name.trim().equals(supplierName.trim(), ignoreCase = true) }) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Checkbox(
+                                        checked = autoSaveSupplier,
+                                        onCheckedChange = { autoSaveSupplier = it }
+                                    )
+                                    Text("حفظ وفتح حساب جديد لهذا المورد في النظام", fontSize = 12.sp)
+                                }
+                            }
+                        }
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -622,7 +712,20 @@ fun PurchaseScreen(
                                     cashPaid = cashPaid,
                                     transferPaid = transferPaid,
                                     exchangeAccount = selectedExchangeAccount,
-                                    onSuccess = onBack
+                                    onSuccess = {
+                                        if (autoSaveSupplier && supplierName.isNotBlank() && supplierParties.none { it.name.trim().equals(supplierName.trim(), ignoreCase = true) }) {
+                                            viewModel.saveParty(
+                                                PartyAccount(
+                                                    type = "SUPPLIER",
+                                                    name = supplierName.trim(),
+                                                    notes = "تم فتح الحساب من شاشة الشراء"
+                                                ),
+                                                initialDebt = 0.0,
+                                                debtNotes = ""
+                                            ) {}
+                                        }
+                                        onBack()
+                                    }
                                 )
                             },
                             modifier = Modifier

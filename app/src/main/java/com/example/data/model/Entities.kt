@@ -176,7 +176,8 @@ data class CashDrawerMovement(
     val timestamp: Long = System.currentTimeMillis(),
     val referenceSaleId: Long? = null,
     val referencePurchaseId: Long? = null,
-    val referenceExpenseId: Long? = null
+    val referenceExpenseId: Long? = null,
+    val referenceEmployeeTxId: Long? = null
 )
 
 @Entity(tableName = "exchange_accounts")
@@ -203,4 +204,16 @@ data class ExchangeTransfer(
     val referenceNumber: String = "",
     val notes: String = "",
     val timestamp: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "parties")
+data class PartyAccount(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val type: String, // "CUSTOMER" (عميل/زبون) or "SUPPLIER" (مورد/معمل)
+    val name: String,
+    val phone: String = "",
+    val address: String = "",
+    val notes: String = "",
+    val initialBalance: Double = 0.0, // رصيد افتتاحي / زلط سابقة
+    val createdAt: Long = System.currentTimeMillis()
 )

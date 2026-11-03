@@ -317,8 +317,8 @@ fun HomeScreen(
                         onClick = { onNavigate(AppScreen.EMPLOYEES) }
                     )
                     MainActionCard(
-                        title = "6. الديون",
-                        subtitle = "ديون الزبائن والموردين",
+                        title = "6. الحسابات والديون",
+                        subtitle = "الزبائن (عليهم) والموردين (عليا)",
                         badge = if (totalCustDebts > 0) FormatUtils.formatCurrency(totalCustDebts) else null,
                         badgeColor = RubyExpense,
                         icon = Icons.Default.AccountBalanceWallet,
@@ -388,6 +388,84 @@ fun HomeScreen(
                             .testTag("nav_transactions_log_card"),
                         onClick = { onNavigate(AppScreen.TRANSACTIONS_LOG) }
                     )
+                }
+            }
+
+            // Section: Store Inventory & Balance Audit (جرد المحل وبداية النظام من الصفر)
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("nav_store_audit_card"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, LuxuryGold.copy(alpha = 0.4f)),
+                    onClick = { onNavigate(AppScreen.STORE_AUDIT) }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(LuxuryGold.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FactCheck,
+                                    contentDescription = null,
+                                    tint = LuxuryGold,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "جرد المحل وبدء النظام من الصفر",
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = LuxuryGold
+                                    ) {
+                                        Text(
+                                            text = "جرد شامل",
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                color = Color.Black,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 9.sp
+                                            )
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = "جرد الكاش، أرصدة الصرافين، المخزون، وتصفير الحركات القديمة",
+                                    style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted, fontSize = 11.sp)
+                                )
+                            }
+                        }
+
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = null,
+                            tint = SlateMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
 

@@ -214,6 +214,23 @@ fun CashDrawerScreen(
                 }
             }
 
+            // Store Audit & Reset Card
+            item {
+                OutlinedButton(
+                    onClick = { viewModel.navigateTo(com.example.ui.AppScreen.STORE_AUDIT) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("launch_audit_from_drawer_button"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = LuxuryGold)
+                ) {
+                    Icon(Icons.Default.FactCheck, contentDescription = null, tint = LuxuryGold)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("معالج جرد المحل وتصفير/ضبط الأرصدة", fontWeight = FontWeight.Bold)
+                }
+            }
+
             // Ledger Title
             item {
                 Text(

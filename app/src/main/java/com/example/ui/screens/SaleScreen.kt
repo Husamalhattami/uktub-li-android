@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.Employee
+import com.example.data.model.PartyAccount
 import com.example.data.model.ProductItem
 import com.example.ui.StoreViewModel
 import com.example.ui.components.QuickThousandAdder
@@ -40,6 +41,11 @@ fun SaleScreen(
     val employees by viewModel.employees.collectAsStateWithLifecycle()
     val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
     val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
+    val parties by viewModel.parties.collectAsStateWithLifecycle()
+    val debts by viewModel.debts.collectAsStateWithLifecycle()
+
+    val customerParties = remember(parties) { parties.filter { it.type == "CUSTOMER" } }
+    var autoSaveCustomer by remember { mutableStateOf(true) }
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("الكل") }
@@ -437,21 +443,65 @@ fun SaleScreen(
 
                             HorizontalDivider(color = SlateBorder)
 
-                            // Customer Info
+                            // Customer Info & Account Selection
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(
-                                    text = "بيانات الزبون (اختياري):",
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "بيانات الزبون / فتح حساب:",
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                    if (customerParties.isNotEmpty()) {
+                                        Text(
+                                            text = "أو اختر من حسابات الزبائن أدناه",
+                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, color = SlateMuted)
+                                        )
+                                    }
+                                }
+
+                                // Quick select existing customer chips
+                                if (customerParties.isNotEmpty()) {
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        items(customerParties) { c ->
+                                            val isSelected = customerName.trim().equals(c.name.trim(), ignoreCase = true)
+                                            FilterChip(
+                                                selected = isSelected,
+                                                onClick = {
+                                                    customerName = c.name
+                                                    if (c.phone.isNotBlank()) {
+                                                        customerPhone = c.phone
+                                                    }
+                                                },
+                                                label = { Text(c.name, fontSize = 11.sp) },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        Icons.Default.Person,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
                                 OutlinedTextField(
                                     value = customerName,
                                     onValueChange = { customerName = it },
-                                    placeholder = { Text("اسم الزبون") },
+                                    placeholder = { Text("اسم الزبون (أو اكتب اسماً جديداً)") },
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .testTag("sale_customer_name"),
-                                    singleLine = true
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(10.dp)
                                 )
+
                                 OutlinedTextField(
                                     value = customerPhone,
                                     onValueChange = { customerPhone = it },
@@ -460,8 +510,58 @@ fun SaleScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .testTag("sale_customer_phone"),
-                                    singleLine = true
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(10.dp)
                                 )
+
+                                // Real-time debt badge for this customer
+                                if (customerName.isNotBlank()) {
+                                    val matchingDebts = debts.filter {
+                                        it.partyName.trim().equals(customerName.trim(), ignoreCase = true) &&
+                                        it.type == "CUSTOMER" &&
+                                        !it.isSettled
+                                    }
+                                    val activeDebtAmount = matchingDebts.sumOf { it.remainingAmount }
+
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (activeDebtAmount > 0.01) GoldContainer else EmeraldLight,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (activeDebtAmount > 0.01) Icons.Default.Warning else Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = if (activeDebtAmount > 0.01) LuxuryGold else EmeraldProfit,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Text(
+                                                text = if (activeDebtAmount > 0.01) "هذا الزبون عليه زلط حالية: ${FormatUtils.formatCurrency(activeDebtAmount)}" else "هذا الزبون حسابه خالص (لا توجد عليه ديون سابقة)",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (activeDebtAmount > 0.01) LuxuryGold else EmeraldProfit
+                                            )
+                                        }
+                                    }
+
+                                    // If new customer not in saved accounts
+                                    if (customerParties.none { it.name.trim().equals(customerName.trim(), ignoreCase = true) }) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Checkbox(
+                                                checked = autoSaveCustomer,
+                                                onCheckedChange = { autoSaveCustomer = it }
+                                            )
+                                            Text("حفظ وفتح حساب جديد لهذا الزبون في النظام", fontSize = 12.sp)
+                                        }
+                                    }
+                                }
                             }
 
                             // Default account selector
@@ -715,6 +815,18 @@ fun SaleScreen(
                                         exchangeAccount = selectedExchangeAccount,
                                         transferRef = transferRef,
                                         onSuccess = {
+                                            if (autoSaveCustomer && customerName.isNotBlank() && customerParties.none { it.name.trim().equals(customerName.trim(), ignoreCase = true) }) {
+                                                viewModel.saveParty(
+                                                    PartyAccount(
+                                                        type = "CUSTOMER",
+                                                        name = customerName.trim(),
+                                                        phone = customerPhone.trim(),
+                                                        notes = "تم فتح الحساب من شاشة البيع"
+                                                    ),
+                                                    initialDebt = 0.0,
+                                                    debtNotes = ""
+                                                ) {}
+                                            }
                                             selectedProduct = null
                                             customerName = ""
                                             customerPhone = ""

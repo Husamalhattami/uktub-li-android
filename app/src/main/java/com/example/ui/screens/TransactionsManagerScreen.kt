@@ -466,14 +466,37 @@ fun SaleItemCard(
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text("الكمية: ${sale.quantity} حبه (${sale.unit})", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold))
-                    val paymentDesc = when (sale.paymentType) {
-                        "نقداً" -> "نقداً (كاش)"
-                        "تحويل صرافة" -> "تحويل: ${sale.exchangeAccountName}"
-                        "نصف كاش ونصف حوالة" -> "نص كاش (${sale.cashAmount.toLong()}) ونص تحويل (${sale.transferAmount.toLong()})"
-                        "بالدين" -> "بالدين (آجل)"
-                        else -> sale.paymentType
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = when (sale.paymentType) {
+                            "نقداً" -> EmeraldLight
+                            "تحويل صرافة" -> Color(0xFF0D9488).copy(alpha = 0.15f)
+                            "نصف كاش ونصف حوالة" -> LuxuryGold.copy(alpha = 0.15f)
+                            else -> RubyLight
+                        }
+                    ) {
+                        Text(
+                            text = when (sale.paymentType) {
+                                "نقداً" -> "💵 كاش الصندوق"
+                                "تحويل صرافة" -> "🏦 تحويل: ${sale.exchangeAccountName.ifBlank { "صراف" }}"
+                                "نصف كاش ونصف حوالة" -> "🔀 مجزأ: ${sale.cashAmount.toInt()} كاش + ${sale.transferAmount.toInt()} تحويل"
+                                "بالدين" -> "⏳ آجل / دين"
+                                else -> sale.paymentType
+                            },
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = when (sale.paymentType) {
+                                    "نقداً" -> EmeraldProfit
+                                    "تحويل صرافة" -> Color(0xFF0D9488)
+                                    "نصف كاش ونصف حوالة" -> LuxuryGold
+                                    else -> RubyExpense
+                                },
+                                fontSize = 10.sp
+                            )
+                        )
                     }
-                    Text("الدفع: $paymentDesc", style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.primary))
                 }
             }
 
@@ -586,7 +609,37 @@ fun PurchaseItemCard(
                 Column(horizontalAlignment = Alignment.End) {
                     val unitDesc = if (purchase.unit == com.example.ui.util.ClothingUnits.PIECE) "${purchase.quantity} حبه" else "${purchase.unitCount.toInt()} ${purchase.unit} (${purchase.quantity} حبه)"
                     Text("الكمية: $unitDesc", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold))
-                    Text("المدفوع: ${FormatUtils.formatCurrency(purchase.paidAmount)}", style = MaterialTheme.typography.labelSmall.copy(color = EmeraldProfit))
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = when (purchase.paymentMethod) {
+                            "نقداً من الصندوق" -> EmeraldLight
+                            "تحويل صرافة" -> Color(0xFF0D9488).copy(alpha = 0.15f)
+                            "نصف كاش ونصف حوالة" -> LuxuryGold.copy(alpha = 0.15f)
+                            else -> RubyLight
+                        }
+                    ) {
+                        Text(
+                            text = when (purchase.paymentMethod) {
+                                "نقداً من الصندوق" -> "💵 كاش من الصندوق (${purchase.paidAmount.toInt()} ريال)"
+                                "تحويل صرافة" -> "🏦 تحويل صراف: ${purchase.exchangeAccountName.ifBlank { "صراف" }} (${purchase.paidAmount.toInt()} ريال)"
+                                "نصف كاش ونصف حوالة" -> "🔀 مجزأ: ${purchase.cashPaid.toInt()} كاش + ${purchase.transferPaid.toInt()} عبر ${purchase.exchangeAccountName.ifBlank { "الصراف" }}"
+                                "آجل للمورد" -> "⏳ آجل للمورد"
+                                else -> purchase.paymentMethod
+                            },
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = when (purchase.paymentMethod) {
+                                    "نقداً من الصندوق" -> EmeraldProfit
+                                    "تحويل صرافة" -> Color(0xFF0D9488)
+                                    "نصف كاش ونصف حوالة" -> LuxuryGold
+                                    else -> RubyExpense
+                                },
+                                fontSize = 10.sp
+                            )
+                        )
+                    }
                 }
             }
 

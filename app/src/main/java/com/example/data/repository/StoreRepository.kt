@@ -22,6 +22,7 @@ class StoreRepository(private val dao: StoreDao) {
     val allCashMovements: Flow<List<CashDrawerMovement>> = dao.getAllCashMovements()
     val allExchangeAccounts: Flow<List<ExchangeAccount>> = dao.getAllExchangeAccounts()
     val allExchangeTransfers: Flow<List<ExchangeTransfer>> = dao.getAllExchangeTransfers()
+    val allParties: Flow<List<PartyAccount>> = dao.getAllParties()
 
     suspend fun seedInitialDataIfEmpty() {
         val existing = dao.getAllProducts().firstOrNull()
@@ -252,12 +253,98 @@ class StoreRepository(private val dao: StoreDao) {
                 originalAmount = 320.0,
                 paidAmount = 120.0,
                 remainingAmount = 200.0,
-                details = "شراء جاكيت سبورت - دفعة 120 ريال والمتبقي 200 ريال",
+                details = "شراء جاكيت سبورت - دفعة 120 ريال والمتبقي 200 ريال (عليه زلط)",
                 dueDate = now + 86400000L * 5,
                 createdAt = now - 86400000L,
                 isSettled = false
             )
             dao.insertDebt(demoDebt)
+
+            // 8. Demo supplier debt (عليا زلط للمورد)
+            val demoSupplierDebt1 = DebtRecord(
+                type = "SUPPLIER",
+                partyName = "معمل الأصالة للأقمشة",
+                phone = "0509988771",
+                originalAmount = 15000.0,
+                paidAmount = 0.0,
+                remainingAmount = 15000.0,
+                details = "متبقي شراء بضاعة بشت ملكي صيفي (عليا زلط للمورد)",
+                dueDate = now + 86400000L * 20,
+                createdAt = now - 86400000L * 3,
+                isSettled = false
+            )
+            dao.insertDebt(demoSupplierDebt1)
+
+            val demoSupplierDebt2 = DebtRecord(
+                type = "SUPPLIER",
+                partyName = "وكالة أقمشة الخليج",
+                phone = "0554433221",
+                originalAmount = 8000.0,
+                paidAmount = 0.0,
+                remainingAmount = 8000.0,
+                details = "متبقي دفعة أثواب كويتية (عليا زلط للمورد)",
+                dueDate = now + 86400000L * 25,
+                createdAt = now - 86400000L * 4,
+                isSettled = false
+            )
+            dao.insertDebt(demoSupplierDebt2)
+
+            // 9. Demo Customer & Supplier Accounts (Parties)
+            dao.insertParty(
+                PartyAccount(
+                    type = "CUSTOMER",
+                    name = "أحمد التميمي",
+                    phone = "0561122334",
+                    address = "صنعاء - شارع حائل",
+                    notes = "زبون دائم - عليه زلط سابقة",
+                    initialBalance = 200.0,
+                    createdAt = now - 86400000L
+                )
+            )
+            dao.insertParty(
+                PartyAccount(
+                    type = "CUSTOMER",
+                    name = "عبد الله السالم",
+                    phone = "0541239876",
+                    address = "شارع حدة",
+                    notes = "زبون مشتريات نقدية مميز",
+                    initialBalance = 0.0,
+                    createdAt = now - 86400000L * 2
+                )
+            )
+            dao.insertParty(
+                PartyAccount(
+                    type = "SUPPLIER",
+                    name = "معمل الأصالة للأقمشة",
+                    phone = "0509988771",
+                    address = "سوق الأقمشة المركزي",
+                    notes = "مورد بشوت ملكية - عليا زلط له 15,000 ريال",
+                    initialBalance = 15000.0,
+                    createdAt = now - 86400000L * 5
+                )
+            )
+            dao.insertParty(
+                PartyAccount(
+                    type = "SUPPLIER",
+                    name = "وكالة أقمشة الخليج",
+                    phone = "0554433221",
+                    address = "المنطقة الصناعية",
+                    notes = "مورد أثواب كويتية - عليا زلط له 8,000 ريال",
+                    initialBalance = 8000.0,
+                    createdAt = now - 86400000L * 6
+                )
+            )
+            dao.insertParty(
+                PartyAccount(
+                    type = "SUPPLIER",
+                    name = "شركة النخبة للاستيراد",
+                    phone = "0505544332",
+                    address = "الشارع الرئيسي",
+                    notes = "مورد أكوات صوف وجواكت - الحساب خالص",
+                    initialBalance = 0.0,
+                    createdAt = now - 86400000L * 10
+                )
+            )
         }
     }
 
@@ -728,6 +815,11 @@ class StoreRepository(private val dao: StoreDao) {
         dao.deleteEmployee(employeeId)
     }
 
+    suspend fun deleteEmployeeTransaction(txId: Long) {
+        dao.deleteCashMovementsForEmployeeTx(txId)
+        dao.deleteEmployeeTransaction(txId)
+    }
+
     suspend fun recordEmployeeTransaction(
         employeeId: Long,
         employeeName: String,
@@ -764,7 +856,8 @@ class StoreRepository(private val dao: StoreDao) {
                     isIncome = false,
                     title = "$type للعامل: $employeeName",
                     details = notes,
-                    timestamp = now
+                    timestamp = now,
+                    referenceEmployeeTxId = id
                 )
             )
         } else if (exchangeAccount != null && (type == "سلفة" || type == "صرف راتب" || type == "مكافأة")) {
@@ -885,6 +978,74 @@ class StoreRepository(private val dao: StoreDao) {
 
     suspend fun addNewDebt(debt: DebtRecord): Long = dao.insertDebt(debt)
     suspend fun deleteDebt(id: Long) = dao.deleteDebt(id)
+
+    // --- Parties Management (Customers & Suppliers) ---
+    suspend fun saveParty(party: PartyAccount, initialDebt: Double = 0.0, debtNotes: String = ""): Long {
+        val now = System.currentTimeMillis()
+        val partyId = if (party.id == 0L) {
+            dao.insertParty(party.copy(initialBalance = initialDebt))
+        } else {
+            dao.updateParty(party)
+            party.id
+        }
+
+        if (party.id == 0L && initialDebt > 0) {
+            val isCustomer = party.type == "CUSTOMER"
+            val debt = DebtRecord(
+                type = if (isCustomer) "CUSTOMER" else "SUPPLIER",
+                partyName = party.name,
+                phone = party.phone,
+                originalAmount = initialDebt,
+                paidAmount = 0.0,
+                remainingAmount = initialDebt,
+                details = debtNotes.ifBlank {
+                    if (isCustomer) "رصيد افتتاحي (عليه زلط سابقة عند فتح الحساب)"
+                    else "رصيد افتتاحي (عليا زلط للمورد عند فتح الحساب)"
+                },
+                dueDate = now + if (isCustomer) 86400000L * 15 else 86400000L * 30,
+                createdAt = now,
+                isSettled = false
+            )
+            dao.insertDebt(debt)
+        }
+        return partyId
+    }
+
+    suspend fun deleteParty(id: Long) {
+        dao.deleteParty(id)
+    }
+
+    suspend fun recordPartyPayment(
+        partyName: String,
+        partyType: String,
+        totalPayment: Double,
+        notes: String,
+        paymentMethod: String = "نقداً",
+        exchangeAccount: ExchangeAccount? = null
+    ): Boolean {
+        if (totalPayment <= 0) return false
+        val allDebtsList = dao.getAllDebts().firstOrNull() ?: emptyList()
+        val partyDebts = allDebtsList.filter {
+            it.partyName.trim().equals(partyName.trim(), ignoreCase = true) &&
+            it.type == partyType &&
+            !it.isSettled
+        }.sortedBy { it.createdAt }
+
+        var remainingToApply = totalPayment
+        for (debt in partyDebts) {
+            if (remainingToApply <= 0.001) break
+            val paymentForThisDebt = minOf(remainingToApply, debt.remainingAmount)
+            recordDebtPayment(
+                debt = debt,
+                paymentAmount = paymentForThisDebt,
+                notes = notes,
+                paymentMethod = paymentMethod,
+                exchangeAccount = exchangeAccount
+            )
+            remainingToApply -= paymentForThisDebt
+        }
+        return true
+    }
 
     // --- Exchange Accounts & Wallets Management ---
     suspend fun saveExchangeAccount(account: ExchangeAccount): Long {
@@ -1059,5 +1220,67 @@ class StoreRepository(private val dao: StoreDao) {
         dao.deleteAllProducts()
         dao.deleteAllEmployees()
         dao.deleteAllExchangeAccounts()
+        dao.deleteAllParties()
+    }
+
+    suspend fun executeStoreFullAudit(
+        actualDrawerCash: Double,
+        exchangeBalances: Map<Long, Double>,
+        resetTransactions: Boolean,
+        notes: String
+    ) {
+        val now = System.currentTimeMillis()
+        if (resetTransactions) {
+            clearTransactionsOnly()
+        } else {
+            val currentActiveShift = dao.getActiveShift().firstOrNull()
+            if (currentActiveShift != null) {
+                closeShift(currentActiveShift, actualDrawerCash, "إغلاق قبل اعتماد الجرد")
+            }
+        }
+
+        // Open new active shift with audited actual cash
+        val newShiftId = dao.insertShift(
+            CashDrawerShift(
+                openedAt = now,
+                closedAt = null,
+                openingBalance = actualDrawerCash,
+                closingBalanceActual = null,
+                isOpen = true,
+                cashierName = "صاحب المحل",
+                notes = "اعتماد جرد المحل: ${notes.ifBlank { "بداية الأرصدة الفعلية" }}"
+            )
+        )
+
+        dao.insertCashMovement(
+            CashDrawerMovement(
+                shiftId = newShiftId,
+                type = "CAPITAL_DEPOSIT",
+                amount = actualDrawerCash,
+                isIncome = true,
+                title = "رصيد الصندوق المعتمد من الجرد",
+                details = notes,
+                timestamp = now
+            )
+        )
+
+        // Update all exchange account balances
+        exchangeBalances.forEach { (accountId, balance) ->
+            dao.setExchangeBalance(accountId, balance)
+            val acc = dao.getExchangeAccountById(accountId)
+            dao.insertExchangeTransfer(
+                ExchangeTransfer(
+                    accountId = accountId,
+                    accountName = acc?.name ?: "حساب صراف",
+                    type = "تعديل رصيد",
+                    amount = balance,
+                    isCredit = true,
+                    title = "رصيد معتمد من جرد المحل",
+                    referenceNumber = "AUDIT",
+                    notes = notes,
+                    timestamp = now
+                )
+            )
+        }
     }
 }
