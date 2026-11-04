@@ -13,7 +13,7 @@ data class ProductItem(
     val quantity: Int, // إجمالي الحبات المتوفرة
     val buyPrice: Double, // سعر الشراء للحبة
     val sellPrice: Double, // سعر البيع للحبة
-    val supplierName: String,
+    val supplierName: String = "",
     val purchaseDate: Long = System.currentTimeMillis(),
     val invoiceNumber: String = "",
     val barcode: String = "",
@@ -214,6 +214,46 @@ data class PartyAccount(
     val phone: String = "",
     val address: String = "",
     val notes: String = "",
-    val initialBalance: Double = 0.0, // رصيد افتتاحي / زلط سابقة
+    val initialBalance: Double = 0.0, // رصيد افتتاحي / مستحق سابق
     val createdAt: Long = System.currentTimeMillis()
 )
+
+@Entity(tableName = "audit_logs")
+data class AuditLogRecord(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val action: String, // "بيع", "شراء", "مصروف", "سداد دين", "حذف", "جرد وتصفير", "تعديل"
+    val actor: String = "المدير",
+    val details: String = "",
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "store_settings")
+data class StoreSettings(
+    @PrimaryKey val id: Int = 1,
+    val shopNameAr: String = "محل الأناقة للملابس الرجالية",
+    val shopNameEn: String = "Al-Anaqah Menswear",
+    val phone: String = "770315173",
+    val address: String = "صنعاء - شارع القصر / التحرير",
+    val currency: String = "ريال",
+    val taxNumber: String = "",
+    val invoiceHeader: String = "أهلاً وسهلاً بكم في محل الأناقة للملابس الرجالية",
+    val invoiceFooter: String = "البضاعة المباعة ترد وتستبدل خلال 3 أيام بشرط وجود الفاتورة وبحالتها الأصلية.",
+    val showProfitInReports: Boolean = true,
+    val managerPin: String = "1234",
+    val isManagerRole: Boolean = true
+) {
+    val storeName: String get() = shopNameAr
+    val storeNameEn: String get() = shopNameEn
+    val phoneNumber: String get() = phone
+    val currencySymbol: String get() = currency
+}
+
+object PaymentMethods {
+    const val CASH = "نقداً (كاش)"
+    const val TRANSFER = "تحويل عبر الصراف"
+    const val SPLIT = "نصف كاش ونصف حوالة"
+    const val CREDIT = "آجل (دين)"
+
+    val ALL = listOf(CASH, TRANSFER, SPLIT, CREDIT)
+}
+

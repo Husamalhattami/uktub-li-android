@@ -65,6 +65,8 @@ val RubyLight = FintechRoseBg
 val SlateBackground = SlateBg
 val SlateSurface = SlateCard
 val SlateMuted = SlateTextSecondary
+val SlateHeader = SlateTextPrimary
+val OceanDeep = BrandBlue
 
 // Dark Palette
 val DarkBackground = Color(0xFF0B1120)

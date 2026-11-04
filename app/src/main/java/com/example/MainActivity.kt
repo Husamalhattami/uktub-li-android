@@ -121,6 +121,10 @@ fun MainAppContent(viewModel: StoreViewModel) {
                     viewModel = viewModel,
                     onBack = { viewModel.navigateBack() }
                 )
+                AppScreen.SETTINGS, AppScreen.AUDIT_LOGS -> SettingsScreen(
+                    viewModel = viewModel,
+                    onBack = { viewModel.navigateBack() }
+                )
             }
         }
     }

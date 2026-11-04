@@ -4,10 +4,27 @@ import com.example.data.dao.StoreDao
 import com.example.data.model.*
 import com.example.ui.util.ClothingSizes
 import com.example.ui.util.ClothingUnits
+import com.example.ui.util.FormatUtils
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
 
-class StoreRepository(private val dao: StoreDao) {
+import androidx.room.withTransaction
+import com.example.data.database.AppDatabase
+import org.json.JSONArray
+import org.json.JSONObject
+
+class StoreRepository(
+    private val dao: StoreDao,
+    private val db: AppDatabase? = null
+) {
+
+    suspend fun <T> runInTransaction(block: suspend () -> T): T {
+        return if (db != null) {
+            db.withTransaction { block() }
+        } else {
+            block()
+        }
+    }
 
     val allProducts: Flow<List<ProductItem>> = dao.getAllProducts()
     val allSales: Flow<List<SaleTransaction>> = dao.getAllSales()
@@ -23,6 +40,22 @@ class StoreRepository(private val dao: StoreDao) {
     val allExchangeAccounts: Flow<List<ExchangeAccount>> = dao.getAllExchangeAccounts()
     val allExchangeTransfers: Flow<List<ExchangeTransfer>> = dao.getAllExchangeTransfers()
     val allParties: Flow<List<PartyAccount>> = dao.getAllParties()
+    val allAuditLogs: Flow<List<AuditLogRecord>> = dao.getAllAuditLogs()
+    val storeSettings: Flow<StoreSettings?> = dao.getStoreSettings()
+
+    suspend fun logAudit(action: String, actor: String = "المدير", details: String) {
+        dao.insertAuditLog(AuditLogRecord(action = action, actor = actor, details = details, timestamp = System.currentTimeMillis()))
+    }
+
+    suspend fun saveStoreSettings(settings: StoreSettings) {
+        val existing = dao.getStoreSettingsDirect()
+        if (existing == null) {
+            dao.insertStoreSettings(settings)
+        } else {
+            dao.updateStoreSettings(settings)
+        }
+        logAudit("تحديث الإعدادات", "المدير", "تم تحديث بيانات المحل والشعار ورقم الهاتف وإعدادات الفاتورة")
+    }
 
     suspend fun seedInitialDataIfEmpty() {
         val existing = dao.getAllProducts().firstOrNull()
@@ -368,7 +401,7 @@ class StoreRepository(private val dao: StoreDao) {
         discount: Double,
         customerName: String,
         customerPhone: String,
-        paymentType: String, // "نقداً", "تحويل صرافة", "نصف كاش ونصف حوالة", "بالدين"
+        paymentType: String,
         employee: Employee?,
         unit: String = ClothingUnits.PIECE,
         cashPart: Double = 0.0,
@@ -376,144 +409,201 @@ class StoreRepository(private val dao: StoreDao) {
         exchangeAccount: ExchangeAccount? = null,
         transferRef: String = ""
     ): SaleTransaction {
-        val activeShiftObj = dao.getActiveShift().firstOrNull()
-        val shiftId = activeShiftObj?.id ?: 0L
-        val now = System.currentTimeMillis()
-
         val multiplier = ClothingUnits.getMultiplier(unit)
         val totalPieces = quantity * multiplier
 
-        val totalAmount = (sellPrice * quantity) - discount
-        val costOfGoods = product.buyPrice * totalPieces
-        val profit = totalAmount - costOfGoods
-
-        // Calculate exact cash and transfer parts based on paymentType
-        val finalCashAmount = when (paymentType) {
-            "نقداً" -> totalAmount
-            "نصف كاش ونصف حوالة" -> cashPart
-            else -> 0.0
+        // Strict Validation Checks
+        if (quantity <= 0) {
+            throw IllegalArgumentException("يرجى إدخال كمية بيع صحيحة أكبر من الصفر.")
         }
-        val finalTransferAmount = when (paymentType) {
-            "تحويل صرافة" -> totalAmount
-            "نصف كاش ونصف حوالة" -> transferPart
-            else -> 0.0
+        if (sellPrice <= 0) {
+            throw IllegalArgumentException("لا يمكن بيع البضاعة بسعر صفري أو سالب.")
+        }
+        if (discount < 0) {
+            throw IllegalArgumentException("لا يمكن إدخال خصم بقيمة سالبة.")
+        }
+        val grossTotal = sellPrice * quantity
+        if (discount >= grossTotal) {
+            throw IllegalArgumentException("قيمة الخصم ($discount ريال) لا يمكن أن تتجاوز أو تعادل إجمالي البيع ($grossTotal ريال).")
+        }
+        val totalAmount = grossTotal - discount
+
+        if (paymentType == "آجل (دين)" || paymentType == "بالدين") {
+            if (customerName.trim().isBlank()) {
+                throw IllegalArgumentException("يجب كتابة أو اختيار اسم العميل لتسجيل عملية البيع بالدين.")
+            }
+        }
+        if (paymentType == "تحويل عبر الصراف" || paymentType == "تحويل صرافة") {
+            if (exchangeAccount == null) {
+                throw IllegalArgumentException("يجب اختيار حساب الصراف أو المحفظة المحول إليها قبل تأكيد البيع.")
+            }
+        }
+        if (paymentType == "نصف كاش ونصف حوالة") {
+            if (exchangeAccount == null) {
+                throw IllegalArgumentException("يجب اختيار حساب الصراف للدفعة المحولة.")
+            }
+            if (kotlin.math.abs((cashPart + transferPart) - totalAmount) > 1.0) {
+                throw IllegalArgumentException("مجموع الدفع النقدي ($cashPart) والتحويل ($transferPart) يجب أن يعادل إجمالي الفاتورة ($totalAmount ريال).")
+            }
         }
 
-        val sale = SaleTransaction(
-            productId = product.id,
-            productName = product.modelName,
-            category = product.category,
-            color = product.color,
-            size = product.size,
-            quantity = totalPieces,
-            unitBuyPrice = product.buyPrice,
-            unitSellPrice = sellPrice / multiplier,
-            discount = discount,
-            totalAmount = totalAmount,
-            profit = profit,
-            customerName = customerName.ifBlank { "زبون نقدي" },
-            customerPhone = customerPhone,
-            paymentType = paymentType,
-            cashAmount = finalCashAmount,
-            transferAmount = finalTransferAmount,
-            exchangeAccountId = exchangeAccount?.id ?: 0L,
-            exchangeAccountName = exchangeAccount?.name ?: "",
-            transferRef = transferRef,
-            employeeName = employee?.name ?: "صاحب المحل",
-            employeeId = employee?.id ?: 0L,
-            timestamp = now,
-            shiftId = shiftId,
-            unit = unit
-        )
-        val saleId = dao.insertSale(sale)
+        return runInTransaction {
+            val freshProduct = dao.getProductById(product.id)
+                ?: throw IllegalStateException("الصنف المطلوب بيعه غير موجود في المخزون!")
 
-        // Deduct Inventory Stock
-        val newStock = (product.quantity - totalPieces).coerceAtLeast(0)
-        dao.updateStock(product.id, newStock, now)
+            if (freshProduct.quantity < totalPieces) {
+                throw IllegalStateException("الكمية المطلوبة ($totalPieces حبة) غير متوفرة! المتبقي في المخزن فقط (${freshProduct.quantity} حبة).")
+            }
 
-        val unitDesc = if (unit == ClothingUnits.PIECE) "$quantity حبه" else "$quantity $unit ($totalPieces حبه)"
+            val updatedRows = dao.decrementStockSafe(product.id, totalPieces, System.currentTimeMillis())
+            if (updatedRows == 0) {
+                throw IllegalStateException("تعذر خصم الكمية من المخزون بسبب عدم كفاية الرصيد أو حدوث حركة متزامنة!")
+            }
 
-        // 1. If cash part exists -> Add to Cash Drawer
-        if (finalCashAmount > 0) {
-            dao.insertCashMovement(
-                CashDrawerMovement(
-                    shiftId = shiftId,
-                    type = "SALE_CASH",
-                    amount = finalCashAmount,
-                    isIncome = true,
-                    title = "مبيعات نقدية: ${product.modelName} ($unitDesc)",
-                    details = "الزبون: ${customerName.ifBlank { "نقدي" }}${if (finalTransferAmount > 0) " (جزء نقدي)" else ""}",
-                    timestamp = now,
-                    referenceSaleId = saleId
-                )
+            val activeShiftObj = dao.getActiveShift().firstOrNull()
+            val shiftId = activeShiftObj?.id ?: 0L
+            val now = System.currentTimeMillis()
+
+            val costOfGoods = freshProduct.buyPrice * totalPieces
+            val profit = totalAmount - costOfGoods
+
+            val finalCashAmount = when (paymentType) {
+                "نقداً", "نقداً (كاش)" -> totalAmount
+                "نصف كاش ونصف حوالة" -> cashPart
+                else -> 0.0
+            }
+            val finalTransferAmount = when (paymentType) {
+                "تحويل عبر الصراف", "تحويل صرافة" -> totalAmount
+                "نصف كاش ونصف حوالة" -> transferPart
+                else -> 0.0
+            }
+
+            val sale = SaleTransaction(
+                productId = product.id,
+                productName = product.modelName,
+                category = product.category,
+                color = product.color,
+                size = product.size,
+                quantity = totalPieces,
+                unitBuyPrice = freshProduct.buyPrice,
+                unitSellPrice = sellPrice / multiplier,
+                discount = discount,
+                totalAmount = totalAmount,
+                profit = profit,
+                customerName = customerName.ifBlank { "زبون نقدي" },
+                customerPhone = customerPhone,
+                paymentType = paymentType,
+                cashAmount = finalCashAmount,
+                transferAmount = finalTransferAmount,
+                exchangeAccountId = exchangeAccount?.id ?: 0L,
+                exchangeAccountName = exchangeAccount?.name ?: "",
+                transferRef = transferRef,
+                employeeName = employee?.name ?: "صاحب المحل",
+                employeeId = employee?.id ?: 0L,
+                timestamp = now,
+                shiftId = shiftId,
+                unit = unit
             )
-        }
+            val saleId = dao.insertSale(sale)
 
-        // 2. If transfer part exists -> Add to Exchange Account
-        if (finalTransferAmount > 0 && exchangeAccount != null) {
-            dao.updateExchangeBalance(exchangeAccount.id, finalTransferAmount)
-            dao.insertExchangeTransfer(
-                ExchangeTransfer(
-                    accountId = exchangeAccount.id,
-                    accountName = exchangeAccount.name,
-                    type = "مبيعات تحويل",
-                    amount = finalTransferAmount,
-                    isCredit = true,
-                    title = "مبيعات تحويل: ${product.modelName} ($unitDesc)",
-                    referenceNumber = transferRef,
-                    notes = "فاتورة بيع #${saleId} | الزبون: ${customerName.ifBlank { "تحويل" }}",
+            val unitDesc = if (unit == ClothingUnits.PIECE) "$quantity حبة" else "$quantity $unit ($totalPieces حبة)"
+
+            if (finalCashAmount > 0) {
+                dao.insertCashMovement(
+                    CashDrawerMovement(
+                        shiftId = shiftId,
+                        type = "SALE_CASH",
+                        amount = finalCashAmount,
+                        isIncome = true,
+                        title = "مبيعات نقدية: ${product.modelName} ($unitDesc)",
+                        details = "الزبون: ${customerName.ifBlank { "نقدي" }}${if (finalTransferAmount > 0) " (جزء نقدي)" else ""}",
+                        timestamp = now,
+                        referenceSaleId = saleId
+                    )
+                )
+            }
+
+            if (finalTransferAmount > 0 && exchangeAccount != null) {
+                dao.updateExchangeBalance(exchangeAccount.id, finalTransferAmount)
+                dao.insertExchangeTransfer(
+                    ExchangeTransfer(
+                        accountId = exchangeAccount.id,
+                        accountName = exchangeAccount.name,
+                        type = "مبيعات تحويل",
+                        amount = finalTransferAmount,
+                        isCredit = true,
+                        title = "مبيعات تحويل: ${product.modelName} ($unitDesc)",
+                        referenceNumber = transferRef,
+                        notes = "فاتورة بيع #${saleId} | الزبون: ${customerName.ifBlank { "تحويل" }}",
+                        timestamp = now
+                    )
+                )
+            }
+
+            if (paymentType == "آجل (دين)" || paymentType == "بالدين") {
+                val debt = DebtRecord(
+                    type = "CUSTOMER",
+                    partyName = customerName.ifBlank { "زبون آجل" },
+                    phone = customerPhone,
+                    originalAmount = totalAmount,
+                    paidAmount = 0.0,
+                    remainingAmount = totalAmount,
+                    details = "فاتورة بيع آجل: ${product.modelName} ($unitDesc)",
+                    referenceSaleId = saleId,
+                    dueDate = now + 86400000L * 15,
+                    createdAt = now,
+                    isSettled = false
+                )
+                dao.insertDebt(debt)
+            }
+
+            dao.insertAuditLog(
+                AuditLogRecord(
+                    action = "تسجيل بيع",
+                    actor = employee?.name ?: "صاحب المحل",
+                    details = "فاتورة بيع #${saleId}: ${product.modelName} ($unitDesc) بقيمة ${FormatUtils.formatCurrency(totalAmount)} ($paymentType)",
                     timestamp = now
                 )
             )
-        }
 
-        // 3. If credit (بالدين)
-        if (paymentType == "بالدين") {
-            val debt = DebtRecord(
-                type = "CUSTOMER",
-                partyName = customerName.ifBlank { "زبون آجل" },
-                phone = customerPhone,
-                originalAmount = totalAmount,
-                paidAmount = 0.0,
-                remainingAmount = totalAmount,
-                details = "فاتورة بيع آجل: ${product.modelName} ($unitDesc)",
-                referenceSaleId = saleId,
-                dueDate = now + 86400000L * 15,
-                createdAt = now,
-                isSettled = false
-            )
-            dao.insertDebt(debt)
+            sale.copy(id = saleId)
         }
-
-        return sale.copy(id = saleId)
     }
 
     // --- Delete / Reverse Sale ---
     suspend fun deleteSale(saleId: Long) {
-        val sale = dao.getSaleById(saleId) ?: return
+        runInTransaction {
+            val sale = dao.getSaleById(saleId) ?: return@runInTransaction
 
-        // 1. Return stock back to product
-        val product = dao.getProductById(sale.productId)
-        if (product != null) {
-            dao.updateStock(product.id, product.quantity + sale.quantity, System.currentTimeMillis())
+            // 1. Safely restore stock back
+            dao.incrementStock(sale.productId, sale.quantity)
+
+            // 2. Reverse cash movements
+            dao.deleteCashMovementsForSale(saleId)
+
+            // 3. Reverse exchange transfer if any
+            if (sale.transferAmount > 0 && sale.exchangeAccountId > 0) {
+                dao.updateExchangeBalance(sale.exchangeAccountId, -sale.transferAmount)
+            }
+
+            // 4. Reverse debt if this was debt sale
+            val debt = dao.getDebtBySaleId(saleId)
+            if (debt != null) {
+                dao.deleteDebt(debt.id)
+            }
+
+            // 5. Delete sale
+            dao.deleteSale(saleId)
+
+            dao.insertAuditLog(
+                AuditLogRecord(
+                    action = "إلغاء بيع",
+                    actor = "المدير",
+                    details = "تم إلغاء فاتورة البيع #${sale.id} وإرجاع (${sale.quantity}) حبة لمخزون (${sale.productName})",
+                    timestamp = System.currentTimeMillis()
+                )
+            )
         }
-
-        // 2. Reverse cash movements
-        dao.deleteCashMovementsForSale(saleId)
-
-        // 3. Reverse exchange transfer if any
-        if (sale.transferAmount > 0 && sale.exchangeAccountId > 0) {
-            dao.updateExchangeBalance(sale.exchangeAccountId, -sale.transferAmount)
-        }
-
-        // 4. Reverse debt if this was debt sale
-        val debt = dao.getDebtBySaleId(saleId)
-        if (debt != null) {
-            dao.deleteDebt(debt.id)
-        }
-
-        // 5. Delete sale
-        dao.deleteSale(saleId)
     }
 
     suspend fun updateSale(sale: SaleTransaction) {
@@ -542,188 +632,247 @@ class StoreRepository(private val dao: StoreDao) {
         transferPaidPart: Double = 0.0,
         exchangeAccount: ExchangeAccount? = null
     ): Long {
-        val activeShiftObj = dao.getActiveShift().firstOrNull()
-        val shiftId = activeShiftObj?.id ?: 0L
-        val now = System.currentTimeMillis()
-
-        val multiplier = ClothingUnits.getMultiplier(unit)
-        val totalPieces = (unitCount * multiplier).toInt().coerceAtLeast(1)
-
+        // Strict accounting validations
+        if (unitCount <= 0) {
+            throw IllegalArgumentException("يرجى إدخال كمية شراء صحيحة أكبر من الصفر.")
+        }
+        if (buyPricePerUnit <= 0) {
+            throw IllegalArgumentException("سعر الشراء يجب أن يكون أكبر من الصفر.")
+        }
+        if (sellPricePerUnit <= 0) {
+            throw IllegalArgumentException("سعر البيع المقترح يجب أن يكون أكبر من الصفر.")
+        }
+        if (paidAmount < 0) {
+            throw IllegalArgumentException("المبلغ المدفوع لا يمكن أن يكون سالباً.")
+        }
         val totalCost = buyPricePerUnit * unitCount
-        val remainingDebt = (totalCost - paidAmount).coerceAtLeast(0.0)
-
-        val buyPricePerPiece = totalCost / totalPieces
-        val sellPricePerPiece = (sellPricePerUnit * unitCount) / totalPieces
-
-        val finalCashPaid = when (paymentMethod) {
-            "نقداً من الصندوق" -> paidAmount
-            "نصف كاش ونصف حوالة" -> cashPaidPart
-            else -> 0.0
-        }
-        val finalTransferPaid = when (paymentMethod) {
-            "تحويل عبر الصرافة" -> paidAmount
-            "نصف كاش ونصف حوالة" -> transferPaidPart
-            else -> 0.0
+        if (paidAmount > totalCost) {
+            throw IllegalArgumentException("المبلغ المدفوع (${FormatUtils.formatCurrency(paidAmount)}) لا يمكن أن يتجاوز إجمالي الفاتورة (${FormatUtils.formatCurrency(totalCost)}).")
         }
 
-        val purchase = PurchaseRecord(
-            supplierName = supplierName.ifBlank { "مورد عام" },
-            category = category,
-            modelName = modelName,
-            color = color,
-            size = size,
-            quantity = totalPieces,
-            unitBuyPrice = buyPricePerPiece,
-            unitSellPrice = sellPricePerPiece,
-            totalCost = totalCost,
-            paidAmount = paidAmount,
-            remainingDebt = remainingDebt,
-            invoiceNumber = invoiceNumber,
-            paymentMethod = paymentMethod,
-            cashPaid = finalCashPaid,
-            transferPaid = finalTransferPaid,
-            exchangeAccountId = exchangeAccount?.id ?: 0L,
-            exchangeAccountName = exchangeAccount?.name ?: "",
-            timestamp = now,
-            unit = unit,
-            unitCount = unitCount,
-            colorsCount = colorsCount,
-            notes = notes
-        )
-        val purchaseId = dao.insertPurchase(purchase)
-
-        // Add or update product stock
-        val allProds = dao.getAllProducts().firstOrNull() ?: emptyList()
-        val existing = allProds.find {
-            it.modelName.trim().equals(modelName.trim(), ignoreCase = true) &&
-                    it.color.trim().equals(color.trim(), ignoreCase = true) &&
-                    it.size.trim().equals(size.trim(), ignoreCase = true)
+        if (paymentMethod == "تحويل عبر الصرافة" || paymentMethod == "تحويل صرافة") {
+            if (exchangeAccount == null) {
+                throw IllegalArgumentException("يجب اختيار حساب الصراف أو المحفظة المدفوع منها قبل تأكيد الشراء.")
+            }
+        }
+        if (paymentMethod == "نصف كاش ونصف حوالة") {
+            if (exchangeAccount == null) {
+                throw IllegalArgumentException("يجب اختيار حساب الصراف أو المحفظة للدفعة المحولة.")
+            }
+            if (kotlin.math.abs((cashPaidPart + transferPaidPart) - paidAmount) > 1.0) {
+                throw IllegalArgumentException("مجموع الدفع النقدي ($cashPaidPart) والتحويل ($transferPaidPart) يجب أن يعادل المبلغ المدفوع ($paidAmount).")
+            }
         }
 
-        if (existing != null) {
-            val updated = existing.copy(
-                quantity = existing.quantity + totalPieces,
-                buyPrice = buyPricePerPiece,
-                sellPrice = sellPricePerPiece,
-                supplierName = supplierName.ifBlank { existing.supplierName },
-                barcode = barcode.ifBlank { existing.barcode },
-                notes = if (notes.isNotBlank()) notes else existing.notes,
-                unit = unit,
-                colorsCount = colorsCount,
-                colorDetails = colorDetails
-            )
-            dao.updateProduct(updated)
-        } else {
-            val newProduct = ProductItem(
+        return runInTransaction {
+            val activeShiftObj = dao.getActiveShift().firstOrNull()
+            val shiftId = activeShiftObj?.id ?: 0L
+            val now = System.currentTimeMillis()
+
+            val multiplier = ClothingUnits.getMultiplier(unit)
+            val totalPieces = (unitCount * multiplier).toInt().coerceAtLeast(1)
+            val remainingDebt = totalCost - paidAmount
+
+            val buyPricePerPiece = totalCost / totalPieces
+            val sellPricePerPiece = (sellPricePerUnit * unitCount) / totalPieces
+
+            val finalCashPaid = when (paymentMethod) {
+                "نقداً من الصندوق", "نقداً (كاش)" -> paidAmount
+                "نصف كاش ونصف حوالة" -> cashPaidPart
+                else -> 0.0
+            }
+            val finalTransferPaid = when (paymentMethod) {
+                "تحويل عبر الصرافة", "تحويل صرافة" -> paidAmount
+                "نصف كاش ونصف حوالة" -> transferPaidPart
+                else -> 0.0
+            }
+
+            val purchase = PurchaseRecord(
+                supplierName = supplierName.ifBlank { "مورد عام" },
                 category = category,
                 modelName = modelName,
                 color = color,
                 size = size,
                 quantity = totalPieces,
-                buyPrice = buyPricePerPiece,
-                sellPrice = sellPricePerPiece,
-                supplierName = supplierName.ifBlank { "مورد عام" },
-                purchaseDate = now,
+                unitBuyPrice = buyPricePerPiece,
+                unitSellPrice = sellPricePerPiece,
+                totalCost = totalCost,
+                paidAmount = paidAmount,
+                remainingDebt = remainingDebt,
                 invoiceNumber = invoiceNumber,
-                barcode = barcode,
-                notes = notes,
+                paymentMethod = paymentMethod,
+                cashPaid = finalCashPaid,
+                transferPaid = finalTransferPaid,
+                exchangeAccountId = exchangeAccount?.id ?: 0L,
+                exchangeAccountName = exchangeAccount?.name ?: "",
+                timestamp = now,
                 unit = unit,
+                unitCount = unitCount,
                 colorsCount = colorsCount,
-                colorDetails = colorDetails
+                notes = notes
             )
-            dao.insertProduct(newProduct)
-        }
+            val purchaseId = dao.insertPurchase(purchase)
 
-        val unitDesc = if (unit == ClothingUnits.PIECE) "$totalPieces حبه" else "${unitCount.toInt()} $unit ($totalPieces حبه)"
+            // Add or update product stock atomically
+            val allProds = dao.getAllProducts().firstOrNull() ?: emptyList()
+            val existing = allProds.find {
+                it.modelName.trim().equals(modelName.trim(), ignoreCase = true) &&
+                        it.color.trim().equals(color.trim(), ignoreCase = true) &&
+                        it.size.trim().equals(size.trim(), ignoreCase = true)
+            }
 
-        // 1. If cash paid -> Deduct from cash drawer
-        if (finalCashPaid > 0) {
-            dao.insertCashMovement(
-                CashDrawerMovement(
-                    shiftId = shiftId,
-                    type = "PURCHASE_PAID",
-                    amount = finalCashPaid,
-                    isIncome = false,
-                    title = "شراء بضاعة: $modelName ($unitDesc)",
-                    details = "المورد: $supplierName | فاتورة: $invoiceNumber${if (finalTransferPaid > 0) " (جزء نقدي)" else ""}",
-                    timestamp = now,
-                    referencePurchaseId = purchaseId
+            if (existing != null) {
+                val updated = existing.copy(
+                    quantity = existing.quantity + totalPieces,
+                    buyPrice = buyPricePerPiece,
+                    sellPrice = sellPricePerPiece,
+                    supplierName = supplierName.ifBlank { existing.supplierName },
+                    barcode = barcode.ifBlank { existing.barcode },
+                    notes = if (notes.isNotBlank()) notes else existing.notes,
+                    unit = unit,
+                    colorsCount = colorsCount,
+                    colorDetails = colorDetails
                 )
-            )
-        }
+                dao.updateProduct(updated)
+            } else {
+                val newProduct = ProductItem(
+                    category = category,
+                    modelName = modelName,
+                    color = color,
+                    size = size,
+                    quantity = totalPieces,
+                    buyPrice = buyPricePerPiece,
+                    sellPrice = sellPricePerPiece,
+                    supplierName = supplierName.ifBlank { "مورد عام" },
+                    purchaseDate = now,
+                    invoiceNumber = invoiceNumber,
+                    barcode = barcode,
+                    notes = notes,
+                    unit = unit,
+                    colorsCount = colorsCount,
+                    colorDetails = colorDetails
+                )
+                dao.insertProduct(newProduct)
+            }
 
-        // 2. If transfer paid -> Deduct from exchange account
-        if (finalTransferPaid > 0 && exchangeAccount != null) {
-            dao.updateExchangeBalance(exchangeAccount.id, -finalTransferPaid)
-            dao.insertExchangeTransfer(
-                ExchangeTransfer(
-                    accountId = exchangeAccount.id,
-                    accountName = exchangeAccount.name,
-                    type = "مشتريات تحويل",
-                    amount = finalTransferPaid,
-                    isCredit = false,
-                    title = "مشتريات تحويل: $modelName ($unitDesc)",
-                    referenceNumber = invoiceNumber,
-                    notes = "فاتورة شراء #${purchaseId} | المورد: $supplierName",
+            val unitDesc = if (unit == ClothingUnits.PIECE) "$totalPieces حبه" else "${unitCount.toInt()} $unit ($totalPieces حبه)"
+
+            // 1. If cash paid -> Deduct from cash drawer
+            if (finalCashPaid > 0) {
+                dao.insertCashMovement(
+                    CashDrawerMovement(
+                        shiftId = shiftId,
+                        type = "PURCHASE_PAID",
+                        amount = finalCashPaid,
+                        isIncome = false,
+                        title = "شراء بضاعة: $modelName ($unitDesc)",
+                        details = "المورد: $supplierName | فاتورة: $invoiceNumber${if (finalTransferPaid > 0) " (جزء نقدي)" else ""}",
+                        timestamp = now,
+                        referencePurchaseId = purchaseId
+                    )
+                )
+            }
+
+            // 2. If transfer paid -> Deduct from exchange account
+            if (finalTransferPaid > 0 && exchangeAccount != null) {
+                dao.updateExchangeBalance(exchangeAccount.id, -finalTransferPaid)
+                dao.insertExchangeTransfer(
+                    ExchangeTransfer(
+                        accountId = exchangeAccount.id,
+                        accountName = exchangeAccount.name,
+                        type = "مشتريات تحويل",
+                        amount = finalTransferPaid,
+                        isCredit = false,
+                        title = "مشتريات تحويل: $modelName ($unitDesc)",
+                        referenceNumber = invoiceNumber,
+                        notes = "فاتورة شراء #${purchaseId} | المورد: $supplierName",
+                        timestamp = now
+                    )
+                )
+            }
+
+            // 3. If remaining debt -> Record supplier debt
+            if (remainingDebt > 0) {
+                dao.insertDebt(
+                    DebtRecord(
+                        type = "SUPPLIER",
+                        partyName = supplierName.ifBlank { "مورد" },
+                        phone = "",
+                        originalAmount = totalCost,
+                        paidAmount = paidAmount,
+                        remainingAmount = remainingDebt,
+                        details = "متبقي شراء بضاعة: $modelName ($unitDesc) فاتورة #$invoiceNumber",
+                        referencePurchaseId = purchaseId,
+                        dueDate = now + 86400000L * 30,
+                        createdAt = now,
+                        isSettled = false
+                    )
+                )
+            }
+
+            dao.insertAuditLog(
+                AuditLogRecord(
+                    action = "تسجيل مشتريات",
+                    actor = "صاحب المحل",
+                    details = "فاتورة شراء #${purchaseId}: $modelName ($unitDesc) من $supplierName بإجمالي ${FormatUtils.formatCurrency(totalCost)}",
                     timestamp = now
                 )
             )
-        }
 
-        // 3. If remaining debt
-        if (remainingDebt > 0) {
-            dao.insertDebt(
-                DebtRecord(
-                    type = "SUPPLIER",
-                    partyName = supplierName.ifBlank { "مورد" },
-                    phone = "",
-                    originalAmount = totalCost,
-                    paidAmount = paidAmount,
-                    remainingAmount = remainingDebt,
-                    details = "متبقي شراء بضاعة: $modelName ($unitDesc) فاتورة #$invoiceNumber",
-                    referencePurchaseId = purchaseId,
-                    dueDate = now + 86400000L * 30,
-                    createdAt = now,
-                    isSettled = false
+            purchaseId
+        }
+    }
+
+    // --- Delete / Reverse Purchase (Safeguarded against sold stock) ---
+    suspend fun deletePurchase(purchaseId: Long) {
+        runInTransaction {
+            val purchase = dao.getPurchaseById(purchaseId) ?: return@runInTransaction
+
+            // 1. Find product and verify stock has not already been sold
+            val allProds = dao.getAllProducts().firstOrNull() ?: emptyList()
+            val prod = allProds.find {
+                it.modelName.trim().equals(purchase.modelName.trim(), ignoreCase = true) &&
+                        it.color.trim().equals(purchase.color.trim(), ignoreCase = true) &&
+                        it.size.trim().equals(purchase.size.trim(), ignoreCase = true)
+            }
+            if (prod != null) {
+                if (prod.quantity < purchase.quantity) {
+                    throw IllegalStateException(
+                        "لا يمكن حذف فاتورة الشراء هذه لأن جزءاً من البضاعة تم بيعه بالفعل! " +
+                        "(المتبقي في المخزن ${prod.quantity} حبة بينما الفاتورة تحتوي على ${purchase.quantity} حبة). " +
+                        "يرجى تسوية المخزون عبر الجرد بدلاً من حذف الفاتورة."
+                    )
+                }
+                val newQty = prod.quantity - purchase.quantity
+                dao.updateStock(prod.id, newQty, System.currentTimeMillis())
+            }
+
+            // 2. Refund cash movements
+            dao.deleteCashMovementsForPurchase(purchaseId)
+
+            // 3. Refund exchange account if transfer was used
+            if (purchase.transferPaid > 0 && purchase.exchangeAccountId > 0) {
+                dao.updateExchangeBalance(purchase.exchangeAccountId, purchase.transferPaid)
+            }
+
+            // 4. Delete supplier debt if linked
+            val debt = dao.getDebtByPurchaseId(purchaseId)
+            if (debt != null) {
+                dao.deleteDebt(debt.id)
+            }
+
+            // 5. Delete purchase record
+            dao.deletePurchase(purchaseId)
+
+            dao.insertAuditLog(
+                AuditLogRecord(
+                    action = "إلغاء مشتريات",
+                    actor = "المدير",
+                    details = "تم إلغاء فاتورة الشراء #${purchase.id} للمنتج (${purchase.modelName}) واسترداد المبالغ المدفوعة.",
+                    timestamp = System.currentTimeMillis()
                 )
             )
         }
-
-        return purchaseId
-    }
-
-    // --- Delete / Reverse Purchase ---
-    suspend fun deletePurchase(purchaseId: Long) {
-        val purchase = dao.getPurchaseById(purchaseId) ?: return
-
-        // 1. Find product and deduct purchased pieces
-        val allProds = dao.getAllProducts().firstOrNull() ?: emptyList()
-        val prod = allProds.find {
-            it.modelName.trim().equals(purchase.modelName.trim(), ignoreCase = true) &&
-                    it.color.trim().equals(purchase.color.trim(), ignoreCase = true) &&
-                    it.size.trim().equals(purchase.size.trim(), ignoreCase = true)
-        }
-        if (prod != null) {
-            val newQty = (prod.quantity - purchase.quantity).coerceAtLeast(0)
-            dao.updateStock(prod.id, newQty, System.currentTimeMillis())
-        }
-
-        // 2. Refund cash movements
-        dao.deleteCashMovementsForPurchase(purchaseId)
-
-        // 3. Refund exchange account if transfer was used
-        if (purchase.transferPaid > 0 && purchase.exchangeAccountId > 0) {
-            dao.updateExchangeBalance(purchase.exchangeAccountId, purchase.transferPaid)
-        }
-
-        // 4. Delete supplier debt if linked
-        val debt = dao.getDebtByPurchaseId(purchaseId)
-        if (debt != null) {
-            dao.deleteDebt(debt.id)
-        }
-
-        // 5. Delete purchase record
-        dao.deletePurchase(purchaseId)
     }
 
     suspend fun updatePurchase(purchase: PurchaseRecord) {
@@ -1279,6 +1428,193 @@ class StoreRepository(private val dao: StoreDao) {
                     referenceNumber = "AUDIT",
                     notes = notes,
                     timestamp = now
+                )
+            )
+        }
+    }
+
+    suspend fun restoreFullData(
+        productsJson: JSONArray?,
+        salesJson: JSONArray?,
+        purchasesJson: JSONArray?,
+        expensesJson: JSONArray?,
+        accountsJson: JSONArray?,
+        partiesJson: JSONArray?,
+        debtsJson: JSONArray?
+    ) {
+        runInTransaction {
+            // 1. Wipe existing data
+            clearEverythingCompletely()
+
+            // 2. Restore Products
+            if (productsJson != null) {
+                for (i in 0 until productsJson.length()) {
+                    val obj = productsJson.getJSONObject(i)
+                    dao.insertProduct(
+                        ProductItem(
+                            category = obj.optString("category", "أخرى"),
+                            modelName = obj.optString("modelName", "صنف"),
+                            color = obj.optString("color", "عام"),
+                            size = obj.optString("size", "حر"),
+                            quantity = obj.optInt("quantity", 0),
+                            buyPrice = obj.optDouble("buyPrice", 0.0),
+                            sellPrice = obj.optDouble("sellPrice", 0.0),
+                            supplierName = obj.optString("supplierName", ""),
+                            purchaseDate = obj.optLong("purchaseDate", System.currentTimeMillis()),
+                            invoiceNumber = obj.optString("invoiceNumber", ""),
+                            barcode = obj.optString("barcode", ""),
+                            notes = obj.optString("notes", ""),
+                            unit = obj.optString("unit", ClothingUnits.PIECE),
+                            colorsCount = obj.optInt("colorsCount", 1),
+                            colorDetails = obj.optString("colorDetails", "")
+                        )
+                    )
+                }
+            }
+
+            // 3. Restore Exchange Accounts
+            if (accountsJson != null) {
+                for (i in 0 until accountsJson.length()) {
+                    val obj = accountsJson.getJSONObject(i)
+                    dao.insertExchangeAccount(
+                        ExchangeAccount(
+                            name = obj.optString("name", "حساب"),
+                            accountNumber = obj.optString("accountNumber", ""),
+                            phone = obj.optString("phone", ""),
+                            balance = obj.optDouble("balance", 0.0),
+                            type = obj.optString("type", "صراف"),
+                            notes = obj.optString("notes", "")
+                        )
+                    )
+                }
+            }
+
+            // 4. Restore Parties
+            if (partiesJson != null) {
+                for (i in 0 until partiesJson.length()) {
+                    val obj = partiesJson.getJSONObject(i)
+                    dao.insertParty(
+                        PartyAccount(
+                            type = obj.optString("type", "CUSTOMER"),
+                            name = obj.optString("name", ""),
+                            phone = obj.optString("phone", ""),
+                            address = obj.optString("address", ""),
+                            notes = obj.optString("notes", ""),
+                            initialBalance = obj.optDouble("initialBalance", 0.0)
+                        )
+                    )
+                }
+            }
+
+            // 5. Restore Debts
+            if (debtsJson != null) {
+                for (i in 0 until debtsJson.length()) {
+                    val obj = debtsJson.getJSONObject(i)
+                    dao.insertDebt(
+                        DebtRecord(
+                            type = obj.optString("type", "CUSTOMER"),
+                            partyName = obj.optString("partyName", ""),
+                            phone = obj.optString("phone", ""),
+                            originalAmount = obj.optDouble("originalAmount", 0.0),
+                            paidAmount = obj.optDouble("paidAmount", 0.0),
+                            remainingAmount = obj.optDouble("remainingAmount", 0.0),
+                            details = obj.optString("details", ""),
+                            createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                            isSettled = obj.optBoolean("isSettled", false)
+                        )
+                    )
+                }
+            }
+
+            // 6. Restore Sales
+            if (salesJson != null) {
+                for (i in 0 until salesJson.length()) {
+                    val obj = salesJson.getJSONObject(i)
+                    dao.insertSale(
+                        SaleTransaction(
+                            productId = obj.optLong("productId", 0L),
+                            productName = obj.optString("productName", ""),
+                            category = obj.optString("category", ""),
+                            color = obj.optString("color", ""),
+                            size = obj.optString("size", ""),
+                            quantity = obj.optInt("quantity", 1),
+                            unitBuyPrice = obj.optDouble("unitBuyPrice", 0.0),
+                            unitSellPrice = obj.optDouble("unitSellPrice", 0.0),
+                            discount = obj.optDouble("discount", 0.0),
+                            totalAmount = obj.optDouble("totalAmount", 0.0),
+                            profit = obj.optDouble("profit", 0.0),
+                            customerName = obj.optString("customerName", "زبون نقدي"),
+                            customerPhone = obj.optString("customerPhone", ""),
+                            paymentType = obj.optString("paymentType", "نقداً"),
+                            cashAmount = obj.optDouble("cashAmount", 0.0),
+                            transferAmount = obj.optDouble("transferAmount", 0.0),
+                            exchangeAccountId = obj.optLong("exchangeAccountId", 0L),
+                            exchangeAccountName = obj.optString("exchangeAccountName", ""),
+                            transferRef = obj.optString("transferRef", ""),
+                            employeeName = obj.optString("employeeName", "صاحب المحل"),
+                            timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
+                            unit = obj.optString("unit", ClothingUnits.PIECE)
+                        )
+                    )
+                }
+            }
+
+            // 7. Restore Purchases
+            if (purchasesJson != null) {
+                for (i in 0 until purchasesJson.length()) {
+                    val obj = purchasesJson.getJSONObject(i)
+                    dao.insertPurchase(
+                        PurchaseRecord(
+                            supplierName = obj.optString("supplierName", "مورد"),
+                            category = obj.optString("category", ""),
+                            modelName = obj.optString("modelName", ""),
+                            color = obj.optString("color", ""),
+                            size = obj.optString("size", ""),
+                            quantity = obj.optInt("quantity", 1),
+                            unitBuyPrice = obj.optDouble("unitBuyPrice", 0.0),
+                            unitSellPrice = obj.optDouble("unitSellPrice", 0.0),
+                            totalCost = obj.optDouble("totalCost", 0.0),
+                            paidAmount = obj.optDouble("paidAmount", 0.0),
+                            remainingDebt = obj.optDouble("remainingDebt", 0.0),
+                            invoiceNumber = obj.optString("invoiceNumber", ""),
+                            paymentMethod = obj.optString("paymentMethod", "نقداً من الصندوق"),
+                            cashPaid = obj.optDouble("cashPaid", 0.0),
+                            transferPaid = obj.optDouble("transferPaid", 0.0),
+                            exchangeAccountId = obj.optLong("exchangeAccountId", 0L),
+                            exchangeAccountName = obj.optString("exchangeAccountName", ""),
+                            timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
+                            unit = obj.optString("unit", ClothingUnits.PIECE),
+                            unitCount = obj.optDouble("unitCount", 1.0)
+                        )
+                    )
+                }
+            }
+
+            // 8. Restore Expenses
+            if (expensesJson != null) {
+                for (i in 0 until expensesJson.length()) {
+                    val obj = expensesJson.getJSONObject(i)
+                    dao.insertExpense(
+                        ExpenseRecord(
+                            category = obj.optString("category", "مصروف"),
+                            amount = obj.optDouble("amount", 0.0),
+                            notes = obj.optString("notes", ""),
+                            receiptNumber = obj.optString("receiptNumber", ""),
+                            timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
+                            paidFromCash = obj.optBoolean("paidFromCash", true),
+                            exchangeAccountId = obj.optLong("exchangeAccountId", 0L),
+                            exchangeAccountName = obj.optString("exchangeAccountName", "")
+                        )
+                    )
+                }
+            }
+
+            dao.insertAuditLog(
+                AuditLogRecord(
+                    action = "استعادة نسخة احتياطية",
+                    actor = "المدير",
+                    details = "تمت استعادة البيانات بنجاح من ملف النسخة الاحتياطية",
+                    timestamp = System.currentTimeMillis()
                 )
             )
         }

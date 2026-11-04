@@ -302,7 +302,6 @@ fun SaleScreen(
             // ==========================================
             // Step 2 & 3: Quantity, Unit, Price, and Payment (Only shown when product is picked)
             // ==========================================
-            item {
             if (selectedProduct != null) {
                 val prod = selectedProduct!!
 

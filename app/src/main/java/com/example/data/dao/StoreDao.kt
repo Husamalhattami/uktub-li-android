@@ -289,4 +289,35 @@ interface StoreDao {
 
     @Query("SELECT * FROM purchases WHERE supplierName = :supplierName ORDER BY timestamp DESC")
     fun getPurchasesBySupplierName(supplierName: String): Flow<List<PurchaseRecord>>
+
+    // --- Safe Stock Operations ---
+    @Query("UPDATE products SET quantity = quantity - :qtySold, lastSoldTimestamp = :soldTime WHERE id = :productId AND quantity >= :qtySold")
+    suspend fun decrementStockSafe(productId: Long, qtySold: Int, soldTime: Long): Int
+
+    @Query("UPDATE products SET quantity = quantity + :qtyToAdd WHERE id = :productId")
+    suspend fun incrementStock(productId: Long, qtyToAdd: Int)
+
+    // --- Audit Logs ---
+    @Query("SELECT * FROM audit_logs ORDER BY timestamp DESC")
+    fun getAllAuditLogs(): Flow<List<AuditLogRecord>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAuditLog(log: AuditLogRecord): Long
+
+    @Query("DELETE FROM audit_logs")
+    suspend fun deleteAllAuditLogs()
+
+    // --- Store Settings ---
+    @Query("SELECT * FROM store_settings WHERE id = 1 LIMIT 1")
+    fun getStoreSettings(): Flow<StoreSettings?>
+
+    @Query("SELECT * FROM store_settings WHERE id = 1 LIMIT 1")
+    suspend fun getStoreSettingsDirect(): StoreSettings?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStoreSettings(settings: StoreSettings)
+
+    @Update
+    suspend fun updateStoreSettings(settings: StoreSettings)
 }
+

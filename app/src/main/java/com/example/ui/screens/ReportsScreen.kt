@@ -36,8 +36,20 @@ fun ReportsScreen(
     val products by viewModel.products.collectAsStateWithLifecycle()
     val debts by viewModel.debts.collectAsStateWithLifecycle()
     val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
+    val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
-    var selectedPeriod by remember { mutableStateOf("هذا الشهر") } // "اليوم", "هذا الأسبوع", "هذا الشهر", "الكل"
+    var selectedPeriod by remember { mutableStateOf("اليوم") } // "اليوم", "أمس", "هذا الأسبوع", "هذا الشهر", "الكل"
+
+    val isYesterday: (Long) -> Boolean = remember {
+        { ts ->
+            val calNow = java.util.Calendar.getInstance()
+            calNow.add(java.util.Calendar.DAY_OF_YEAR, -1)
+            val calTarget = java.util.Calendar.getInstance().apply { timeInMillis = ts }
+            calNow.get(java.util.Calendar.YEAR) == calTarget.get(java.util.Calendar.YEAR) &&
+                    calNow.get(java.util.Calendar.DAY_OF_YEAR) == calTarget.get(java.util.Calendar.DAY_OF_YEAR)
+        }
+    }
 
     val filteredSales = remember(sales, selectedPeriod) {
         val now = System.currentTimeMillis()
@@ -45,6 +57,7 @@ fun ReportsScreen(
         sales.filter {
             when (selectedPeriod) {
                 "اليوم" -> FormatUtils.isToday(it.timestamp)
+                "أمس" -> isYesterday(it.timestamp)
                 "هذا الأسبوع" -> it.timestamp >= sevenDaysAgo
                 "هذا الشهر" -> FormatUtils.isThisMonth(it.timestamp)
                 else -> true
@@ -58,6 +71,7 @@ fun ReportsScreen(
         expenses.filter {
             when (selectedPeriod) {
                 "اليوم" -> FormatUtils.isToday(it.timestamp)
+                "أمس" -> isYesterday(it.timestamp)
                 "هذا الأسبوع" -> it.timestamp >= sevenDaysAgo
                 "هذا الشهر" -> FormatUtils.isThisMonth(it.timestamp)
                 else -> true
@@ -71,6 +85,7 @@ fun ReportsScreen(
         employeeTransactions.filter { (it.type == "صرف راتب" || it.type == "سلفة") }.filter {
             when (selectedPeriod) {
                 "اليوم" -> FormatUtils.isToday(it.timestamp)
+                "أمس" -> isYesterday(it.timestamp)
                 "هذا الأسبوع" -> it.timestamp >= sevenDaysAgo
                 "هذا الشهر" -> FormatUtils.isThisMonth(it.timestamp)
                 else -> true
@@ -80,8 +95,9 @@ fun ReportsScreen(
 
     // Calculations
     val totalSales = remember(filteredSales) { filteredSales.sumOf { it.totalAmount } }
-    val cashSales = remember(filteredSales) { filteredSales.filter { it.paymentType == "نقداً" }.sumOf { it.totalAmount } }
-    val debtSales = remember(filteredSales) { filteredSales.filter { it.paymentType == "بالدين" }.sumOf { it.totalAmount } }
+    val cashSales = remember(filteredSales) { filteredSales.sumOf { it.cashAmount } }
+    val transferSales = remember(filteredSales) { filteredSales.sumOf { it.transferAmount } }
+    val debtSales = remember(filteredSales) { filteredSales.filter { it.paymentType.contains("دين") || it.paymentType.contains("آجل") }.sumOf { it.totalAmount } }
 
     val cogs = remember(filteredSales) { filteredSales.sumOf { it.unitBuyPrice * it.quantity } }
     val grossProfit = totalSales - cogs
@@ -123,13 +139,55 @@ fun ReportsScreen(
             .sortedByDescending { it.second }
     }
 
+    fun shareReportText() {
+        val storeTitle = storeSettings?.storeName ?: "محل الأناقة للملابس الرجالية"
+        val report = buildString {
+            appendLine("📊 تقرير أرباح ومبيعات: $storeTitle")
+            appendLine("الفترة: $selectedPeriod (${FormatUtils.formatDate(System.currentTimeMillis())})")
+            appendLine("━━━━━━━━━━━━━━━━━━━━━━")
+            appendLine("• إجمالي المبيعات: ${FormatUtils.formatCurrency(totalSales)}")
+            appendLine("  - نقداً (كاش): ${FormatUtils.formatCurrency(cashSales)}")
+            appendLine("  - تحويل صرافة: ${FormatUtils.formatCurrency(transferSales)}")
+            appendLine("  - آجل (بالدين): ${FormatUtils.formatCurrency(debtSales)}")
+            appendLine("• تكلفة البضاعة المباعة: ${FormatUtils.formatCurrency(cogs)}")
+            appendLine("• مجمل الربح التجاري: ${FormatUtils.formatCurrency(grossProfit)}")
+            appendLine("• المصروفات التشغيلية: ${FormatUtils.formatCurrency(totalExpensesAmount)}")
+            appendLine("• الرواتب والسلف: ${FormatUtils.formatCurrency(totalSalariesAmount)}")
+            appendLine("━━━━━━━━━━━━━━━━━━━━━━")
+            appendLine("🌟 صافي الربح الحقيقي: ${FormatUtils.formatCurrency(netProfit)}")
+            appendLine("━━━━━━━━━━━━━━━━━━━━━━")
+            appendLine("📦 قيمة المخزون الحالي: ${FormatUtils.formatCurrency(inventoryCapital)}")
+            appendLine("💰 ديون الزبائن المستحقة: ${FormatUtils.formatCurrency(customerDebtsTotal)}")
+            appendLine("🚚 ديون الموردين المطلوب سدادها: ${FormatUtils.formatCurrency(supplierDebtsTotal)}")
+        }
+
+        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(android.content.Intent.EXTRA_SUBJECT, "تقرير مالي - $storeTitle")
+            putExtra(android.content.Intent.EXTRA_TEXT, report)
+        }
+        context.startActivity(android.content.Intent.createChooser(intent, "مشاركة التقرير المحاسبي"))
+    }
+
     Scaffold(
         topBar = {
             StoreTopBar(
-                title = "التقارير المحاسبية وصافي الأرباح",
+                title = "التقارير وصافي الأرباح",
                 showBackButton = true,
                 activeShift = activeShift,
-                onBackClick = onBack
+                onBackClick = onBack,
+                trailingAction = {
+                    IconButton(
+                        onClick = { shareReportText() },
+                        modifier = Modifier.testTag("btn_share_report")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "مشاركة التقرير",
+                            tint = Color.White
+                        )
+                    }
+                }
             )
         }
     ) { paddingValues ->
@@ -143,7 +201,7 @@ fun ReportsScreen(
         ) {
             // Period selector
             item {
-                val periods = listOf("اليوم", "هذا الأسبوع", "هذا الشهر", "الكل")
+                val periods = listOf("اليوم", "أمس", "هذا الأسبوع", "هذا الشهر", "الكل")
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {

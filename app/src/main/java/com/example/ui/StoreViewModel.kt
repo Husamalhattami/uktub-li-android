@@ -22,7 +22,9 @@ enum class AppScreen {
     CASH_DRAWER,
     EXCHANGE_ACCOUNTS,
     TRANSACTIONS_LOG,
-    STORE_AUDIT
+    STORE_AUDIT,
+    SETTINGS,
+    AUDIT_LOGS
 }
 
 data class CompletedSaleReceipt(
@@ -33,12 +35,10 @@ data class CompletedSaleReceipt(
 
 class StoreViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository: StoreRepository
+    private val dbInstance = AppDatabase.getInstance(application)
+    private val repository = StoreRepository(dbInstance.storeDao(), dbInstance)
 
-    init {
-        val db = AppDatabase.getInstance(application)
-        repository = StoreRepository(db.storeDao())
-    }
+    fun getRepository(): StoreRepository = repository
 
     // --- Navigation State ---
     private val _currentScreen = MutableStateFlow(AppScreen.HOME)
@@ -106,6 +106,12 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     val supplierParties: StateFlow<List<PartyAccount>> = parties.map { list ->
         list.filter { it.type == "SUPPLIER" }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val auditLogs: StateFlow<List<AuditLogRecord>> = repository.allAuditLogs
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val storeSettings: StateFlow<StoreSettings?> = repository.storeSettings
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // --- Completed Receipt Dialog Event ---
     private val _completedReceipt = MutableStateFlow<CompletedSaleReceipt?>(null)
@@ -187,53 +193,55 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
-            val totalPieces = quantity * com.example.ui.util.ClothingUnits.getMultiplier(unit)
-            if (quantity <= 0) {
-                _userMessage.value = "يرجى تحديد كمية صحيحة"
-                return@launch
-            }
-            if (totalPieces > product.quantity) {
-                _userMessage.value = "الكمية المطلوبة ($totalPieces حبه) أكبر من المتوفر بالمخزون (${product.quantity} حبه)"
-                return@launch
-            }
+            try {
+                val sale = repository.executeSale(
+                    product = product,
+                    quantity = quantity,
+                    sellPrice = sellPrice,
+                    discount = discount,
+                    customerName = customerName,
+                    customerPhone = customerPhone,
+                    paymentType = paymentType,
+                    employee = employee,
+                    unit = unit,
+                    cashPart = cashPart,
+                    transferPart = transferPart,
+                    exchangeAccount = exchangeAccount,
+                    transferRef = transferRef
+                )
 
-            val sale = repository.executeSale(
-                product = product,
-                quantity = quantity,
-                sellPrice = sellPrice,
-                discount = discount,
-                customerName = customerName,
-                customerPhone = customerPhone,
-                paymentType = paymentType,
-                employee = employee,
-                unit = unit,
-                cashPart = cashPart,
-                transferPart = transferPart,
-                exchangeAccount = exchangeAccount,
-                transferRef = transferRef
-            )
-
-            _completedReceipt.value = CompletedSaleReceipt(
-                sale = sale,
-                dateStr = FormatUtils.formatDate(sale.timestamp),
-                timeStr = FormatUtils.formatTime(sale.timestamp)
-            )
-            _userMessage.value = "تم إتمام عملية البيع بنجاح!"
-            onSuccess()
+                _completedReceipt.value = CompletedSaleReceipt(
+                    sale = sale,
+                    dateStr = FormatUtils.formatDate(sale.timestamp),
+                    timeStr = FormatUtils.formatTime(sale.timestamp)
+                )
+                _userMessage.value = "تم إتمام عملية البيع بنجاح!"
+                onSuccess()
+            } catch (e: Exception) {
+                _userMessage.value = e.message ?: "تعذر إتمام عملية البيع"
+            }
         }
     }
 
     fun deleteSale(saleId: Long) {
         viewModelScope.launch {
-            repository.deleteSale(saleId)
-            _userMessage.value = "تم حذف فاتورة البيع واسترجاع البضاعة والمبالغ"
+            try {
+                repository.deleteSale(saleId)
+                _userMessage.value = "تم حذف فاتورة البيع واسترجاع البضاعة والمبالغ"
+            } catch (e: Exception) {
+                _userMessage.value = e.message ?: "فشل إلغاء فاتورة البيع"
+            }
         }
     }
 
     fun updateSale(sale: SaleTransaction) {
         viewModelScope.launch {
-            repository.updateSale(sale)
-            _userMessage.value = "تم تحديث بيانات فاتورة البيع"
+            try {
+                repository.updateSale(sale)
+                _userMessage.value = "تم تحديث بيانات فاتورة البيع"
+            } catch (e: Exception) {
+                _userMessage.value = e.message ?: "فشل تحديث فاتورة البيع"
+            }
         }
     }
 
@@ -260,40 +268,44 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
-            if (modelName.isBlank() || unitCount <= 0 || buyPricePerUnit <= 0) {
-                _userMessage.value = "يرجى إكمال بيانات البضاعة وسعر الشراء والكمية"
-                return@launch
+            try {
+                repository.recordPurchase(
+                    supplierName = supplierName,
+                    category = category,
+                    modelName = modelName,
+                    color = color,
+                    size = size,
+                    unit = unit,
+                    unitCount = unitCount,
+                    buyPricePerUnit = buyPricePerUnit,
+                    sellPricePerUnit = sellPricePerUnit,
+                    paidAmount = paidAmount,
+                    invoiceNumber = invoiceNumber,
+                    paymentMethod = paymentMethod,
+                    barcode = barcode,
+                    notes = notes,
+                    colorsCount = colorsCount,
+                    colorDetails = colorDetails,
+                    cashPaidPart = cashPaid,
+                    transferPaidPart = transferPaid,
+                    exchangeAccount = exchangeAccount
+                )
+                _userMessage.value = "تم تسجيل شراء البضاعة وإضافتها إلى المخزون!"
+                onSuccess()
+            } catch (e: Exception) {
+                _userMessage.value = e.message ?: "فشل تسجيل فاتورة الشراء"
             }
-            repository.recordPurchase(
-                supplierName = supplierName,
-                category = category,
-                modelName = modelName,
-                color = color,
-                size = size,
-                unit = unit,
-                unitCount = unitCount,
-                buyPricePerUnit = buyPricePerUnit,
-                sellPricePerUnit = sellPricePerUnit,
-                paidAmount = paidAmount,
-                invoiceNumber = invoiceNumber,
-                paymentMethod = paymentMethod,
-                barcode = barcode,
-                notes = notes,
-                colorsCount = colorsCount,
-                colorDetails = colorDetails,
-                cashPaidPart = cashPaid,
-                transferPaidPart = transferPaid,
-                exchangeAccount = exchangeAccount
-            )
-            _userMessage.value = "تم تسجيل شراء البضاعة وإضافتها إلى المخزون!"
-            onSuccess()
         }
     }
 
     fun deletePurchase(purchaseId: Long) {
         viewModelScope.launch {
-            repository.deletePurchase(purchaseId)
-            _userMessage.value = "تم حذف فاتورة الشراء وخصم الكمية واسترداد الدفعات"
+            try {
+                repository.deletePurchase(purchaseId)
+                _userMessage.value = "تم حذف فاتورة الشراء وخصم الكمية واسترداد الدفعات"
+            } catch (e: Exception) {
+                _userMessage.value = e.message ?: "تعذر حذف فاتورة الشراء"
+            }
         }
     }
 
@@ -626,6 +638,30 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
             )
             _userMessage.value = "تم اعتماد الجرد الفعلي وتحديث الصندوق وحسابات الصرافين بنجاح"
             onSuccess()
+        }
+    }
+
+    fun saveSettings(settings: StoreSettings) {
+        viewModelScope.launch {
+            repository.saveStoreSettings(settings)
+            _userMessage.value = "تم حفظ إعدادات المحل والترويسة بنجاح"
+        }
+    }
+
+    fun restoreBackup(jsonString: String, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val ok = com.example.ui.util.BackupManager.restoreFromJson(jsonString, repository)
+                if (ok) {
+                    _userMessage.value = "تمت استعادة النسخة الاحتياطية بنجاح!"
+                } else {
+                    _userMessage.value = "ملف النسخة الاحتياطية غير متوافق"
+                }
+                onResult(ok)
+            } catch (e: Exception) {
+                _userMessage.value = "حدث خطأ أثناء الاستعادة: ${e.message}"
+                onResult(false)
+            }
         }
     }
 }

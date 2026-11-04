@@ -21,9 +21,11 @@ import com.example.data.model.*
         CashDrawerMovement::class,
         ExchangeAccount::class,
         ExchangeTransfer::class,
-        PartyAccount::class
+        PartyAccount::class,
+        AuditLogRecord::class,
+        StoreSettings::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -40,9 +42,39 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "hesabi_store.db"
-                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).fallbackToDestructiveMigration().build()
+                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).fallbackToDestructiveMigration().build()
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        private val MIGRATION_5_6 = object : androidx.room.migration.Migration(5, 6) {
+            override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `audit_logs` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `action` TEXT NOT NULL,
+                        `actor` TEXT NOT NULL,
+                        `details` TEXT NOT NULL,
+                        `timestamp` INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `store_settings` (
+                        `id` INTEGER PRIMARY KEY NOT NULL,
+                        `shopNameAr` TEXT NOT NULL,
+                        `shopNameEn` TEXT NOT NULL,
+                        `phone` TEXT NOT NULL,
+                        `address` TEXT NOT NULL,
+                        `currency` TEXT NOT NULL,
+                        `taxNumber` TEXT NOT NULL,
+                        `invoiceHeader` TEXT NOT NULL,
+                        `invoiceFooter` TEXT NOT NULL,
+                        `showProfitInReports` INTEGER NOT NULL,
+                        `managerPin` TEXT NOT NULL,
+                        `isManagerRole` INTEGER NOT NULL
+                    )
+                """.trimIndent())
             }
         }
 

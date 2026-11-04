@@ -59,6 +59,7 @@ fun StoreAuditScreen(
 
     // Dialog confirmation state
     var showConfirmDialog by remember { mutableStateOf(false) }
+    var confirmWordInput by remember { mutableStateOf("") }
     var showAddAccountDialog by remember { mutableStateOf(false) }
 
     // Product edit in audit
@@ -577,16 +578,32 @@ fun StoreAuditScreen(
                             modifier = Modifier.padding(top = 8.dp)
                         ) {
                             Text(
-                                text = "تنبيه: سيتم مسح فواتير البيع والشراء والمصروفات والديون السابقة للبدء بسجل نظيف تماماً من الصفر.",
+                                text = "تنبيه هام: سيتم مسح فواتير البيع والشراء والمصروفات والديون السابقة للبدء بسجل نظيف تماماً من الصفر.",
                                 color = RubyExpense,
                                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
                                 modifier = Modifier.padding(8.dp)
                             )
                         }
+
+                        Text(
+                            text = "للتأكيد النهائي، يرجى كتابة كلمة «تصفير» في المربع أدناه:",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = RubyExpense)
+                        )
+
+                        OutlinedTextField(
+                            value = confirmWordInput,
+                            onValueChange = { confirmWordInput = it },
+                            placeholder = { Text("اكتب تصفير") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("audit_confirm_word_input")
+                        )
                     }
                 }
             },
             confirmButton = {
+                val isWordValid = !resetTransactionsFromZero || (confirmWordInput.trim() == "تصفير" || confirmWordInput.trim() == "حذف")
                 Button(
                     onClick = {
                         val exchangeMap = exchangeAccounts.associate { acc ->
@@ -603,6 +620,7 @@ fun StoreAuditScreen(
                             }
                         )
                     },
+                    enabled = isWordValid,
                     colors = ButtonDefaults.buttonColors(containerColor = if (resetTransactionsFromZero) RubyExpense else EmeraldProfit),
                     modifier = Modifier.testTag("confirm_finalize_audit_button")
                 ) {

@@ -45,25 +45,38 @@ fun HomeScreen(
     val totalCustDebts by viewModel.totalCustomerDebts.collectAsStateWithLifecycle()
     val totalSuppDebts by viewModel.totalSupplierDebts.collectAsStateWithLifecycle()
     val cashMovements by viewModel.cashMovements.collectAsStateWithLifecycle()
+    val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
 
     var showClearDataDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             StoreTopBar(
-                title = "حسابي للمحل",
+                title = storeSettings?.storeName ?: "حسابي للمحل",
                 activeShift = activeShift,
                 onShiftClick = { onNavigate(AppScreen.CASH_DRAWER) },
                 trailingAction = {
-                    IconButton(
-                        onClick = { showClearDataDialog = true },
-                        modifier = Modifier.testTag("btn_clear_data_menu")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.RestartAlt,
-                            contentDescription = "جرد وتصفير",
-                            tint = Color.White
-                        )
+                    Row {
+                        IconButton(
+                            onClick = { onNavigate(AppScreen.SETTINGS) },
+                            modifier = Modifier.testTag("btn_settings_topbar")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "الإعدادات والنسخ الاحتياطي",
+                                tint = Color.White
+                            )
+                        }
+                        IconButton(
+                            onClick = { showClearDataDialog = true },
+                            modifier = Modifier.testTag("btn_clear_data_menu")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.RestartAlt,
+                                contentDescription = "جرد وتصفير",
+                                tint = Color.White
+                            )
+                        }
                     }
                 }
             )
@@ -99,7 +112,7 @@ fun HomeScreen(
                         ) {
                             Column {
                                 Text(
-                                    text = "محل الأناقة للملابس الرجالية",
+                                    text = storeSettings?.storeName ?: "محل الأناقة للملابس الرجالية",
                                     style = MaterialTheme.typography.titleMedium.copy(
                                         color = Color.White,
                                         fontWeight = FontWeight.Bold
@@ -474,56 +487,148 @@ fun HomeScreen(
 
     // Clear Data / Factory Reset Confirmation Dialog
     if (showClearDataDialog) {
+        var wipeWordInput by remember { mutableStateOf("") }
+        var showFullWipeConfirm by remember { mutableStateOf(false) }
+
         AlertDialog(
-            onDismissRequest = { showClearDataDialog = false },
+            onDismissRequest = {
+                showClearDataDialog = false
+                showFullWipeConfirm = false
+                wipeWordInput = ""
+            },
             title = {
                 Text(
-                    text = "تصفير وجرد النظام",
+                    text = if (showFullWipeConfirm) "تأكيد حذف جميع البيانات" else "خيارات الجرد وإعادة ضبط النظام",
                     fontWeight = FontWeight.Bold
                 )
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = "يمكنك تصفير العمليات للبدء من جديد بجرد حقيقي للمحل:",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                    if (!showFullWipeConfirm) {
+                        Text(
+                            text = "لإدارة حسابات محلك بأمان دون فقدان بياناتك بدون قصد، يرجى اختيار الإجراء المناسب:",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SlateTextSecondary
+                        )
 
-                    Button(
-                        onClick = {
-                            viewModel.clearData(transactionsOnly = true) {
+                        // 1. Recommended: Store Audit Wizard
+                        Button(
+                            onClick = {
                                 showClearDataDialog = false
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = FintechAmber),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("حذف العمليات السابقة فقط (مع بقاء البضاعة والمخزون)")
-                    }
+                                onNavigate(AppScreen.STORE_AUDIT)
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = FintechEmerald),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.FactCheck, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("معالج جرد المحل الفعلي والأرصدة (موصى به)")
+                        }
 
-                    OutlinedButton(
-                        onClick = {
-                            viewModel.clearData(transactionsOnly = false) {
+                        // 2. Backup data first
+                        OutlinedButton(
+                            onClick = {
                                 showClearDataDialog = false
-                            }
-                        },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = FintechRose),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.DeleteForever, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("حذف كل شيء بالكامل (بدء النظام من الصفر فارغاً)")
+                                onNavigate(AppScreen.SETTINGS)
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("حفظ وتصدير نسخة احتياطية أولاً")
+                        }
+
+                        // 3. Clear only operations
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.clearData(transactionsOnly = true) {
+                                    showClearDataDialog = false
+                                }
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = FintechAmber),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("تصفير حركات البيع والشراء (مع بقاء البضاعة)")
+                        }
+
+                        // 4. Wipe everything trigger
+                        OutlinedButton(
+                            onClick = { showFullWipeConfirm = true },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = FintechRose),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.DeleteForever, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("حذف كل شيء بالكامل (تصفير شامل)")
+                        }
+                    } else {
+                        Surface(
+                            color = FintechRose.copy(alpha = 0.1f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "تحذير شديد: سيتم مسح جميع الأصناف، الفواتير، الديون، وحسابات الصرافين نهائياً ولا يمكن التراجع!",
+                                color = FintechRose,
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+
+                        Text(
+                            text = "للتأكيد، يرجى كتابة كلمة «حذف» في المربع أدناه:",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = FintechRose)
+                        )
+
+                        OutlinedTextField(
+                            value = wipeWordInput,
+                            onValueChange = { wipeWordInput = it },
+                            placeholder = { Text("اكتب حذف") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("home_wipe_confirm_input")
+                        )
                     }
                 }
             },
-            confirmButton = {},
+            confirmButton = {
+                if (showFullWipeConfirm) {
+                    val canWipe = wipeWordInput.trim() == "حذف"
+                    Button(
+                        onClick = {
+                            viewModel.clearData(transactionsOnly = false) {
+                                showClearDataDialog = false
+                                showFullWipeConfirm = false
+                                wipeWordInput = ""
+                            }
+                        },
+                        enabled = canWipe,
+                        colors = ButtonDefaults.buttonColors(containerColor = FintechRose),
+                        modifier = Modifier.testTag("btn_confirm_full_wipe")
+                    ) {
+                        Text("نعم، احذف كل شيء")
+                    }
+                }
+            },
             dismissButton = {
-                TextButton(onClick = { showClearDataDialog = false }) {
-                    Text("إلغاء")
+                TextButton(
+                    onClick = {
+                        if (showFullWipeConfirm) {
+                            showFullWipeConfirm = false
+                            wipeWordInput = ""
+                        } else {
+                            showClearDataDialog = false
+                        }
+                    }
+                ) {
+                    Text(if (showFullWipeConfirm) "رجوع" else "إلغاء")
                 }
             }
         )
