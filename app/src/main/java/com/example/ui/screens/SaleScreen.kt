@@ -306,7 +306,8 @@ fun SaleScreen(
             if (selectedProduct != null) {
                 val prod = selectedProduct!!
 
-                Card(
+                item {
+                    Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = SlateCard),
@@ -419,11 +420,13 @@ fun SaleScreen(
                         }
                     }
                 }
+            }
 
                 // ==========================================
                 // Step 3: Payment Type & Customer Selection
                 // ==========================================
-                Card(
+                item {
+                    Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = SlateCard),
@@ -617,11 +620,13 @@ fun SaleScreen(
                         }
                     }
                 }
+            }
 
                 // ==========================================
                 // Total Summary & Big Confirmation Button
                 // ==========================================
-                Card(
+                item {
+                    Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = BrandNavy),
