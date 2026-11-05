@@ -44,6 +44,7 @@ data class StatementRow(
 @Composable
 fun CashDrawerScreen(
     viewModel: StoreViewModel,
+    onNavigate: (com.example.ui.AppScreen) -> Unit = {},
     onBack: () -> Unit
 ) {
     val cashBalance by viewModel.currentCashBalance.collectAsStateWithLifecycle()
@@ -188,7 +189,7 @@ fun CashDrawerScreen(
             // 1. The 4 Balance Cards (Page 3 in PDF)
             // ==========================================
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     // Row 1: الصندوق | صرافة الكريمي (or first exchange account)
                     val firstAcc = exchangeAccounts.firstOrNull { it.name.contains("كريمي") } ?: exchangeAccounts.firstOrNull()
                     val secondAcc = exchangeAccounts.firstOrNull { it.name.contains("جوالي") || it.type == "محفظة" } ?: exchangeAccounts.getOrNull(1)
@@ -201,22 +202,26 @@ fun CashDrawerScreen(
                         PdfAccountBalanceCard(
                             name = "الصندوق",
                             amount = cashBalance,
-                            statusText = "متاح حالياً",
+                            statusText = "متاح نقداً • إيداع/سحب",
                             icon = Icons.Default.Payments,
                             iconColor = Color(0xFF0F766E),
                             iconBg = Color(0xFFCCFBF1),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { showDepositDialog = true }
                         )
 
                         // صرافة الكريمي (Left in RTL)
                         PdfAccountBalanceCard(
                             name = firstAcc?.name ?: "صرافة الكريمي",
-                            amount = firstAcc?.balance ?: 312400.0,
-                            statusText = "متاح حالياً",
+                            amount = firstAcc?.balance ?: 0.0,
+                            statusText = "حساب صرافة • إدارة",
                             icon = Icons.Default.AccountBalance,
                             iconColor = Color(0xFF1E3A8A),
                             iconBg = Color(0xFFDBEAFE),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onNavigate(com.example.ui.AppScreen.EXCHANGE_ACCOUNTS) }
                         )
                     }
 
@@ -227,25 +232,71 @@ fun CashDrawerScreen(
                     ) {
                         // محفظة جوالي
                         PdfAccountBalanceCard(
-                            name = secondAcc?.name ?: "محفظة جوالي",
-                            amount = secondAcc?.balance ?: 96250.0,
-                            statusText = "متاح حالياً",
+                            name = secondAcc?.name ?: "محفظة إلكترونية",
+                            amount = secondAcc?.balance ?: 0.0,
+                            statusText = "محفظة • تحويلات",
                             icon = Icons.Default.PhoneAndroid,
                             iconColor = Color(0xFF0284C7),
                             iconBg = Color(0xFFE0F2FE),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onNavigate(com.example.ui.AppScreen.EXCHANGE_ACCOUNTS) }
                         )
 
                         // ديون العملاء
                         PdfAccountBalanceCard(
                             name = "ديون العملاء",
                             amount = totalCustomerDebts,
-                            statusText = "مستحقات قائمة",
+                            statusText = "مستحقات • تحصيل",
                             icon = Icons.Default.Group,
                             iconColor = Color(0xFF4338CA),
                             iconBg = Color(0xFFEEF2FF),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onNavigate(com.example.ui.AppScreen.DEBTS) }
                         )
+                    }
+
+                    // Quick Management Chips
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onNavigate(com.example.ui.AppScreen.EXCHANGE_ACCOUNTS) },
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFFEFF6FF),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBFDBFE))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Default.AddCard, contentDescription = null, tint = Color(0xFF1E3A8A), modifier = Modifier.size(16.dp))
+                                Text("إضافة وإدارة الصرافين والمحافظ", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E3A8A), maxLines = 1)
+                            }
+                        }
+
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onNavigate(com.example.ui.AppScreen.DEBTS) },
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFFF0FDF4),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBBF7D0))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Default.PersonAdd, contentDescription = null, tint = Color(0xFF15803D), modifier = Modifier.size(16.dp))
+                                Text("إضافة وإدارة العملاء والموردين", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D), maxLines = 1)
+                            }
+                        }
                     }
                 }
             }

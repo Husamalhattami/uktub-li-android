@@ -46,6 +46,7 @@ fun PurchaseScreen(
 
     val supplierParties = remember(parties) { parties.filter { it.type == "SUPPLIER" } }
     var autoSaveSupplier by remember { mutableStateOf(true) }
+    var showAddSupplierDialog by remember { mutableStateOf(false) }
 
     val clothingTypes = listOf("بشت", "كوت", "دجلة", "جاكت", "ثوب", "قميص", "بنطلون", "دشداشة", "بدلة", "شال/غترة")
     val standardSizes = listOf(ClothingSizes.BIG, ClothingSizes.MEDIUM, ClothingSizes.SMALL, ClothingSizes.YOUTH)
@@ -596,15 +597,27 @@ fun PurchaseScreen(
                             }
                         }
 
-                        OutlinedTextField(
-                            value = supplierName,
-                            onValueChange = { supplierName = it },
-                            label = { Text("اسم المورد أو الشركة") },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("purchase_supplier_input"),
-                            shape = RoundedCornerShape(12.dp)
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = supplierName,
+                                onValueChange = { supplierName = it },
+                                label = { Text("اسم المورد أو الشركة *") },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("purchase_supplier_input"),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            FilledTonalIconButton(
+                                onClick = { showAddSupplierDialog = true },
+                                modifier = Modifier.size(52.dp)
+                            ) {
+                                Icon(Icons.Default.AddBusiness, contentDescription = "إضافة مورد جديد", tint = BrandNavy)
+                            }
+                        }
 
                         // Supplier debt alert
                         if (supplierName.isNotBlank()) {
@@ -884,5 +897,24 @@ fun PurchaseScreen(
                 }
             }
         }
+    }
+
+    if (showAddSupplierDialog) {
+        AddOrEditPartyDialog(
+            initialType = "SUPPLIER",
+            existingParty = null,
+            onDismiss = { showAddSupplierDialog = false },
+            onSave = { party, initialDebt, debtNotes ->
+                viewModel.saveParty(
+                    party = party,
+                    initialDebt = initialDebt,
+                    debtNotes = debtNotes,
+                    onSuccess = {
+                        supplierName = party.name
+                        showAddSupplierDialog = false
+                    }
+                )
+            }
+        )
     }
 }

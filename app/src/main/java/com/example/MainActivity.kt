@@ -124,6 +124,7 @@ fun MainAppContent(viewModel: StoreViewModel) {
                 )
                 AppScreen.CASH_DRAWER -> CashDrawerScreen(
                     viewModel = viewModel,
+                    onNavigate = { viewModel.navigateTo(it) },
                     onBack = { viewModel.navigateBack() }
                 )
                 AppScreen.EXCHANGE_ACCOUNTS -> ExchangeAccountsScreen(

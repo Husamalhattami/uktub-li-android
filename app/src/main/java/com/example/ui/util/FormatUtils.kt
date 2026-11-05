@@ -1,6 +1,7 @@
 package com.example.ui.util
 
 import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -42,7 +43,7 @@ object ClothingSizes {
 }
 
 object FormatUtils {
-    private val decimalFormat = DecimalFormat("#,###")
+    private val decimalFormat = DecimalFormat("#,##0", DecimalFormatSymbols(Locale.US))
     private val dateFormat = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault())
     private val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
     private val dateTimeFormat = SimpleDateFormat("yyyy/MM/dd hh:mm a", Locale.getDefault())

@@ -509,17 +509,19 @@ fun PdfBottomNavigation(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .navigationBarsPadding(),
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         color = Color.White,
-        shadowElevation = 10.dp,
+        shadowElevation = 8.dp,
         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF1F5F9))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp, horizontal = 6.dp),
-            horizontalArrangement = Arrangement.SpaceAround,
+                .padding(vertical = 6.dp, horizontal = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             val navItems = listOf(
@@ -531,31 +533,38 @@ fun PdfBottomNavigation(
             )
 
             navItems.forEach { (label, icon, screen) ->
-                val isSelected = currentScreen == screen || (screen == com.example.ui.AppScreen.CASH_DRAWER && (currentScreen == com.example.ui.AppScreen.EXCHANGE_ACCOUNTS || currentScreen == com.example.ui.AppScreen.TRANSACTIONS_LOG))
+                val isSelected = currentScreen == screen || (screen == com.example.ui.AppScreen.CASH_DRAWER && (currentScreen == com.example.ui.AppScreen.EXCHANGE_ACCOUNTS || currentScreen == com.example.ui.AppScreen.TRANSACTIONS_LOG || currentScreen == com.example.ui.AppScreen.DEBTS))
                 val tint = if (isSelected) PdfGoldDark else SlateTextSecondary
                 val bg = if (isSelected) PdfGoldBg else Color.Transparent
 
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
                         .background(bg)
                         .clickable { onNavigate(screen) }
-                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                        .padding(vertical = 4.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = label,
-                        tint = tint,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Text(
-                        text = label,
-                        fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        color = tint
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = label,
+                            tint = tint,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = label,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = tint,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
         }

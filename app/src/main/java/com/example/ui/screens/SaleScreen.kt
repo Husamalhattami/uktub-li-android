@@ -55,6 +55,8 @@ fun SaleScreen(
     val context = LocalContext.current
     val products by viewModel.products.collectAsStateWithLifecycle()
     val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
+    val parties by viewModel.parties.collectAsStateWithLifecycle()
+    val customerParties = remember(parties) { parties.filter { it.type == "CUSTOMER" } }
     val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
 
     var searchQuery by remember { mutableStateOf("") }
@@ -64,6 +66,7 @@ fun SaleScreen(
     val cartItems = remember { mutableStateListOf<CartItem>() }
     var discountValue by remember { mutableStateOf(0.0) }
     var showDiscountDialog by remember { mutableStateOf(false) }
+    var showAddCustomerDialog by remember { mutableStateOf(false) }
     var discountInputStr by remember { mutableStateOf("0") }
 
     // Payment details
@@ -477,14 +480,43 @@ fun SaleScreen(
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        // Customer name input
-                        OutlinedTextField(
-                            value = customerName,
-                            onValueChange = { customerName = it },
-                            label = { Text("اسم العميل / الزبون (اختياري للبيع النقدي)") },
+                        // Customer name input + Add Customer button
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
-                        )
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = customerName,
+                                onValueChange = { customerName = it },
+                                label = { Text(if (paymentType == "آجل (دين)" || paymentType == "بالدين") "اسم العميل الكامل (إجباري للآجل) *" else "اسم العميل / الزبون (اختياري)") },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            FilledTonalIconButton(
+                                onClick = { showAddCustomerDialog = true },
+                                modifier = Modifier.size(52.dp)
+                            ) {
+                                Icon(Icons.Default.PersonAdd, contentDescription = "إضافة عميل جديد", tint = PdfHeaderNavy)
+                            }
+                        }
+
+                        // Selectable customer chips
+                        if (customerParties.isNotEmpty()) {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(customerParties) { party ->
+                                    val isSelected = customerName.trim().equals(party.name.trim(), ignoreCase = true)
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = {
+                                            customerName = party.name
+                                            customerPhone = party.phone
+                                        },
+                                        label = { Text(party.name, fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+                        }
 
                         // Payment Methods Chips
                         Text("طريقة الدفع:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF475569))
@@ -651,6 +683,26 @@ fun SaleScreen(
             },
             dismissButton = {
                 OutlinedButton(onClick = { showDiscountDialog = false }) { Text("إلغاء") }
+            }
+        )
+    }
+
+    if (showAddCustomerDialog) {
+        AddOrEditPartyDialog(
+            initialType = "CUSTOMER",
+            existingParty = null,
+            onDismiss = { showAddCustomerDialog = false },
+            onSave = { party, initialDebt, debtNotes ->
+                viewModel.saveParty(
+                    party = party,
+                    initialDebt = initialDebt,
+                    debtNotes = debtNotes,
+                    onSuccess = {
+                        customerName = party.name
+                        customerPhone = party.phone
+                        showAddCustomerDialog = false
+                    }
+                )
             }
         )
     }
