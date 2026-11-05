@@ -1,30 +1,41 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.R
 import com.example.data.model.ProductItem
 import com.example.ui.AppScreen
 import com.example.ui.StoreViewModel
-import com.example.ui.components.StoreTopBar
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InventoryScreen(
     viewModel: StoreViewModel,
@@ -32,327 +43,285 @@ fun InventoryScreen(
     onBack: () -> Unit
 ) {
     val products by viewModel.products.collectAsStateWithLifecycle()
-    val sales by viewModel.sales.collectAsStateWithLifecycle()
-    val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
-    val totalCostValue by viewModel.inventoryCostValue.collectAsStateWithLifecycle()
-    val totalSellValue by viewModel.inventoryExpectedSalesValue.collectAsStateWithLifecycle()
+    val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
 
     var searchQuery by remember { mutableStateOf("") }
-    var selectedFilter by remember { mutableStateOf("الكل") } // "الكل", "قارب على النفاد", "الأكثر مبيعاً", "بضاعة راكدة"
-    var selectedCategoryFilter by remember { mutableStateOf("كل الأصناف") }
+    var selectedCategory by remember { mutableStateOf("الكل") }
     var editingProduct by remember { mutableStateOf<ProductItem?>(null) }
+    var productToDelete by remember { mutableStateOf<ProductItem?>(null) }
 
-    // Identify top selling product IDs
-    val topSellingProductIds = remember(sales) {
-        sales.groupBy { it.productId }
-            .mapValues { entry -> entry.value.sumOf { it.quantity } }
-            .entries.sortedByDescending { it.value }
-            .take(5)
-            .map { it.key }
-            .toSet()
-    }
+    val categories = listOf("الكل", "الأثواب", "الأقمشة", "البشوت", "إكسسوارات")
 
-    val categories = remember(products) {
-        listOf("كل الأصناف") + products.map { it.category }.distinct()
-    }
+    val totalItemsCount = products.size
+    val availableCount = products.count { it.quantity > 5 }
+    val lowStockCount = products.count { it.quantity <= 5 }
 
-    val totalPieces = remember(products) { products.sumOf { it.quantity } }
-    val lowStockCount = remember(products) { products.count { it.quantity <= 3 } }
-
-    val filteredProducts = remember(products, searchQuery, selectedFilter, selectedCategoryFilter, topSellingProductIds) {
-        val now = System.currentTimeMillis()
-        val sevenDaysAgo = now - 7 * 86400000L
-
+    val filteredProducts = remember(products, searchQuery, selectedCategory) {
         products.filter { prod ->
-            val matchesSearch = searchQuery.isBlank() ||
+            val matchCat = when (selectedCategory) {
+                "الكل" -> true
+                "الأثواب" -> prod.category.contains("ثوب") || prod.category.contains("ثياب")
+                "البشوت" -> prod.category.contains("بشت") || prod.category.contains("دجلة")
+                "الأقمشة" -> prod.category.contains("قماش") || prod.category.contains("طاقة")
+                "إكسسوارات" -> prod.category.contains("شماغ") || prod.category.contains("عقال") || prod.category.contains("إكسسوار")
+                else -> prod.category.contains(selectedCategory)
+            }
+            val matchQuery = searchQuery.isBlank() ||
                     prod.modelName.contains(searchQuery, ignoreCase = true) ||
                     prod.color.contains(searchQuery, ignoreCase = true) ||
-                    prod.size.contains(searchQuery, ignoreCase = true) ||
-                    prod.supplierName.contains(searchQuery, ignoreCase = true) ||
                     prod.barcode.contains(searchQuery, ignoreCase = true)
-
-            val matchesCategory = selectedCategoryFilter == "كل الأصناف" || prod.category == selectedCategoryFilter
-
-            val matchesFilter = when (selectedFilter) {
-                "قارب على النفاد" -> prod.quantity <= 3
-                "الأكثر مبيعاً" -> topSellingProductIds.contains(prod.id)
-                "بضاعة راكدة" -> prod.lastSoldTimestamp < sevenDaysAgo && prod.quantity > 0
-                else -> true
-            }
-
-            matchesSearch && matchesCategory && matchesFilter
+            matchCat && matchQuery
         }
     }
 
     Scaffold(
         topBar = {
-            StoreTopBar(
-                title = "مخزون المحل",
-                showBackButton = true,
-                activeShift = activeShift,
-                onBackClick = onBack
+            TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = PdfHeaderNavy,
+                    titleContentColor = Color.White,
+                    navigationIconContentColor = Color.White,
+                    actionIconContentColor = Color.White
+                ),
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = Color.White)
+                    }
+                },
+                title = {
+                    Column {
+                        Text(
+                            text = "المخزون",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                fontSize = 20.sp
+                            )
+                        )
+                        Text(
+                            text = "إدارة الأصناف والكميات بكل سهولة",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = Color(0xFF90CDF4),
+                                fontSize = 11.sp
+                            )
+                        )
+                    }
+                },
+                actions = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = "إدارة المتجر",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = PdfGoldPrimary,
+                                    fontSize = 11.sp
+                                )
+                            )
+                            Text(
+                                text = "تجارة أكثر .. نمو أكبر",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    fontSize = 9.sp
+                                )
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color.White.copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Storefront, contentDescription = null, tint = PdfGoldPrimary, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
+            FloatingActionButton(
                 onClick = { onNavigate(AppScreen.PURCHASE) },
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("شراء / إضافة بضاعة") },
-                containerColor = MaterialTheme.colorScheme.primary,
+                containerColor = PdfGoldDark,
                 contentColor = Color.White,
-                modifier = Modifier.testTag("fab_add_product")
-            )
+                shape = CircleShape,
+                modifier = Modifier.testTag("fab_add_purchase")
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "إضافة بضاعة")
+            }
         }
     ) { paddingValues ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .background(MaterialTheme.colorScheme.background),
-            contentPadding = PaddingValues(16.dp),
+                .background(Color(0xFFF8FAFC)),
+            contentPadding = PaddingValues(14.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // KPI Bar: Total pieces, Inventory Value, Expected Profit
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "ملخص المخزون الحالي",
-                                style = MaterialTheme.typography.titleMedium.copy(color = Color.White, fontWeight = FontWeight.Bold)
-                            )
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = LuxuryGoldLight.copy(alpha = 0.25f)
-                            ) {
-                                Text(
-                                    text = "$totalPieces قطعة بالمحل",
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                    style = MaterialTheme.typography.labelMedium.copy(color = LuxuryGoldLight, fontWeight = FontWeight.Bold)
-                                )
-                            }
-                        }
-
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.15f))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column {
-                                Text(
-                                    text = "رأس المال (تكلفة البضاعة)",
-                                    style = MaterialTheme.typography.labelSmall.copy(color = Color.White.copy(alpha = 0.8f))
-                                )
-                                Text(
-                                    text = FormatUtils.formatCurrency(totalCostValue),
-                                    style = MaterialTheme.typography.titleMedium.copy(color = Color.White, fontWeight = FontWeight.Bold)
-                                )
-                            }
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    text = "قيمة البيع المتوقعة",
-                                    style = MaterialTheme.typography.labelSmall.copy(color = Color.White.copy(alpha = 0.8f))
-                                )
-                                Text(
-                                    text = FormatUtils.formatCurrency(totalSellValue),
-                                    style = MaterialTheme.typography.titleMedium.copy(color = LuxuryGoldLight, fontWeight = FontWeight.Bold)
-                                )
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "الأرباح المتوقعة عند بيع المخزون:",
-                                style = MaterialTheme.typography.bodySmall.copy(color = Color.White.copy(alpha = 0.85f))
-                            )
-                            Text(
-                                text = "+ " + FormatUtils.formatCurrency((totalSellValue - totalCostValue).coerceAtLeast(0.0)),
-                                style = MaterialTheme.typography.bodyMedium.copy(color = EmeraldProfit, fontWeight = FontWeight.Bold)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Search Bar
+            // ==========================================
+            // 1. Search Bar (Page 4 in PDF)
+            // ==========================================
             item {
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("بحث عن صنف، لون، قياس، مورد...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Clear, contentDescription = null)
-                            }
-                        }
-                    },
+                    placeholder = { Text("بحث عن صنف", fontSize = 14.sp, color = Color(0xFF94A3B8)) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF64748B)) },
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                        focusedBorderColor = Color(0xFFCBD5E1),
+                        unfocusedBorderColor = Color(0xFFE2E8F0)
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag("inventory_search_input"),
-                    shape = RoundedCornerShape(12.dp)
+                        .height(52.dp)
                 )
             }
 
-            // Status Filter Tabs
+            // ==========================================
+            // 2. The 3 KPI Stat Cards (Page 4 in PDF)
+            // ==========================================
             item {
-                val statusFilters = listOf(
-                    "الكل" to null,
-                    "قارب على النفاد" to if (lowStockCount > 0) "$lowStockCount" else null,
-                    "الأكثر مبيعاً" to null,
-                    "بضاعة راكدة" to null
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Card 1: إجمالي الأصناف
+                    PdfInventoryKpiCard(
+                        count = totalItemsCount,
+                        label = "إجمالي الأصناف",
+                        icon = Icons.Default.Inventory2,
+                        iconColor = Color(0xFF0F1E36),
+                        modifier = Modifier.weight(1f)
+                    )
 
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(statusFilters) { (filter, badge) ->
-                        FilterChip(
-                            selected = selectedFilter == filter,
-                            onClick = { selectedFilter = filter },
-                            label = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(filter)
-                                    if (badge != null) {
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = RubyExpense,
-                                            modifier = Modifier.padding(start = 2.dp)
-                                        ) {
-                                            Text(
-                                                text = badge,
-                                                color = Color.White,
-                                                fontSize = 10.sp,
-                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            },
-                            modifier = Modifier.testTag("filter_$filter")
-                        )
-                    }
+                    // Card 2: أصناف متوفرة (Green Dot)
+                    PdfInventoryKpiCard(
+                        count = availableCount,
+                        label = "أصناف متوفرة",
+                        dotColor = Color(0xFF16A34A),
+                        icon = Icons.Default.Inventory2,
+                        iconColor = Color(0xFF16A34A),
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    // Card 3: أصناف منخفضة (Red Dot)
+                    PdfInventoryKpiCard(
+                        count = lowStockCount,
+                        label = "أصناف منخفضة",
+                        dotColor = Color(0xFFDC2626),
+                        icon = Icons.Default.Inventory2,
+                        iconColor = Color(0xFFDC2626),
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
 
-            // Category Horizontal Chips
+            // ==========================================
+            // 3. Category Filter Pills (Page 4 in PDF)
+            // ==========================================
             item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     items(categories) { cat ->
-                        FilterChip(
-                            selected = selectedCategoryFilter == cat,
-                            onClick = { selectedCategoryFilter = cat },
-                            label = { Text(cat) }
-                        )
+                        val isSelected = selectedCategory == cat
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = if (isSelected) PdfHeaderNavy else Color.White,
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isSelected) PdfHeaderNavy else Color(0xFFE2E8F0)
+                            ),
+                            modifier = Modifier.clickable { selectedCategory = cat }
+                        ) {
+                            Text(
+                                text = cat,
+                                color = if (isSelected) Color.White else Color(0xFF475569),
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)
+                            )
+                        }
                     }
                 }
             }
 
-            // Items List
+            // ==========================================
+            // 4. Products Inventory List (Page 4 in PDF)
+            // ==========================================
             if (filteredProducts.isEmpty()) {
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
                     ) {
-                        Text(
-                            text = "لا توجد أصناف مطابقة للبحث أو الفلتر المختار.",
-                            modifier = Modifier.padding(24.dp),
-                            style = MaterialTheme.typography.bodyMedium.copy(color = SlateMuted)
-                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Inventory2, contentDescription = null, tint = Color(0xFFCBD5E1), modifier = Modifier.size(40.dp))
+                            Text("لا توجد أصناف في هذا القسم", fontWeight = FontWeight.Bold, color = Color(0xFF64748B), fontSize = 15.sp)
+                        }
                     }
                 }
             } else {
                 items(filteredProducts, key = { it.id }) { product ->
-                    InventoryProductCard(
+                    PdfInventoryProductCard(
                         product = product,
-                        onQuickAddStock = {
-                            viewModel.saveProduct(product.copy(quantity = product.quantity + 1)) {}
-                        },
-                        onQuickReduceStock = {
-                            if (product.quantity > 0) {
-                                viewModel.saveProduct(product.copy(quantity = product.quantity - 1)) {}
-                            }
-                        },
                         onEdit = { editingProduct = product },
-                        onDelete = { viewModel.deleteProduct(product.id) }
+                        onDelete = { productToDelete = product }
                     )
                 }
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(30.dp))
             }
         }
     }
 
     // Edit Product Dialog
-    editingProduct?.let { product ->
-        var editModel by remember { mutableStateOf(product.modelName) }
-        var editColor by remember { mutableStateOf(product.color) }
-        var editSize by remember { mutableStateOf(product.size) }
-        var editQty by remember { mutableStateOf(product.quantity.toString()) }
-        var editBuyPrice by remember { mutableStateOf(product.buyPrice.toLong().toString()) }
-        var editSellPrice by remember { mutableStateOf(product.sellPrice.toLong().toString()) }
+    editingProduct?.let { prod ->
+        var editModelName by remember { mutableStateOf(prod.modelName) }
+        var editQtyStr by remember { mutableStateOf(prod.quantity.toString()) }
+        var editSellPriceStr by remember { mutableStateOf(prod.sellPrice.toInt().toString()) }
 
         AlertDialog(
             onDismissRequest = { editingProduct = null },
             title = { Text("تعديل بيانات الصنف", fontWeight = FontWeight.Bold) },
             text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(
-                        value = editModel,
-                        onValueChange = { editModel = it },
-                        label = { Text("اسم الموديل / الوصف") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = editColor,
-                            onValueChange = { editColor = it },
-                            label = { Text("اللون") },
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = editSize,
-                            onValueChange = { editSize = it },
-                            label = { Text("القياس") },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    OutlinedTextField(
-                        value = editQty,
-                        onValueChange = { editQty = it },
-                        label = { Text("الكمية الإجمالية بالحبات") },
+                        value = editModelName,
+                        onValueChange = { editModelName = it },
+                        label = { Text("اسم الصنف / الموديل") },
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
-                        value = editBuyPrice,
-                        onValueChange = { editBuyPrice = it },
-                        label = { Text("سعر الشراء للحبة (ريال)") },
+                        value = editQtyStr,
+                        onValueChange = { editQtyStr = it },
+                        label = { Text("الكمية المتوفرة بالمخزن") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
-                        value = editSellPrice,
-                        onValueChange = { editSellPrice = it },
-                        label = { Text("سعر البيع للحبة (ريال)") },
+                        value = editSellPriceStr,
+                        onValueChange = { editSellPriceStr = it },
+                        label = { Text("سعر البيع (ريال)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -360,219 +329,292 @@ fun InventoryScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        val updated = product.copy(
-                            modelName = editModel,
-                            color = editColor,
-                            size = editSize,
-                            quantity = editQty.toIntOrNull() ?: product.quantity,
-                            buyPrice = editBuyPrice.toDoubleOrNull() ?: product.buyPrice,
-                            sellPrice = editSellPrice.toDoubleOrNull() ?: product.sellPrice
-                        )
-                        viewModel.saveProduct(updated) {
+                        val q = editQtyStr.toIntOrNull() ?: prod.quantity
+                        val p = editSellPriceStr.toDoubleOrNull() ?: prod.sellPrice
+                        viewModel.saveProduct(prod.copy(modelName = editModelName, quantity = q, sellPrice = p)) {
                             editingProduct = null
                         }
                     }
                 ) {
-                    Text("حفظ التعديل")
+                    Text("حفظ التعديلات")
                 }
             },
             dismissButton = {
-                OutlinedButton(onClick = { editingProduct = null }) {
-                    Text("إلغاء")
+                OutlinedButton(onClick = { editingProduct = null }) { Text("إلغاء") }
+            }
+        )
+    }
+
+    // Delete Product Dialog
+    productToDelete?.let { prod ->
+        AlertDialog(
+            onDismissRequest = { productToDelete = null },
+            title = { Text("حذف الصنف من المخزون", fontWeight = FontWeight.Bold) },
+            text = {
+                Text("هل أنت متأكد من حذف (${prod.modelName})؟ سيتم حذفه من قائمة المخزون.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteProduct(prod.id)
+                        productToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = FintechRose)
+                ) {
+                    Text("نعم، احذف")
                 }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { productToDelete = null }) { Text("إلغاء") }
             }
         )
     }
 }
 
+// ==========================================
+// Sub-Components for Page 4
+// ==========================================
+
 @Composable
-fun InventoryProductCard(
-    product: ProductItem,
-    onQuickAddStock: () -> Unit,
-    onQuickReduceStock: () -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit
+fun PdfInventoryKpiCard(
+    count: Int,
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconColor: Color,
+    modifier: Modifier = Modifier,
+    dotColor: Color? = null
 ) {
-    val profitPerPiece = product.sellPrice - product.buyPrice
-    val profitMargin = if (product.buyPrice > 0) ((profitPerPiece / product.buyPrice) * 100).toInt() else 0
-    val isLowStock = product.quantity <= 3
-
-    val unitEquiv = when {
-        product.quantity >= 20 -> "${product.quantity / 20} كورجه و ${product.quantity % 20} حبه"
-        product.quantity >= 12 -> "${product.quantity / 12} درزن و ${product.quantity % 12} حبه"
-        product.quantity >= 6 -> "${product.quantity / 6} نص درزن و ${product.quantity % 6} حبه"
-        else -> "${product.quantity} حبه"
-    }
-
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("inventory_item_${product.id}"),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        modifier = modifier.height(84.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .fillMaxSize()
+                .padding(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            // Header: Category, Name, Stock Badge
+            Box(contentAlignment = Alignment.Center) {
+                Icon(imageVector = icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(20.dp))
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = count.toString(),
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 18.sp,
+                color = Color(0xFF0F172A)
+            )
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.1f)
-                        ) {
-                            Text(
-                                text = product.category,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
-                            )
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = GoldContainer
-                        ) {
-                            Text(
-                                text = "مقاس: ${product.size}",
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = LuxuryGold)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = product.modelName,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                    Text(
-                        text = "التشكيلة: ${product.color}",
-                        style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted)
+                if (dotColor != null) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(dotColor)
                     )
                 }
+                Text(
+                    text = label,
+                    fontSize = 10.sp,
+                    color = Color(0xFF64748B),
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+    }
+}
 
+@Composable
+fun PdfInventoryProductCard(
+    product: ProductItem,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            // Left Column (in RTL: 3-dots + Status pill)
+            Column(
+                horizontalAlignment = Alignment.Start,
+                verticalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.padding(end = 6.dp)
+            ) {
+                Box {
+                    IconButton(
+                        onClick = { showMenu = true },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "خيارات", tint = Color(0xFF64748B), modifier = Modifier.size(18.dp))
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("تعديل الصنف") },
+                            onClick = {
+                                showMenu = false
+                                onEdit()
+                            },
+                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("حذف الصنف", color = FintechRose) },
+                            onClick = {
+                                showMenu = false
+                                onDelete()
+                            },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = FintechRose) }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // Availability Badge
+                val isAvailable = product.quantity > 5
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (isLowStock) RubyLight else EmeraldLight
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isAvailable) Color(0xFFF0FDF4) else Color(0xFFFFFBEB),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isAvailable) Color(0xFFBBF7D0) else Color(0xFFFDE68A))
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
-                        Text(
-                            text = if (isLowStock) "قاربت: ${product.quantity} حبه" else "متوفر: ${product.quantity} حبه",
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = if (isLowStock) RubyExpense else EmeraldProfit
-                            )
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(if (isAvailable) Color(0xFF16A34A) else Color(0xFFD97706))
                         )
                         Text(
-                            text = "($unitEquiv)",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 10.sp,
-                                color = if (isLowStock) RubyExpense else EmeraldProfit
-                            )
+                            text = if (isAvailable) "متوفر" else "منخفض",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isAvailable) Color(0xFF16A34A) else Color(0xFFD97706)
                         )
                     }
                 }
             }
 
-            HorizontalDivider(color = SlateBorder)
-
-            // Pricing & Profit
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text(text = "سعر الشراء", style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted))
-                    Text(
-                        text = FormatUtils.formatCurrency(product.buyPrice),
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                }
-                Column {
-                    Text(text = "سعر البيع", style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted))
-                    Text(
-                        text = FormatUtils.formatCurrency(product.sellPrice),
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, color = LuxuryGold)
-                    )
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(text = "ربح القطعة", style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted))
-                    Text(
-                        text = "+ " + FormatUtils.formatCurrency(profitPerPiece) + " ($profitMargin%)",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, color = EmeraldProfit)
-                    )
-                }
-            }
-
-            if (product.supplierName.isNotBlank() || product.barcode.isNotBlank()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    if (product.supplierName.isNotBlank()) {
-                        Text(
-                            text = "المورد: ${product.supplierName}",
-                            style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted)
-                        )
-                    }
-                    if (product.barcode.isNotBlank()) {
-                        Text(
-                            text = "كود: ${product.barcode}",
-                            style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted)
-                        )
-                    }
-                }
-            }
-
-            // Quick Actions: Adjust Stock, Edit, Delete
-            Row(
+            // Center Column: Details
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .weight(1f)
+                    .padding(horizontal = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // Stock fast adjusters
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text("تعديل فوري:", style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted))
-                    OutlinedIconButton(
-                        onClick = onQuickReduceStock,
-                        modifier = Modifier.size(32.dp),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Icon(Icons.Default.Remove, contentDescription = null, modifier = Modifier.size(16.dp))
-                    }
-                    OutlinedIconButton(
-                        onClick = onQuickAddStock,
-                        modifier = Modifier.size(32.dp),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                    }
-                }
+                Text(
+                    text = product.modelName,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A),
+                        fontSize = 15.sp
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Edit, contentDescription = "تعديل", tint = MaterialTheme.colorScheme.primary)
+                Text(
+                    text = "${product.category} - فاخرة",
+                    fontSize = 11.sp,
+                    color = Color(0xFF64748B)
+                )
+
+                // Barcode representation
+                Text(
+                    text = (product.barcode.ifBlank { "TS-${product.id}" }) + " ||||||||",
+                    fontSize = 10.sp,
+                    color = Color(0xFF94A3B8),
+                    fontWeight = FontWeight.Medium
+                )
+
+                // 3 Bottom indicators row: آخر توريد | سعر الوحدة | الكمية
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // آخر توريد
+                    Column(horizontalAlignment = Alignment.Start) {
+                        Text("آخر توريد", fontSize = 9.sp, color = Color(0xFF94A3B8))
+                        Text(
+                            FormatUtils.formatDate(product.purchaseDate),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF334155)
+                        )
                     }
-                    IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.DeleteOutline, contentDescription = "حذف", tint = RubyExpense)
+
+                    // سعر الوحدة
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("سعر الوحدة", fontSize = 9.sp, color = Color(0xFF94A3B8))
+                        Text(
+                            "${product.sellPrice.toInt()} ر.س",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF334155)
+                        )
+                    }
+
+                    // الكمية المتوفرة
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("الكمية المتوفرة", fontSize = 9.sp, color = Color(0xFF94A3B8))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Checkroom, contentDescription = null, tint = Color(0xFF0F172A), modifier = Modifier.size(12.dp))
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Text(
+                                product.quantity.toString(),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF0F172A)
+                            )
+                        }
                     }
                 }
             }
+
+            // Right Column: Product Image
+            val imageRes = when {
+                product.modelName.contains("بشت") || product.category.contains("بشت") -> R.drawable.img_bisht
+                product.modelName.contains("شماغ") || product.category.contains("شماغ") -> R.drawable.img_shemagh
+                product.modelName.contains("قماش") || product.category.contains("قماش") -> R.drawable.img_fabrics
+                else -> R.drawable.img_thobe
+            }
+
+            Image(
+                painter = painterResource(id = imageRes),
+                contentDescription = product.modelName,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(76.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFFF1F5F9))
+            )
         }
     }
 }

@@ -20,6 +20,63 @@ import java.io.FileOutputStream
 
 object InvoiceHelper {
 
+    fun shareInvoiceText(context: Context, text: String) {
+        try {
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                putExtra(Intent.EXTRA_TEXT, text)
+                type = "text/plain"
+            }
+            val shareIntent = Intent.createChooser(sendIntent, "مشاركة الفاتورة")
+            context.startActivity(shareIntent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "فشل في مشاركة الفاتورة: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun generateThermalReceiptText(
+        storeName: String,
+        phoneNumber: String,
+        address: String,
+        invoiceId: Long,
+        timestamp: Long,
+        customerName: String,
+        cashierName: String,
+        items: List<Pair<String, Triple<Int, Double, Double>>>,
+        totalAmount: Double,
+        discount: Double,
+        paymentType: String,
+        headerNote: String,
+        footerNote: String
+    ): String {
+        return buildString {
+            appendLine("════════════════════════════════")
+            appendLine("        $storeName")
+            if (headerNote.isNotBlank()) appendLine("       $headerNote")
+            if (address.isNotBlank()) appendLine("       $address")
+            if (phoneNumber.isNotBlank()) appendLine("        هاتف: $phoneNumber")
+            appendLine("════════════════════════════════")
+            appendLine("فاتورة مبيعات: #$invoiceId")
+            appendLine("التاريخ: ${FormatUtils.formatDate(timestamp)}  |  الوقت: ${FormatUtils.formatTime(timestamp)}")
+            appendLine("العميل: ${customerName.ifBlank { "زبون نقدي" }}")
+            appendLine("طريقة الدفع: $paymentType")
+            appendLine("────────────────────────────────")
+            items.forEach { (name, info) ->
+                val (qty, price, subtotal) = info
+                appendLine("$name")
+                appendLine("  $qty × ${FormatUtils.formatCurrency(price)} = ${FormatUtils.formatCurrency(subtotal)}")
+            }
+            appendLine("────────────────────────────────")
+            if (discount > 0) {
+                appendLine("الخصم الممنوح: - ${FormatUtils.formatCurrency(discount)}")
+            }
+            appendLine("الإجمالي الصافي: ${FormatUtils.formatCurrency(totalAmount)}")
+            appendLine("════════════════════════════════")
+            if (footerNote.isNotBlank()) appendLine(footerNote)
+            appendLine("       شكراً لزيارتكم!")
+            appendLine("════════════════════════════════")
+        }
+    }
+
     fun generateReceiptText(
         sale: SaleTransaction,
         settings: StoreSettings?,

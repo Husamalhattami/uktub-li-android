@@ -34,6 +34,7 @@ import com.example.ui.util.FormatUtils
 @Composable
 fun StoreTopBar(
     title: String,
+    subtitle: String = "إدارة أسهل .. لمحل أكثر نجاحاً",
     showBackButton: Boolean = false,
     activeShift: CashDrawerShift? = null,
     onBackClick: () -> Unit = {},
@@ -42,7 +43,7 @@ fun StoreTopBar(
 ) {
     TopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = BrandNavy,
+            containerColor = PdfHeaderNavy,
             titleContentColor = Color.White,
             navigationIconContentColor = Color.White,
             actionIconContentColor = Color.White
@@ -62,17 +63,17 @@ fun StoreTopBar(
             } else {
                 Box(
                     modifier = Modifier
-                        .padding(horizontal = 12.dp)
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(BrandBlue),
+                        .padding(start = 12.dp, end = 6.dp)
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.White.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Storefront,
                         contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp)
+                        tint = PdfGoldPrimary,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
@@ -83,55 +84,22 @@ fun StoreTopBar(
                     text = title,
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = Color.White,
+                        fontSize = 18.sp
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "نظام المحاسبة وإدارة المحل المبسط",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        color = Color.White.copy(alpha = 0.75f),
-                        fontSize = 11.sp
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = Color(0xFF90CDF4),
+                        fontSize = 12.sp
                     )
                 )
             }
         },
         actions = {
-            // Shift status pill
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = if (activeShift?.isOpen == true) FintechEmerald.copy(alpha = 0.18f) else FintechRose.copy(alpha = 0.18f),
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    if (activeShift?.isOpen == true) FintechEmeraldLight else FintechRoseLight
-                ),
-                modifier = Modifier
-                    .padding(end = 8.dp)
-                    .clickable { onShiftClick() }
-                    .testTag("shift_status_badge")
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(if (activeShift?.isOpen == true) FintechEmeraldLight else FintechRoseLight)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (activeShift?.isOpen == true) "وردية مفتوحة" else "وردية مغلقة",
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            fontSize = 11.sp
-                        )
-                    )
-                }
-            }
             trailingAction?.invoke()
         }
     )
@@ -530,6 +498,66 @@ fun MovementItemRow(movement: CashDrawerMovement) {
                     color = if (movement.isIncome) FintechEmerald else FintechRose
                 )
             )
+        }
+    }
+}
+
+@Composable
+fun PdfBottomNavigation(
+    currentScreen: com.example.ui.AppScreen,
+    onNavigate: (com.example.ui.AppScreen) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        color = Color.White,
+        shadowElevation = 10.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF1F5F9))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp, horizontal = 6.dp),
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val navItems = listOf(
+                Triple("الرئيسية", Icons.Default.Home, com.example.ui.AppScreen.HOME),
+                Triple("البيع", Icons.Default.ShoppingCart, com.example.ui.AppScreen.SALE),
+                Triple("المخزون", Icons.Default.Inventory2, com.example.ui.AppScreen.INVENTORY),
+                Triple("الحسابات", Icons.Default.AccountBalanceWallet, com.example.ui.AppScreen.CASH_DRAWER),
+                Triple("التقارير", Icons.Default.BarChart, com.example.ui.AppScreen.REPORTS)
+            )
+
+            navItems.forEach { (label, icon, screen) ->
+                val isSelected = currentScreen == screen || (screen == com.example.ui.AppScreen.CASH_DRAWER && (currentScreen == com.example.ui.AppScreen.EXCHANGE_ACCOUNTS || currentScreen == com.example.ui.AppScreen.TRANSACTIONS_LOG))
+                val tint = if (isSelected) PdfGoldDark else SlateTextSecondary
+                val bg = if (isSelected) PdfGoldBg else Color.Transparent
+
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(bg)
+                        .clickable { onNavigate(screen) }
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = label,
+                        tint = tint,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = label,
+                        fontSize = 12.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = tint
+                    )
+                }
+            }
         }
     }
 }

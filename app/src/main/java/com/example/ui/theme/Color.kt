@@ -68,6 +68,19 @@ val SlateMuted = SlateTextSecondary
 val SlateHeader = SlateTextPrimary
 val OceanDeep = BrandBlue
 
+// PDF Design Colors
+val PdfHeaderNavy = Color(0xFF0F1E36)
+val PdfHeaderNavyDark = Color(0xFF0A1526)
+val PdfGoldPrimary = Color(0xFFC5A059)
+val PdfGoldDark = Color(0xFF9E7C38)
+val PdfGoldBg = Color(0xFFF9F5EB)
+val PdfTealCard = Color(0xFFEBF7F4)
+val PdfMintCard = Color(0xFFEDF8EE)
+val PdfGreenCard = Color(0xFFF1F8EE)
+val PdfRoseCard = Color(0xFFFDF2F2)
+val PdfBlueCard = Color(0xFFEFF6FF)
+val PdfPurpleCard = Color(0xFFF5F3FF)
+
 // Dark Palette
 val DarkBackground = Color(0xFF0B1120)
 val DarkSurface = Color(0xFF1E293B)

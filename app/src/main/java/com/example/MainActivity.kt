@@ -61,7 +61,24 @@ fun MainAppContent(viewModel: StoreViewModel) {
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        bottomBar = {
+            val showBottomBar = currentScreen in listOf(
+                AppScreen.HOME,
+                AppScreen.SALE,
+                AppScreen.INVENTORY,
+                AppScreen.CASH_DRAWER,
+                AppScreen.REPORTS,
+                AppScreen.EXCHANGE_ACCOUNTS,
+                AppScreen.DEBTS
+            )
+            if (showBottomBar) {
+                com.example.ui.components.PdfBottomNavigation(
+                    currentScreen = currentScreen,
+                    onNavigate = { viewModel.navigateTo(it) }
+                )
+            }
+        }
     ) { innerPadding ->
         AnimatedContent(
             targetState = currentScreen,

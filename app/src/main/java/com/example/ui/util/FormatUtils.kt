@@ -55,6 +55,10 @@ object FormatUtils {
         return decimalFormat.format(number)
     }
 
+    fun formatNumber(number: Double): String {
+        return decimalFormat.format(number.toLong())
+    }
+
     fun formatDate(timestamp: Long): String {
         if (timestamp == 0L) return "-"
         return dateFormat.format(Date(timestamp))
