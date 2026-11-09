@@ -724,6 +724,19 @@ fun HomeScreen(
                         }
                     )
 
+                    // 7. تحويل بين الصندوق والصراف
+                    QuickSheetActionRow(
+                        title = "ترحيل سيولة: بين الصندوق والصراف",
+                        subtitle = "تحويل مبالغ من الصندوق للصراف أو العكس وتغذية الحسابات",
+                        icon = Icons.Default.SwapHoriz,
+                        iconColor = Color(0xFF0F1E36),
+                        iconBg = Color(0xFFF1F5F9),
+                        onClick = {
+                            showQuickAddSheet = false
+                            onNavigate(AppScreen.CASH_DRAWER)
+                        }
+                    )
+
                     Spacer(modifier = Modifier.height(16.dp))
                 }
             }

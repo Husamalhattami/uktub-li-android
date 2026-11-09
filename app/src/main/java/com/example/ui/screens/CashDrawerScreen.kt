@@ -30,6 +30,7 @@ import com.example.ui.components.QuickThousandAdder
 import com.example.ui.components.StoreTopBar
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
+import com.example.ui.util.InvoiceHelper
 
 data class StatementRow(
     val dateStr: String,
@@ -53,9 +54,11 @@ fun CashDrawerScreen(
     val cashMovements by viewModel.cashMovements.collectAsStateWithLifecycle()
     val exchangeTransfers by viewModel.exchangeTransfers.collectAsStateWithLifecycle()
     val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     var showWithdrawalDialog by remember { mutableStateOf(false) }
     var showDepositDialog by remember { mutableStateOf(false) }
+    var showTransferDialog by remember { mutableStateOf(false) }
     var showAuditDialog by remember { mutableStateOf(false) }
 
     var selectedPeriod by remember { mutableStateOf("آخر 7 أيام") } // "اليوم", "أمس", "آخر 7 أيام", "هذا الشهر", "الكل"
@@ -392,34 +395,52 @@ fun CashDrawerScreen(
 
             // Quick Drawer Management Actions
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = { showWithdrawalDialog = true },
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Main Transfer Button
+                    Button(
+                        onClick = { showTransferDialog = true },
                         modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = FintechRose)
+                            .fillMaxWidth()
+                            .height(46.dp)
+                            .testTag("btn_transfer_cash_exchange"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = PdfHeaderNavy)
                     ) {
-                        Icon(Icons.Default.ArrowOutward, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("سحب المالك", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = PdfGoldPrimary, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("ترحيل سيولة: بين الصندوق والصراف", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
 
-                    Button(
-                        onClick = { showDepositDialog = true },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = FintechEmerald)
+                    // Secondary Buttons: سحب المالك | إيداع سيولة
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(Icons.Default.ArrowDownward, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("إيداع سيولة", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        OutlinedButton(
+                            onClick = { showWithdrawalDialog = true },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(42.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = FintechRose)
+                        ) {
+                            Icon(Icons.Default.ArrowOutward, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("سحب المالك", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = { showDepositDialog = true },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(42.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = FintechEmerald)
+                        ) {
+                            Icon(Icons.Default.ArrowDownward, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("إيداع سيولة", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -459,28 +480,71 @@ fun CashDrawerScreen(
                         }
                     }
 
-                    // Period Dropdown Pill
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = Color.White,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                        modifier = Modifier.clickable {
-                            selectedPeriod = when (selectedPeriod) {
-                                "آخر 7 أيام" -> "هذا الشهر"
-                                "هذا الشهر" -> "اليوم"
-                                "اليوم" -> "الكل"
-                                else -> "آخر 7 أيام"
-                            }
-                        }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        // Print Daily Movement PDF
+                        IconButton(
+                            onClick = {
+                                val file = InvoiceHelper.generateDailyMovementPdf(
+                                    context = context,
+                                    movements = cashMovements,
+                                    transfers = exchangeTransfers,
+                                    currentCash = cashBalance,
+                                    currentExchange = totalTransferBalance,
+                                    periodTitle = selectedPeriod,
+                                    settings = storeSettings
+                                )
+                                InvoiceHelper.printPdfFile(context, file, "كشف_حركة_الصندوق_$selectedPeriod")
+                            },
+                            modifier = Modifier.size(36.dp)
                         ) {
-                            Icon(Icons.Default.FilterList, contentDescription = null, tint = Color(0xFF475569), modifier = Modifier.size(14.dp))
-                            Text(selectedPeriod, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF334155))
-                            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color(0xFF475569), modifier = Modifier.size(14.dp))
+                            Icon(Icons.Default.Print, contentDescription = "طباعة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(18.dp))
+                        }
+
+                        // Share Daily Movement PDF
+                        IconButton(
+                            onClick = {
+                                val file = InvoiceHelper.generateDailyMovementPdf(
+                                    context = context,
+                                    movements = cashMovements,
+                                    transfers = exchangeTransfers,
+                                    currentCash = cashBalance,
+                                    currentExchange = totalTransferBalance,
+                                    periodTitle = selectedPeriod,
+                                    settings = storeSettings
+                                )
+                                InvoiceHelper.sharePdfFile(context, file, "مشاركة كشف الحركة")
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = "مشاركة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(18.dp))
+                        }
+
+                        // Period Dropdown Pill
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color.White,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                            modifier = Modifier.clickable {
+                                selectedPeriod = when (selectedPeriod) {
+                                    "آخر 7 أيام" -> "هذا الشهر"
+                                    "هذا الشهر" -> "اليوم"
+                                    "اليوم" -> "الكل"
+                                    else -> "آخر 7 أيام"
+                                }
+                            }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Icon(Icons.Default.FilterList, contentDescription = null, tint = Color(0xFF475569), modifier = Modifier.size(14.dp))
+                                Text(selectedPeriod, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF334155))
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color(0xFF475569), modifier = Modifier.size(14.dp))
+                            }
                         }
                     }
                 }
@@ -672,6 +736,140 @@ fun CashDrawerScreen(
             },
             dismissButton = {
                 OutlinedButton(onClick = { showDepositDialog = false }) { Text("إلغاء") }
+            }
+        )
+    }
+
+    // Transfer Between Cash Drawer and Exchange Dialog
+    if (showTransferDialog) {
+        var fromCashToExchange by remember { mutableStateOf(true) }
+        var selectedAcc by remember { mutableStateOf(exchangeAccounts.firstOrNull()) }
+        var transferAmountStr by remember { mutableStateOf("") }
+        var transferNotes by remember { mutableStateOf("") }
+
+        AlertDialog(
+            onDismissRequest = { showTransferDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = PdfHeaderNavy)
+                    Text("ترحيل سيولة بين الصندوق والصراف", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // Direction Switcher
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        FilterChip(
+                            selected = fromCashToExchange,
+                            onClick = { fromCashToExchange = true },
+                            label = { Text("من الصندوق ➔ للصراف", fontSize = 11.sp, fontWeight = if (fromCashToExchange) FontWeight.Bold else FontWeight.Normal) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = !fromCashToExchange,
+                            onClick = { fromCashToExchange = false },
+                            label = { Text("من الصراف ➔ للصندوق", fontSize = 11.sp, fontWeight = if (!fromCashToExchange) FontWeight.Bold else FontWeight.Normal) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    // Available balance display
+                    val availableSource = if (fromCashToExchange) cashBalance else (selectedAcc?.balance ?: 0.0)
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFFEFF6FF),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(if (fromCashToExchange) "الرصيد المتاح بالصندوق:" else "الرصيد المتاح بالحساب:", fontSize = 11.sp, color = Color(0xFF1E3A8A))
+                            Text(FormatUtils.formatCurrency(availableSource), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E3A8A))
+                        }
+                    }
+
+                    // Exchange account selector
+                    if (exchangeAccounts.isEmpty()) {
+                        Text("لا توجد حسابات صرافة أو محافظ مسجلة! يرجى إضافة حساب صراف أولاً.", color = Color(0xFFDC2626), fontSize = 11.sp)
+                    } else {
+                        Text("اختر حساب الصراف أو المحفظة:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(exchangeAccounts) { acc ->
+                                val isSel = selectedAcc?.id == acc.id
+                                FilterChip(
+                                    selected = isSel,
+                                    onClick = { selectedAcc = acc },
+                                    label = { Text("${acc.name} (${FormatUtils.formatNumber(acc.balance)})", fontSize = 11.sp) }
+                                )
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = transferAmountStr,
+                        onValueChange = { transferAmountStr = it },
+                        label = { Text("المبلغ المحول (ريال)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    // Quick buttons
+                    QuickThousandAdder(
+                        currentValueStr = transferAmountStr,
+                        onValueChange = { transferAmountStr = it }
+                    )
+
+                    OutlinedTextField(
+                        value = transferNotes,
+                        onValueChange = { transferNotes = it },
+                        label = { Text("ملاحظات / مرجع التحويل (اختياري)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val amt = transferAmountStr.toDoubleOrNull() ?: 0.0
+                        val acc = selectedAcc
+                        if (acc == null) {
+                            viewModel.showMessage("يرجى اختيار حساب الصراف أو المحفظة!")
+                            return@Button
+                        }
+                        if (amt <= 0) {
+                            viewModel.showMessage("يرجى إدخال مبلغ تحويل صحيح أكبر من صفر!")
+                            return@Button
+                        }
+                        val available = if (fromCashToExchange) cashBalance else acc.balance
+                        if (amt > available) {
+                            viewModel.showMessage("المبلغ يتجاوز الرصيد المتوفر في جهة الإرسال (${FormatUtils.formatCurrency(available)})!")
+                            return@Button
+                        }
+
+                        viewModel.transferBetweenCashAndExchange(
+                            exchangeAccountId = acc.id,
+                            amount = amt,
+                            fromCashToExchange = fromCashToExchange,
+                            notes = transferNotes.ifBlank { if (fromCashToExchange) "إيداع نقدي في ${acc.name}" else "سحب نقدي من ${acc.name}" }
+                        ) {
+                            showTransferDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PdfHeaderNavy)
+                ) {
+                    Text("تأكيد الترحيل")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showTransferDialog = false }) {
+                    Text("إلغاء")
+                }
             }
         )
     }

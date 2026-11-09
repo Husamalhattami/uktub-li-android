@@ -27,7 +27,9 @@ import com.example.ui.StoreViewModel
 import com.example.ui.components.QuickThousandAdder
 import com.example.ui.components.StoreTopBar
 import com.example.ui.theme.*
+import androidx.compose.ui.platform.LocalContext
 import com.example.ui.util.FormatUtils
+import com.example.ui.util.InvoiceHelper
 
 @Composable
 fun TransactionsManagerScreen(
@@ -37,6 +39,8 @@ fun TransactionsManagerScreen(
     val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
     val sales by viewModel.sales.collectAsStateWithLifecycle()
     val purchases by viewModel.purchases.collectAsStateWithLifecycle()
+    val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Sales, 1: Purchases
     var searchQuery by remember { mutableStateOf("") }
@@ -153,7 +157,67 @@ fun TransactionsManagerScreen(
                             SaleItemCard(
                                 sale = sale,
                                 onEdit = { saleToEdit = sale },
-                                onDelete = { saleToDelete = sale }
+                                onDelete = { saleToDelete = sale },
+                                onPrintPdf = {
+                                    val pdf = InvoiceHelper.generateSaleInvoicePdf(
+                                        context = context,
+                                        invoiceNumber = if (sale.invoiceNumber.isNotBlank()) sale.invoiceNumber else "INV-${sale.id}",
+                                        customerName = sale.customerName,
+                                        customerPhone = sale.customerPhone,
+                                        employeeName = sale.employeeName,
+                                        paymentType = sale.paymentType,
+                                        items = listOf(
+                                            InvoiceHelper.PdfSaleLineItem(
+                                                name = sale.productName,
+                                                details = "${sale.category} | ${sale.color} | ${sale.size}",
+                                                quantity = sale.quantity,
+                                                unitPrice = sale.unitSellPrice,
+                                                total = sale.totalAmount
+                                            )
+                                        ),
+                                        subtotal = sale.unitSellPrice * sale.quantity,
+                                        discount = sale.discount,
+                                        netTotal = sale.totalAmount,
+                                        cashPaid = sale.cashAmount,
+                                        transferPaid = sale.transferAmount,
+                                        debtAmount = sale.debtAmount,
+                                        exchangeAccountName = sale.exchangeAccountName,
+                                        transferRef = sale.transferRef,
+                                        timestamp = sale.timestamp,
+                                        settings = storeSettings
+                                    )
+                                    InvoiceHelper.printPdfFile(context, pdf, "فاتورة_${sale.id}")
+                                },
+                                onSharePdf = {
+                                    val pdf = InvoiceHelper.generateSaleInvoicePdf(
+                                        context = context,
+                                        invoiceNumber = if (sale.invoiceNumber.isNotBlank()) sale.invoiceNumber else "INV-${sale.id}",
+                                        customerName = sale.customerName,
+                                        customerPhone = sale.customerPhone,
+                                        employeeName = sale.employeeName,
+                                        paymentType = sale.paymentType,
+                                        items = listOf(
+                                            InvoiceHelper.PdfSaleLineItem(
+                                                name = sale.productName,
+                                                details = "${sale.category} | ${sale.color} | ${sale.size}",
+                                                quantity = sale.quantity,
+                                                unitPrice = sale.unitSellPrice,
+                                                total = sale.totalAmount
+                                            )
+                                        ),
+                                        subtotal = sale.unitSellPrice * sale.quantity,
+                                        discount = sale.discount,
+                                        netTotal = sale.totalAmount,
+                                        cashPaid = sale.cashAmount,
+                                        transferPaid = sale.transferAmount,
+                                        debtAmount = sale.debtAmount,
+                                        exchangeAccountName = sale.exchangeAccountName,
+                                        transferRef = sale.transferRef,
+                                        timestamp = sale.timestamp,
+                                        settings = storeSettings
+                                    )
+                                    InvoiceHelper.sharePdfFile(context, pdf, "مشاركة فاتورة_${sale.id}")
+                                }
                             )
                         }
                     }
@@ -174,7 +238,15 @@ fun TransactionsManagerScreen(
                             PurchaseItemCard(
                                 purchase = purchase,
                                 onEdit = { purchaseToEdit = purchase },
-                                onDelete = { purchaseToDelete = purchase }
+                                onDelete = { purchaseToDelete = purchase },
+                                onPrintPdf = {
+                                    val pdf = InvoiceHelper.generatePurchaseInvoicePdf(context, purchase, storeSettings)
+                                    InvoiceHelper.printPdfFile(context, pdf, "مشتريات_${purchase.id}")
+                                },
+                                onSharePdf = {
+                                    val pdf = InvoiceHelper.generatePurchaseInvoicePdf(context, purchase, storeSettings)
+                                    InvoiceHelper.sharePdfFile(context, pdf, "مشاركة مشتريات_${purchase.id}")
+                                }
                             )
                         }
                     }
@@ -221,6 +293,8 @@ fun TransactionsManagerScreen(
     saleToEdit?.let { sale ->
         var customerName by remember { mutableStateOf(sale.customerName) }
         var customerPhone by remember { mutableStateOf(sale.customerPhone) }
+        var quantityStr by remember { mutableStateOf(sale.quantity.toString()) }
+        var unitPriceStr by remember { mutableStateOf(sale.unitSellPrice.toLong().toString()) }
         var discountStr by remember { mutableStateOf(sale.discount.toLong().toString()) }
 
         AlertDialog(
@@ -231,45 +305,91 @@ fun TransactionsManagerScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text("الصنف: ${sale.productName} (${sale.quantity} حبه)", fontWeight = FontWeight.Bold)
+                    Text("الصنف: ${sale.productName}", fontWeight = FontWeight.Bold)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = quantityStr,
+                            onValueChange = { quantityStr = it },
+                            label = { Text("الكمية (حبه)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = unitPriceStr,
+                            onValueChange = { unitPriceStr = it },
+                            label = { Text("سعر الحبة") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    OutlinedTextField(
+                        value = discountStr,
+                        onValueChange = { discountStr = it },
+                        label = { Text("الخصم (ريال)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
                     OutlinedTextField(
                         value = customerName,
                         onValueChange = { customerName = it },
                         label = { Text("اسم الزبون") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = customerPhone,
                         onValueChange = { customerPhone = it },
                         label = { Text("رقم هاتف الزبون") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        modifier = Modifier.fillMaxWidth()
                     )
-                    OutlinedTextField(
-                        value = discountStr,
-                        onValueChange = { discountStr = it },
-                        label = { Text("الخصم (ريال)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
+
+                    val q = quantityStr.toIntOrNull() ?: sale.quantity
+                    val p = unitPriceStr.toDoubleOrNull() ?: sale.unitSellPrice
+                    val d = discountStr.toDoubleOrNull() ?: sale.discount
+                    val previewTotal = ((p * q) - d).coerceAtLeast(0.0)
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFF1F5F9),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "الإجمالي بعد التعديل: ${FormatUtils.formatCurrency(previewTotal)}",
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF0F172A),
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
+                        val q = quantityStr.toIntOrNull() ?: sale.quantity
+                        val p = unitPriceStr.toDoubleOrNull() ?: sale.unitSellPrice
                         val disc = discountStr.toDoubleOrNull() ?: sale.discount
-                        val total = ((sale.unitSellPrice * sale.quantity) - disc).coerceAtLeast(0.0)
-                        val profit = total - (sale.unitBuyPrice * sale.quantity)
+                        val total = ((p * q) - disc).coerceAtLeast(0.0)
+                        val profit = total - (sale.unitBuyPrice * q)
+
+                        val (newCash, newTransfer, newDebt) = when {
+                            sale.paymentType.contains("دين") || sale.paymentType.contains("آجل") -> Triple(0.0, 0.0, total)
+                            sale.paymentType.contains("تحويل") -> Triple(0.0, total, 0.0)
+                            sale.paymentType.contains("نصف") -> Triple((total / 2), (total - (total / 2)), 0.0)
+                            else -> Triple(total, 0.0, 0.0)
+                        }
+
                         viewModel.updateSale(
                             sale.copy(
                                 customerName = customerName,
                                 customerPhone = customerPhone,
+                                quantity = q,
+                                unitSellPrice = p,
                                 discount = disc,
                                 totalAmount = total,
-                                profit = profit
+                                profit = profit,
+                                cashAmount = newCash,
+                                transferAmount = newTransfer,
+                                debtAmount = newDebt
                             )
                         )
                         saleToEdit = null
@@ -324,8 +444,10 @@ fun TransactionsManagerScreen(
     purchaseToEdit?.let { p ->
         var supplierName by remember { mutableStateOf(p.supplierName) }
         var invoiceNo by remember { mutableStateOf(p.invoiceNumber) }
-        var notes by remember { mutableStateOf(p.notes) }
+        var quantityStr by remember { mutableStateOf(p.quantity.toString()) }
+        var unitBuyPriceStr by remember { mutableStateOf(p.unitBuyPrice.toLong().toString()) }
         var sellPriceStr by remember { mutableStateOf(p.unitSellPrice.toLong().toString()) }
+        var notes by remember { mutableStateOf(p.notes) }
 
         AlertDialog(
             onDismissRequest = { purchaseToEdit = null },
@@ -336,27 +458,40 @@ fun TransactionsManagerScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text("الصنف: ${p.modelName} | المقاس: ${p.size}", fontWeight = FontWeight.Bold)
-                    OutlinedTextField(
-                        value = supplierName,
-                        onValueChange = { supplierName = it },
-                        label = { Text("اسم المورد") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = invoiceNo,
-                        onValueChange = { invoiceNo = it },
-                        label = { Text("رقم الفاتورة") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = quantityStr,
+                            onValueChange = { quantityStr = it },
+                            label = { Text("الكمية (حبه)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = unitBuyPriceStr,
+                            onValueChange = { unitBuyPriceStr = it },
+                            label = { Text("سعر التكلفة للحبة") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                     OutlinedTextField(
                         value = sellPriceStr,
                         onValueChange = { sellPriceStr = it },
                         label = { Text("سعر البيع المقترح للحبة (ريال)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = supplierName,
+                        onValueChange = { supplierName = it },
+                        label = { Text("اسم المورد") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = invoiceNo,
+                        onValueChange = { invoiceNo = it },
+                        label = { Text("رقم الفاتورة") },
+                        modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = notes,
@@ -364,18 +499,44 @@ fun TransactionsManagerScreen(
                         label = { Text("ملاحظات") },
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    val q = quantityStr.toIntOrNull() ?: p.quantity
+                    val buyP = unitBuyPriceStr.toDoubleOrNull() ?: p.unitBuyPrice
+                    val newTotal = q * buyP
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFF1F5F9),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "إجمالي التكلفة بعد التعديل: ${FormatUtils.formatCurrency(newTotal)}",
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF0F172A),
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
+                        val q = quantityStr.toIntOrNull() ?: p.quantity
+                        val buyP = unitBuyPriceStr.toDoubleOrNull() ?: p.unitBuyPrice
                         val newSellPrice = sellPriceStr.toDoubleOrNull() ?: p.unitSellPrice
+                        val newTotalCost = buyP * q
+                        val newRemainingDebt = (newTotalCost - p.paidAmount).coerceAtLeast(0.0)
+
                         viewModel.updatePurchase(
                             p.copy(
                                 supplierName = supplierName,
                                 invoiceNumber = invoiceNo,
-                                notes = notes,
-                                unitSellPrice = newSellPrice
+                                quantity = q,
+                                unitBuyPrice = buyP,
+                                unitSellPrice = newSellPrice,
+                                totalCost = newTotalCost,
+                                remainingDebt = newRemainingDebt,
+                                notes = notes
                             )
                         )
                         purchaseToEdit = null
@@ -397,7 +558,9 @@ fun TransactionsManagerScreen(
 fun SaleItemCard(
     sale: SaleTransaction,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onPrintPdf: () -> Unit = {},
+    onSharePdf: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -506,27 +669,33 @@ fun SaleItemCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "${FormatUtils.formatDateTime(sale.timestamp)} | فاتورة #${sale.id}",
+                    text = "${FormatUtils.formatDateTime(sale.timestamp)} | #${sale.id}",
                     style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted, fontSize = 10.sp)
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onPrintPdf, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Default.Print, contentDescription = "طباعة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(16.dp))
+                    }
+                    IconButton(onClick = onSharePdf, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Default.Share, contentDescription = "مشاركة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(16.dp))
+                    }
                     TextButton(
                         onClick = onEdit,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                     ) {
-                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("تعديل", fontSize = 12.sp)
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text("تعديل", fontSize = 11.sp)
                     }
                     TextButton(
                         onClick = onDelete,
                         colors = ButtonDefaults.textButtonColors(contentColor = RubyExpense),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                     ) {
-                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("حذف", fontSize = 12.sp)
+                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text("حذف", fontSize = 11.sp)
                     }
                 }
             }
@@ -538,7 +707,9 @@ fun SaleItemCard(
 fun PurchaseItemCard(
     purchase: PurchaseRecord,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onPrintPdf: () -> Unit = {},
+    onSharePdf: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -653,23 +824,29 @@ fun PurchaseItemCard(
                     style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted, fontSize = 10.sp)
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onPrintPdf, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Default.Print, contentDescription = "طباعة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(16.dp))
+                    }
+                    IconButton(onClick = onSharePdf, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Default.Share, contentDescription = "مشاركة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(16.dp))
+                    }
                     TextButton(
                         onClick = onEdit,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                     ) {
-                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("تعديل", fontSize = 12.sp)
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text("تعديل", fontSize = 11.sp)
                     }
                     TextButton(
                         onClick = onDelete,
                         colors = ButtonDefaults.textButtonColors(contentColor = RubyExpense),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                     ) {
-                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("حذف", fontSize = 12.sp)
+                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text("حذف", fontSize = 11.sp)
                     }
                 }
             }

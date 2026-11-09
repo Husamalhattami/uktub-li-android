@@ -848,8 +848,101 @@ class StoreRepository(
         }
     }
 
-    suspend fun updateSale(sale: SaleTransaction) {
-        dao.updateSale(sale)
+    suspend fun updateSale(newSale: SaleTransaction) {
+        runInTransaction {
+            val oldSale = dao.getSaleById(newSale.id) ?: throw IllegalArgumentException("فاتورة البيع غير موجودة!")
+
+            // 1. Stock adjustments
+            val qtyDiff = newSale.quantity - oldSale.quantity
+            if (qtyDiff > 0) {
+                val updated = dao.decrementStockSafe(newSale.productId, qtyDiff, System.currentTimeMillis())
+                if (updated == 0) {
+                    throw IllegalStateException("لا تتوفر كمية كافية في المخزون لإجراء هذا التعديل!")
+                }
+            } else if (qtyDiff < 0) {
+                dao.incrementStock(newSale.productId, -qtyDiff)
+            }
+
+            // 2. Cash adjustment
+            val cashDiff = newSale.cashAmount - oldSale.cashAmount
+            if (cashDiff != 0.0) {
+                val now = System.currentTimeMillis()
+                dao.insertCashMovement(
+                    CashDrawerMovement(
+                        shiftId = newSale.shiftId,
+                        type = "SALE_CASH",
+                        amount = kotlin.math.abs(cashDiff),
+                        isIncome = cashDiff > 0,
+                        title = "تعديل مبيعات فاتورة #${newSale.id}: ${newSale.productName}",
+                        details = if (cashDiff > 0) "إضافة فرق نقدي للصندوق" else "استرجاع فرق نقدي للعميل",
+                        timestamp = now,
+                        referenceSaleId = newSale.id
+                    )
+                )
+            }
+
+            // 3. Transfer adjustment
+            val transferDiff = newSale.transferAmount - oldSale.transferAmount
+            if (transferDiff != 0.0 && newSale.exchangeAccountId > 0) {
+                dao.updateExchangeBalance(newSale.exchangeAccountId, transferDiff)
+                dao.insertExchangeTransfer(
+                    ExchangeTransfer(
+                        accountId = newSale.exchangeAccountId,
+                        accountName = newSale.exchangeAccountName,
+                        type = "مبيعات تحويل",
+                        amount = kotlin.math.abs(transferDiff),
+                        isCredit = transferDiff > 0,
+                        title = "تعديل تحويل فاتورة #${newSale.id}",
+                        notes = "تعديل الفاتورة",
+                        timestamp = System.currentTimeMillis()
+                    )
+                )
+            }
+
+            // 4. Debt adjustment
+            val oldDebt = dao.getDebtBySaleId(newSale.id)
+            val newDebtAmount = newSale.debtAmount
+            if (newDebtAmount > 0) {
+                if (oldDebt != null) {
+                    val debtDiff = newDebtAmount - oldSale.debtAmount
+                    dao.updateDebt(
+                        oldDebt.copy(
+                            partyName = newSale.customerName,
+                            phone = newSale.customerPhone,
+                            originalAmount = oldDebt.originalAmount + debtDiff,
+                            remainingAmount = (oldDebt.remainingAmount + debtDiff).coerceAtLeast(0.0),
+                            isSettled = (oldDebt.remainingAmount + debtDiff) <= 0.01
+                        )
+                    )
+                } else {
+                    dao.insertDebt(
+                        DebtRecord(
+                            type = "CUSTOMER",
+                            partyName = newSale.customerName.ifBlank { "عميل آجل" },
+                            phone = newSale.customerPhone,
+                            originalAmount = newDebtAmount,
+                            remainingAmount = newDebtAmount,
+                            details = "دين معدل من فاتورة #${newSale.id}",
+                            referenceSaleId = newSale.id
+                        )
+                    )
+                }
+            } else if (oldDebt != null) {
+                dao.deleteDebt(oldDebt.id)
+            }
+
+            // 5. Update sale record
+            dao.updateSale(newSale)
+
+            dao.insertAuditLog(
+                AuditLogRecord(
+                    action = "تعديل بيع",
+                    actor = "المدير",
+                    details = "تم تعديل فاتورة البيع #${newSale.id} للعميل (${newSale.customerName}) بمبلغ (${newSale.totalAmount})",
+                    timestamp = System.currentTimeMillis()
+                )
+            )
+        }
     }
 
     // --- Purchase Goods / Restock ---
@@ -1117,8 +1210,101 @@ class StoreRepository(
         }
     }
 
-    suspend fun updatePurchase(purchase: PurchaseRecord) {
-        dao.updatePurchase(purchase)
+    suspend fun updatePurchase(newPurchase: PurchaseRecord) {
+        runInTransaction {
+            val oldPurchase = dao.getPurchaseById(newPurchase.id) ?: throw IllegalArgumentException("فاتورة الشراء غير موجودة!")
+
+            // 1. Stock adjustments
+            val qtyDiff = newPurchase.quantity - oldPurchase.quantity
+            val allProds = dao.getAllProducts().firstOrNull() ?: emptyList()
+            val prod = allProds.find {
+                it.modelName.trim().equals(oldPurchase.modelName.trim(), ignoreCase = true) &&
+                        it.color.trim().equals(oldPurchase.color.trim(), ignoreCase = true) &&
+                        it.size.trim().equals(oldPurchase.size.trim(), ignoreCase = true)
+            }
+            if (prod != null) {
+                if (qtyDiff < 0 && prod.quantity < kotlin.math.abs(qtyDiff)) {
+                    throw IllegalStateException("لا يمكن إنقاص كمية الشراء لأن جزءاً من البضاعة تم بيعه بالفعل من المخزن!")
+                }
+                dao.updateStock(prod.id, (prod.quantity + qtyDiff).coerceAtLeast(0), System.currentTimeMillis())
+            }
+
+            // 2. Cash adjustments
+            val cashDiff = newPurchase.cashPaid - oldPurchase.cashPaid
+            if (cashDiff != 0.0) {
+                val now = System.currentTimeMillis()
+                dao.insertCashMovement(
+                    CashDrawerMovement(
+                        type = "PURCHASE_PAID",
+                        amount = kotlin.math.abs(cashDiff),
+                        isIncome = cashDiff < 0,
+                        title = "تعديل مشتريات: ${newPurchase.modelName}",
+                        details = if (cashDiff > 0) "خصم فرق نقدي من الصندوق" else "استرجاع فرق نقدي للصندوق",
+                        timestamp = now,
+                        referencePurchaseId = newPurchase.id
+                    )
+                )
+            }
+
+            // 3. Transfer adjustments
+            val transferDiff = newPurchase.transferPaid - oldPurchase.transferPaid
+            if (transferDiff != 0.0 && newPurchase.exchangeAccountId > 0) {
+                dao.updateExchangeBalance(newPurchase.exchangeAccountId, -transferDiff)
+                dao.insertExchangeTransfer(
+                    ExchangeTransfer(
+                        accountId = newPurchase.exchangeAccountId,
+                        accountName = newPurchase.exchangeAccountName,
+                        type = "مشتريات تحويل",
+                        amount = kotlin.math.abs(transferDiff),
+                        isCredit = transferDiff < 0,
+                        title = "تعديل تحويل مشتريات #${newPurchase.id}",
+                        notes = "تعديل الفاتورة",
+                        timestamp = System.currentTimeMillis()
+                    )
+                )
+            }
+
+            // 4. Supplier debt adjustment
+            val oldDebt = dao.getDebtByPurchaseId(newPurchase.id)
+            if (newPurchase.remainingDebt > 0) {
+                if (oldDebt != null) {
+                    val debtDiff = newPurchase.remainingDebt - oldPurchase.remainingDebt
+                    dao.updateDebt(
+                        oldDebt.copy(
+                            partyName = newPurchase.supplierName,
+                            originalAmount = oldDebt.originalAmount + debtDiff,
+                            remainingAmount = (oldDebt.remainingAmount + debtDiff).coerceAtLeast(0.0),
+                            isSettled = (oldDebt.remainingAmount + debtDiff) <= 0.01
+                        )
+                    )
+                } else {
+                    dao.insertDebt(
+                        DebtRecord(
+                            type = "SUPPLIER",
+                            partyName = newPurchase.supplierName,
+                            originalAmount = newPurchase.remainingDebt,
+                            remainingAmount = newPurchase.remainingDebt,
+                            details = "دين مورد معدل من فاتورة #${newPurchase.id}",
+                            referencePurchaseId = newPurchase.id
+                        )
+                    )
+                }
+            } else if (oldDebt != null) {
+                dao.deleteDebt(oldDebt.id)
+            }
+
+            // 5. Update purchase record
+            dao.updatePurchase(newPurchase)
+
+            dao.insertAuditLog(
+                AuditLogRecord(
+                    action = "تعديل مشتريات",
+                    actor = "المدير",
+                    details = "تم تعديل فاتورة الشراء #${newPurchase.id} للمورد (${newPurchase.supplierName})",
+                    timestamp = System.currentTimeMillis()
+                )
+            )
+        }
     }
 
     // --- Expenses ---
