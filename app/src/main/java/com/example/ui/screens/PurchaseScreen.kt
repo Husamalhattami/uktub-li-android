@@ -687,7 +687,7 @@ fun PurchaseScreen(
 
                         // Payment Method Buttons
                         Text(text = "طريقة دفع قيمة الفاتورة:", style = MaterialTheme.typography.labelMedium.copy(color = SlateTextSecondary))
-                        Row(
+                        LazyRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
@@ -695,10 +695,11 @@ fun PurchaseScreen(
                                 "نقداً من الصندوق" to Icons.Default.AccountBalanceWallet,
                                 "تحويل عبر الصراف" to Icons.Default.Transform,
                                 "نصف كاش ونصف حوالة" to Icons.Default.CallSplit,
+                                "مختلط (كاش + حوالة + آجل)" to Icons.Default.Payments,
                                 "آجل للمورد" to Icons.Default.HistoryEdu
                             )
 
-                            methods.forEach { (method, icon) ->
+                            items(methods) { (method, icon) ->
                                 val isSelected = paymentMethod == method
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
@@ -708,18 +709,21 @@ fun PurchaseScreen(
                                         if (isSelected) BrandNavy else SlateBorder
                                     ),
                                     modifier = Modifier
-                                        .weight(1f)
                                         .clickable {
                                             paymentMethod = method
                                             if (method == "نصف كاش ونصف حوالة") {
                                                 val half = (totalCost / 2).toLong()
                                                 cashPaidStr = half.toString()
                                                 transferPaidStr = (totalCost.toLong() - half).toString()
+                                            } else if (method == "مختلط (كاش + حوالة + آجل)") {
+                                                val third = (totalCost / 3).toLong()
+                                                cashPaidStr = third.toString()
+                                                transferPaidStr = third.toString()
                                             }
                                         }
                                 ) {
                                     Column(
-                                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
+                                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 12.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
                                         Icon(
@@ -734,6 +738,7 @@ fun PurchaseScreen(
                                                 "نقداً من الصندوق" -> "كاش"
                                                 "تحويل عبر الصراف" -> "تحويل"
                                                 "نصف كاش ونصف حوالة" -> "نص ونص"
+                                                "مختلط (كاش + حوالة + آجل)" -> "مختلط (كاش+حوالة+آجل)"
                                                 else -> "آجل"
                                             },
                                             fontSize = 11.sp,
@@ -746,7 +751,11 @@ fun PurchaseScreen(
                         }
 
                         // Exchange Account Details
-                        if (paymentMethod == "تحويل عبر الصراف" || paymentMethod == "نصف كاش ونصف حوالة") {
+                        val requiresExchange = paymentMethod == "تحويل عبر الصراف" ||
+                                paymentMethod == "نصف كاش ونصف حوالة" ||
+                                (paymentMethod == "مختلط (كاش + حوالة + آجل)" && (transferPaidStr.toDoubleOrNull() ?: 0.0) > 0)
+
+                        if (requiresExchange) {
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = FintechIndigoBg,
@@ -783,35 +792,84 @@ fun PurchaseScreen(
                                             }
                                         }
                                     }
+                                }
+                            }
+                        }
 
-                                    if (paymentMethod == "نصف كاش ونصف حوالة") {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                        ) {
-                                            OutlinedTextField(
-                                                value = cashPaidStr,
-                                                onValueChange = {
-                                                    cashPaidStr = it
+                        // Split/Custom Input Fields
+                        if (paymentMethod == "نصف كاش ونصف حوالة" || paymentMethod == "مختلط (كاش + حوالة + آجل)") {
+                            Card(
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = SlateBg),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = if (paymentMethod == "مختلط (كاش + حوالة + آجل)") "تفاصيل الدفع المختلط (كاش + تحويل + متبقي آجل):" else "تحديد مبالغ الكاش والتحويل:",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = SlateTextPrimary
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        OutlinedTextField(
+                                            value = cashPaidStr,
+                                            onValueChange = {
+                                                cashPaidStr = it
+                                                if (paymentMethod == "نصف كاش ونصف حوالة") {
                                                     val cash = it.toDoubleOrNull() ?: 0.0
                                                     transferPaidStr = (totalCost - cash).coerceAtLeast(0.0).toLong().toString()
-                                                },
-                                                label = { Text("المدفوع كاش (ريال)") },
-                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                                modifier = Modifier.weight(1f),
-                                                singleLine = true
-                                            )
-                                            OutlinedTextField(
-                                                value = transferPaidStr,
-                                                onValueChange = {
-                                                    transferPaidStr = it
+                                                }
+                                            },
+                                            label = { Text("المدفوع كاش (ريال)") },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            modifier = Modifier.weight(1f),
+                                            singleLine = true
+                                        )
+                                        OutlinedTextField(
+                                            value = transferPaidStr,
+                                            onValueChange = {
+                                                transferPaidStr = it
+                                                if (paymentMethod == "نصف كاش ونصف حوالة") {
                                                     val tr = it.toDoubleOrNull() ?: 0.0
                                                     cashPaidStr = (totalCost - tr).coerceAtLeast(0.0).toLong().toString()
-                                                },
-                                                label = { Text("المدفوع تحويل (ريال)") },
-                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                                modifier = Modifier.weight(1f),
-                                                singleLine = true
+                                                }
+                                            },
+                                            label = { Text("المدفوع تحويل (ريال)") },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            modifier = Modifier.weight(1f),
+                                            singleLine = true
+                                        )
+                                    }
+
+                                    val cPaid = cashPaidStr.toDoubleOrNull() ?: 0.0
+                                    val tPaid = transferPaidStr.toDoubleOrNull() ?: 0.0
+                                    val totalPaidInput = cPaid + tPaid
+                                    val remainingForSupplier = (totalCost - totalPaidInput).coerceAtLeast(0.0)
+
+                                    if (paymentMethod == "مختلط (كاش + حوالة + آجل)") {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "المدفوع الآن: ${FormatUtils.formatCurrency(totalPaidInput)}",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = FintechEmerald
+                                            )
+                                            Text(
+                                                text = "المتبقي دين للمورد: ${FormatUtils.formatCurrency(remainingForSupplier)}",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (remainingForSupplier > 0) FintechRose else FintechEmerald
                                             )
                                         }
                                     }
@@ -832,15 +890,15 @@ fun PurchaseScreen(
                             onClick = {
                                 val cashPaid = when (paymentMethod) {
                                     "نقداً من الصندوق" -> totalCost
-                                    "نصف كاش ونصف حوالة" -> cashPaidStr.toDoubleOrNull() ?: 0.0
+                                    "نصف كاش ونصف حوالة", "مختلط (كاش + حوالة + آجل)" -> cashPaidStr.toDoubleOrNull() ?: 0.0
                                     else -> 0.0
                                 }
                                 val transferPaid = when (paymentMethod) {
                                     "تحويل عبر الصراف" -> totalCost
-                                    "نصف كاش ونصف حوالة" -> transferPaidStr.toDoubleOrNull() ?: 0.0
+                                    "نصف كاش ونصف حوالة", "مختلط (كاش + حوالة + آجل)" -> transferPaidStr.toDoubleOrNull() ?: 0.0
                                     else -> 0.0
                                 }
-                                val paidTotal = cashPaid + transferPaid
+                                val paidTotal = (cashPaid + transferPaid).coerceAtMost(totalCost)
                                 viewModel.recordPurchase(
                                     supplierName = supplierName,
                                     category = selectedType,

@@ -213,4 +213,154 @@ class StoreAccountingRobolectricTest {
 
         assertTrue("يجب منع حذف فاتورة الشراء إذا تم بيع جزء من البضاعة حفاظاً على سلامة الحسابات", deletionBlocked)
     }
+
+    @Test
+    fun testExecuteCartSaleMultiItemAtomicSuccess() = runBlocking {
+        // 1. Create two products
+        val p1Id = db.storeDao().insertProduct(
+            ProductItem(
+                category = "كوت",
+                modelName = "كوت شتوي",
+                color = "كحلي",
+                size = "L",
+                quantity = 10,
+                buyPrice = 100.0,
+                sellPrice = 200.0
+            )
+        )
+        val p2Id = db.storeDao().insertProduct(
+            ProductItem(
+                category = "بشت",
+                modelName = "بشت صيفي",
+                color = "أسود",
+                size = "XL",
+                quantity = 5,
+                buyPrice = 150.0,
+                sellPrice = 300.0
+            )
+        )
+
+        // 2. Create exchange account
+        val accId = db.storeDao().insertExchangeAccount(
+            ExchangeAccount(
+                name = "صرافة الكريمي",
+                balance = 1000.0
+            )
+        )
+        val exchangeAccount = db.storeDao().getExchangeAccountById(accId)
+
+        // Cart: 2 coats (400) + 1 bisht (300) = 700. Discount = 50 -> Net = 650.
+        // Triple Split: 200 Cash + 250 Transfer + 200 Debt = 650
+        val cartItems = listOf(
+            CartSaleItem(product = db.storeDao().getProductById(p1Id)!!, quantity = 2, sellPrice = 200.0),
+            CartSaleItem(product = db.storeDao().getProductById(p2Id)!!, quantity = 1, sellPrice = 300.0)
+        )
+
+        val invoiceNumber = repository.executeCartSale(
+            items = cartItems,
+            discount = 50.0,
+            customerName = "الشيخ فهد",
+            customerPhone = "777123456",
+            paymentType = PaymentMethods.CUSTOM_SPLIT,
+            cashPart = 200.0,
+            transferPart = 250.0,
+            debtPart = 200.0,
+            exchangeAccount = exchangeAccount
+        )
+
+        assertTrue(invoiceNumber.startsWith("INV-"))
+
+        // Verify stock deductions
+        val updatedP1 = db.storeDao().getProductById(p1Id)
+        val updatedP2 = db.storeDao().getProductById(p2Id)
+        assertEquals(8, updatedP1?.quantity) // 10 - 2
+        assertEquals(4, updatedP2?.quantity) // 5 - 1
+
+        // Verify sales share the SAME invoice number
+        val sales = db.storeDao().getAllSales().firstOrNull() ?: emptyList()
+        assertEquals(2, sales.size)
+        assertEquals(invoiceNumber, sales[0].invoiceNumber)
+        assertEquals(invoiceNumber, sales[1].invoiceNumber)
+
+        // Verify Cash Drawer Movement recorded ONCE for total cash (200.0)
+        val movements = db.storeDao().getAllCashMovements().firstOrNull() ?: emptyList()
+        val saleCashMovements = movements.filter { it.type == "SALE_CASH" }
+        assertEquals(1, saleCashMovements.size)
+        assertEquals(200.0, saleCashMovements[0].amount, 0.01)
+
+        // Verify Exchange Transfer recorded ONCE for total transfer (250.0)
+        val transfers = db.storeDao().getAllExchangeTransfers().firstOrNull() ?: emptyList()
+        assertEquals(1, transfers.size)
+        assertEquals(250.0, transfers[0].amount, 0.01)
+        val updatedAcc = db.storeDao().getExchangeAccountById(accId)
+        assertEquals(1250.0, updatedAcc?.balance ?: 0.0, 0.01)
+
+        // Verify Debt recorded ONCE for total debt (200.0)
+        val debts = db.storeDao().getAllDebts().firstOrNull() ?: emptyList()
+        assertEquals(1, debts.size)
+        assertEquals(200.0, debts[0].remainingAmount, 0.01)
+        assertEquals("الشيخ فهد", debts[0].partyName)
+    }
+
+    @Test
+    fun testExecuteCartSaleRollbackWhenOneItemHasInsufficientStock() = runBlocking {
+        // Product 1 has plenty (10)
+        val p1Id = db.storeDao().insertProduct(
+            ProductItem(
+                category = "كوت",
+                modelName = "كوت متوفر",
+                color = "كحلي",
+                size = "L",
+                quantity = 10,
+                buyPrice = 100.0,
+                sellPrice = 200.0
+            )
+        )
+        // Product 2 has only 1 piece
+        val p2Id = db.storeDao().insertProduct(
+            ProductItem(
+                category = "بشت",
+                modelName = "بشت شحيح",
+                color = "أسود",
+                size = "XL",
+                quantity = 1,
+                buyPrice = 150.0,
+                sellPrice = 300.0
+            )
+        )
+
+        // Cart requests 2 of P1 and 5 of P2 (P2 will fail)
+        val cartItems = listOf(
+            CartSaleItem(product = db.storeDao().getProductById(p1Id)!!, quantity = 2, sellPrice = 200.0),
+            CartSaleItem(product = db.storeDao().getProductById(p2Id)!!, quantity = 5, sellPrice = 300.0)
+        )
+
+        var failed = false
+        try {
+            repository.executeCartSale(
+                items = cartItems,
+                discount = 0.0,
+                customerName = "زبون تجريبي",
+                customerPhone = "",
+                paymentType = PaymentMethods.CASH
+            )
+        } catch (e: IllegalStateException) {
+            failed = true
+            assertTrue(e.message?.contains("بشت شحيح") == true)
+        }
+
+        assertTrue("يجب أن تفشل العملية بالكامل إذا كان صنف واحد غير متوفر بالمخزن", failed)
+
+        // Product 1 MUST NOT be deducted! Stock must remain 10
+        val freshP1 = db.storeDao().getProductById(p1Id)
+        assertEquals(10, freshP1?.quantity)
+
+        // No sales recorded
+        val sales = db.storeDao().getAllSales().firstOrNull() ?: emptyList()
+        assertEquals(0, sales.size)
+
+        // No cash movements recorded
+        val movements = db.storeDao().getAllCashMovements().firstOrNull() ?: emptyList()
+        assertEquals(0, movements.size)
+    }
 }

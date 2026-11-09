@@ -598,23 +598,46 @@ fun PdfInventoryProductCard(
                 }
             }
 
-            // Right Column: Product Image
-            val imageRes = when {
-                product.modelName.contains("بشت") || product.category.contains("بشت") -> R.drawable.img_bisht
-                product.modelName.contains("شماغ") || product.category.contains("شماغ") -> R.drawable.img_shemagh
-                product.modelName.contains("قماش") || product.category.contains("قماش") -> R.drawable.img_fabrics
-                else -> R.drawable.img_thobe
-            }
-
-            Image(
-                painter = painterResource(id = imageRes),
-                contentDescription = product.modelName,
-                contentScale = ContentScale.Crop,
+            // Right Box: Category Icon & Badge (بدون صور للمنتجات بناءً على طلب العميل)
+            Box(
                 modifier = Modifier
-                    .size(76.dp)
+                    .size(68.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFF1F5F9))
-            )
+                    .background(
+                        when {
+                            product.category.contains("بشت") || product.modelName.contains("بشت") -> Color(0xFFFEF3C7)
+                            product.category.contains("كوت") || product.modelName.contains("كوت") -> Color(0xFFEFF6FF)
+                            product.category.contains("جاكت") || product.modelName.contains("جاكت") -> Color(0xFFF0FDF4)
+                            else -> Color(0xFFF1F5F9)
+                        }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Checkroom,
+                        contentDescription = null,
+                        tint = when {
+                            product.category.contains("بشت") || product.modelName.contains("بشت") -> Color(0xFFD97706)
+                            product.category.contains("كوت") || product.modelName.contains("كوت") -> Color(0xFF2563EB)
+                            product.category.contains("جاكت") || product.modelName.contains("جاكت") -> Color(0xFF16A34A)
+                            else -> Color(0xFF475569)
+                        },
+                        modifier = Modifier.size(26.dp)
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = product.category.ifBlank { "ملبوسات" },
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF475569),
+                        maxLines = 1
+                    )
+                }
+            }
         }
     }
 }

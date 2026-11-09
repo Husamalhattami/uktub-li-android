@@ -45,10 +45,15 @@ fun HomeScreen(
     val cashBalance by viewModel.currentCashBalance.collectAsStateWithLifecycle()
     val totalExchangeBalance by viewModel.totalExchangeBalance.collectAsStateWithLifecycle()
     val inventoryValue by viewModel.inventoryCostValue.collectAsStateWithLifecycle()
+    val totalCustomerDebts by viewModel.totalCustomerDebts.collectAsStateWithLifecycle()
+    val totalSupplierDebts by viewModel.totalSupplierDebts.collectAsStateWithLifecycle()
     val cashMovements by viewModel.cashMovements.collectAsStateWithLifecycle()
     val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
 
-    val totalLiquidity = cashBalance + totalExchangeBalance + inventoryValue
+    // Accounting Fix: Actual liquidity is cash + exchange/wallet balances only (excluding unsold inventory)
+    val actualLiquidity = cashBalance + totalExchangeBalance
+    // Total Assets = actual liquidity + inventory + customer debts - supplier debts
+    val totalAssets = actualLiquidity + inventoryValue + totalCustomerDebts - totalSupplierDebts
 
     var showQuickAddSheet by remember { mutableStateOf(false) }
     var showAddPartyDialog by remember { mutableStateOf<String?>(null) } // "CUSTOMER" or "SUPPLIER"
@@ -113,7 +118,7 @@ fun HomeScreen(
                 .padding(paddingValues)
                 .background(Color(0xFFF8FAFC)),
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // ==========================================
             // 1. Hero Liquidity Card (Page 1 in PDF)
@@ -141,22 +146,31 @@ fun HomeScreen(
                     ) {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            // Top Row: إجمالي السيولة + Chart Icon
+                            // Top Row: السيولة المتاحة فعلياً + Chart Icon
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = "إجمالي السيولة",
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        color = Color(0xFFE2E8F0),
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Medium
+                                Column {
+                                    Text(
+                                        text = "السيولة النقدية المتاحة فعلياً",
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            color = Color(0xFFE2E8F0),
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     )
-                                )
+                                    Text(
+                                        text = "كاش الصندوق + أرصدة الصرافة والمحافظ",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            color = Color(0xFF90CDF4),
+                                            fontSize = 11.sp
+                                        )
+                                    )
+                                }
                                 Icon(
                                     imageVector = Icons.Default.BarChart,
                                     contentDescription = null,
@@ -171,7 +185,7 @@ fun HomeScreen(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Text(
-                                    text = FormatUtils.formatNumber(totalLiquidity),
+                                    text = FormatUtils.formatNumber(actualLiquidity),
                                     style = MaterialTheme.typography.headlineLarge.copy(
                                         fontWeight = FontWeight.ExtraBold,
                                         color = Color.White,
@@ -191,7 +205,7 @@ fun HomeScreen(
 
                             Spacer(modifier = Modifier.height(2.dp))
 
-                            // Bottom Two Blocks: رصيد الصندوق | قيمة المخزون
+                            // Bottom Two Blocks: رصيد الصندوق | أرصدة الصرافة
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -213,7 +227,7 @@ fun HomeScreen(
                                         modifier = Modifier
                                             .size(34.dp)
                                             .clip(CircleShape)
-                                        .background(Color(0xFF0D9488).copy(alpha = 0.2f)),
+                                            .background(Color(0xFF0D9488).copy(alpha = 0.2f)),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
@@ -225,7 +239,7 @@ fun HomeScreen(
                                     }
                                     Column {
                                         Text(
-                                            text = "رصيد الصندوق",
+                                            text = "كاش الصندوق",
                                             style = MaterialTheme.typography.bodySmall.copy(
                                                 color = Color(0xFF94A3B8),
                                                 fontSize = 11.sp
@@ -236,7 +250,7 @@ fun HomeScreen(
                                             style = MaterialTheme.typography.titleSmall.copy(
                                                 color = Color.White,
                                                 fontWeight = FontWeight.Bold,
-                                                fontSize = 14.sp
+                                                fontSize = 13.sp
                                             )
                                         )
                                     }
@@ -249,14 +263,14 @@ fun HomeScreen(
                                         .background(Color.White.copy(alpha = 0.15f))
                                 )
 
-                                // Left: قيمة المخزون
+                                // Left: أرصدة الصرافة والمحافظ
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier
                                         .weight(1f)
                                         .padding(start = 8.dp)
-                                        .clickable { onNavigate(AppScreen.INVENTORY) }
+                                        .clickable { onNavigate(AppScreen.EXCHANGE_ACCOUNTS) }
                                 ) {
                                     Box(
                                         modifier = Modifier
@@ -266,7 +280,7 @@ fun HomeScreen(
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.Inventory2,
+                                            imageVector = Icons.Default.AccountBalance,
                                             contentDescription = null,
                                             tint = Color(0xFF60A5FA),
                                             modifier = Modifier.size(18.dp)
@@ -274,22 +288,85 @@ fun HomeScreen(
                                     }
                                     Column {
                                         Text(
-                                            text = "قيمة المخزون",
+                                            text = "أرصدة الصرافة والمحافظ",
                                             style = MaterialTheme.typography.bodySmall.copy(
                                                 color = Color(0xFF94A3B8),
                                                 fontSize = 11.sp
                                             )
                                         )
                                         Text(
-                                            text = FormatUtils.formatCurrency(inventoryValue),
+                                            text = FormatUtils.formatCurrency(totalExchangeBalance),
                                             style = MaterialTheme.typography.titleSmall.copy(
                                                 color = Color.White,
                                                 fontWeight = FontWeight.Bold,
-                                                fontSize = 14.sp
+                                                fontSize = 13.sp
                                             )
                                         )
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Total Assets Card (قيمة المخزون + الديون)
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = Color(0xFF0F1E36), modifier = Modifier.size(18.dp))
+                                Text(
+                                    text = "إجمالي الأصول وصافي الثروة",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF0F1E36)
+                                )
+                            }
+                            Text(
+                                text = FormatUtils.formatCurrency(totalAssets),
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 16.sp,
+                                color = Color(0xFF0F1E36)
+                            )
+                        }
+
+                        HorizontalDivider(color = Color(0xFFF1F5F9))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            // Inventory Value
+                            Column(modifier = Modifier.clickable { onNavigate(AppScreen.INVENTORY) }) {
+                                Text("قيمة المخزون", fontSize = 10.sp, color = Color(0xFF64748B))
+                                Text(FormatUtils.formatCurrency(inventoryValue), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2563EB))
+                            }
+                            // Customer Debts
+                            Column(modifier = Modifier.clickable { onNavigate(AppScreen.DEBTS) }) {
+                                Text("ديون الزبائن (+)", fontSize = 10.sp, color = Color(0xFF64748B))
+                                Text(FormatUtils.formatCurrency(totalCustomerDebts), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF16A34A))
+                            }
+                            // Supplier Debts
+                            Column(modifier = Modifier.clickable { onNavigate(AppScreen.DEBTS) }) {
+                                Text("ديون الموردين (-)", fontSize = 10.sp, color = Color(0xFF64748B))
+                                Text(FormatUtils.formatCurrency(totalSupplierDebts), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
                             }
                         }
                     }

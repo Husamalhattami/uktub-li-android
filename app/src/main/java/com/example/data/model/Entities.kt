@@ -43,6 +43,7 @@ data class SaleTransaction(
     val paymentType: String = "نقداً", // "نقداً", "تحويل صرافة", "نصف كاش ونصف حوالة", "بالدين"
     val cashAmount: Double = 0.0,
     val transferAmount: Double = 0.0,
+    val debtAmount: Double = 0.0,
     val exchangeAccountId: Long = 0,
     val exchangeAccountName: String = "",
     val transferRef: String = "",
@@ -50,7 +51,15 @@ data class SaleTransaction(
     val employeeId: Long = 0,
     val timestamp: Long = System.currentTimeMillis(),
     val shiftId: Long = 0,
-    val unit: String = "حبه" // حبه، نص درزن، درزن، كورجه
+    val unit: String = "حبه", // حبه، نص درزن، درزن، كورجه
+    val invoiceNumber: String = ""
+)
+
+data class CartSaleItem(
+    val product: ProductItem,
+    val quantity: Int,
+    val sellPrice: Double,
+    val unit: String = "حبه"
 )
 
 @Entity(tableName = "purchases")
@@ -253,7 +262,8 @@ object PaymentMethods {
     const val TRANSFER = "تحويل عبر الصراف"
     const val SPLIT = "نصف كاش ونصف حوالة"
     const val CREDIT = "آجل (دين)"
+    const val CUSTOM_SPLIT = "مختلط (كاش + حوالة + آجل)"
 
-    val ALL = listOf(CASH, TRANSFER, SPLIT, CREDIT)
+    val ALL = listOf(CASH, TRANSFER, SPLIT, CREDIT, CUSTOM_SPLIT)
 }
 

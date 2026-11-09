@@ -393,6 +393,248 @@ class StoreRepository(
 
     suspend fun deleteProduct(id: Long) = dao.deleteProduct(id)
 
+    // --- Multi-Item Cart Sale Execution (Single Transaction & Unified Invoice) ---
+    suspend fun executeCartSale(
+        items: List<CartSaleItem>,
+        discount: Double,
+        customerName: String,
+        customerPhone: String,
+        paymentType: String,
+        cashPart: Double = 0.0,
+        transferPart: Double = 0.0,
+        debtPart: Double = 0.0,
+        exchangeAccount: ExchangeAccount? = null,
+        transferRef: String = "",
+        employee: Employee? = null
+    ): String {
+        if (items.isEmpty()) {
+            throw IllegalArgumentException("سلة المبيعات فارغة، يرجى إضافة منتج واحد على الأقل.")
+        }
+        for (item in items) {
+            if (item.quantity <= 0) {
+                throw IllegalArgumentException("يرجى إدخال كمية بيع صحيحة للمنتج (${item.product.modelName}).")
+            }
+            if (item.sellPrice <= 0) {
+                throw IllegalArgumentException("سعر بيع المنتج (${item.product.modelName}) يجب أن يكون أكبر من الصفر.")
+            }
+        }
+        if (discount < 0) {
+            throw IllegalArgumentException("لا يمكن إدخال خصم بقيمة سالبة.")
+        }
+
+        val subtotal = items.sumOf { it.sellPrice * it.quantity }
+        if (discount >= subtotal) {
+            throw IllegalArgumentException("قيمة الخصم (${FormatUtils.formatCurrency(discount)}) لا يمكن أن تتجاوز أو تعادل إجمالي الفاتورة (${FormatUtils.formatCurrency(subtotal)}).")
+        }
+        val netTotal = subtotal - discount
+
+        // Determine payment portions
+        val actualCash: Double
+        val actualTransfer: Double
+        val actualDebt: Double
+
+        when (paymentType) {
+            PaymentMethods.CASH, "نقداً", "نقداً (كاش)" -> {
+                actualCash = netTotal
+                actualTransfer = 0.0
+                actualDebt = 0.0
+            }
+            PaymentMethods.TRANSFER, "تحويل عبر الصراف", "تحويل صرافة" -> {
+                if (exchangeAccount == null) {
+                    throw IllegalArgumentException("يجب اختيار حساب الصراف أو المحفظة المحول إليها قبل تأكيد البيع.")
+                }
+                actualCash = 0.0
+                actualTransfer = netTotal
+                actualDebt = 0.0
+            }
+            PaymentMethods.CREDIT, "آجل (دين)", "بالدين" -> {
+                if (customerName.trim().isBlank()) {
+                    throw IllegalArgumentException("يجب كتابة أو اختيار اسم العميل لتسجيل عملية البيع بالدين.")
+                }
+                actualCash = 0.0
+                actualTransfer = 0.0
+                actualDebt = netTotal
+            }
+            PaymentMethods.SPLIT, "نصف كاش ونصف حوالة" -> {
+                if (exchangeAccount == null) {
+                    throw IllegalArgumentException("يجب اختيار حساب الصراف أو المحفظة للدفعة المحولة.")
+                }
+                val half = netTotal / 2.0
+                actualCash = half
+                actualTransfer = netTotal - half
+                actualDebt = 0.0
+            }
+            PaymentMethods.CUSTOM_SPLIT, "مختلط (كاش + حوالة + آجل)" -> {
+                if (cashPart < 0 || transferPart < 0 || debtPart < 0) {
+                    throw IllegalArgumentException("لا يمكن إدخال مبالغ سالبة في تفاصيل الدفع.")
+                }
+                if (transferPart > 0 && exchangeAccount == null) {
+                    throw IllegalArgumentException("يجب اختيار حساب الصراف أو المحفظة للدفعة المحولة ($transferPart ريال).")
+                }
+                if (debtPart > 0 && customerName.trim().isBlank()) {
+                    throw IllegalArgumentException("يجب كتابة أو اختيار اسم العميل لتسجيل المبلغ الآجل ($debtPart ريال).")
+                }
+                val sumParts = cashPart + transferPart + debtPart
+                if (kotlin.math.abs(sumParts - netTotal) > 1.0) {
+                    throw IllegalArgumentException("مجموع المبالغ ($sumParts ريال) يجب أن يساوي تماماً صافي الفاتورة ($netTotal ريال).")
+                }
+                actualCash = cashPart
+                actualTransfer = transferPart
+                actualDebt = debtPart
+            }
+            else -> {
+                actualCash = netTotal
+                actualTransfer = 0.0
+                actualDebt = 0.0
+            }
+        }
+
+        return runInTransaction {
+            val now = System.currentTimeMillis()
+            val invoiceNumber = "INV-${now % 1000000}"
+            val activeShiftObj = dao.getActiveShift().firstOrNull()
+            val shiftId = activeShiftObj?.id ?: 0L
+            val finalCustomer = customerName.ifBlank { if (actualDebt > 0) "عميل آجل" else "زبون نقدي" }
+
+            // Phase 1: Verify all products have enough stock BEFORE making any changes
+            val freshProducts = mutableListOf<Pair<CartSaleItem, ProductItem>>()
+            for (item in items) {
+                val fresh = dao.getProductById(item.product.id)
+                    ?: throw IllegalStateException("المنتج (${item.product.modelName}) غير متوفر في قاعدة البيانات!")
+                val multiplier = ClothingUnits.getMultiplier(item.unit)
+                val totalPieces = item.quantity * multiplier
+                if (fresh.quantity < totalPieces) {
+                    throw IllegalStateException("الكمية المطلوبة من (${fresh.modelName}) غير متوفرة! المطلوب: $totalPieces حبة، المتوفر في المخزن: ${fresh.quantity} حبة فقط.")
+                }
+                freshProducts.add(item to fresh)
+            }
+
+            // Phase 2: Safely decrement stock for each item
+            for ((item, _) in freshProducts) {
+                val multiplier = ClothingUnits.getMultiplier(item.unit)
+                val totalPieces = item.quantity * multiplier
+                val updatedRows = dao.decrementStockSafe(item.product.id, totalPieces, now)
+                if (updatedRows == 0) {
+                    throw IllegalStateException("تعذر خصم كمية (${item.product.modelName}) من المخزون بسبب عدم كفاية الرصيد أو تزامن عملية أخرى!")
+                }
+            }
+
+            // Phase 3: Insert SaleTransaction for each item linked by unified invoiceNumber
+            var firstSaleId = 0L
+            for ((item, fresh) in freshProducts) {
+                val multiplier = ClothingUnits.getMultiplier(item.unit)
+                val totalPieces = item.quantity * multiplier
+                val itemGross = item.sellPrice * item.quantity
+                val itemDiscount = if (subtotal > 0) discount * (itemGross / subtotal) else 0.0
+                val itemNet = itemGross - itemDiscount
+                val cost = fresh.buyPrice * totalPieces
+                val profit = itemNet - cost
+
+                val itemCash = if (netTotal > 0) actualCash * (itemNet / netTotal) else 0.0
+                val itemTransfer = if (netTotal > 0) actualTransfer * (itemNet / netTotal) else 0.0
+                val itemDebt = if (netTotal > 0) actualDebt * (itemNet / netTotal) else 0.0
+
+                val saleRecord = SaleTransaction(
+                    productId = fresh.id,
+                    productName = fresh.modelName,
+                    category = fresh.category,
+                    color = fresh.color,
+                    size = fresh.size,
+                    quantity = totalPieces,
+                    unitBuyPrice = fresh.buyPrice,
+                    unitSellPrice = item.sellPrice / multiplier,
+                    discount = itemDiscount,
+                    totalAmount = itemNet,
+                    profit = profit,
+                    customerName = finalCustomer,
+                    customerPhone = customerPhone,
+                    paymentType = paymentType,
+                    cashAmount = itemCash,
+                    transferAmount = itemTransfer,
+                    debtAmount = itemDebt,
+                    exchangeAccountId = exchangeAccount?.id ?: 0L,
+                    exchangeAccountName = exchangeAccount?.name ?: "",
+                    transferRef = transferRef,
+                    employeeName = employee?.name ?: "صاحب المحل",
+                    employeeId = employee?.id ?: 0L,
+                    timestamp = now,
+                    shiftId = shiftId,
+                    unit = item.unit,
+                    invoiceNumber = invoiceNumber
+                )
+                val sId = dao.insertSale(saleRecord)
+                if (firstSaleId == 0L) firstSaleId = sId
+            }
+
+            val itemsCountText = "${items.size} أصناف"
+
+            // Phase 4: Single Cash Drawer Movement
+            if (actualCash > 0) {
+                dao.insertCashMovement(
+                    CashDrawerMovement(
+                        shiftId = shiftId,
+                        type = "SALE_CASH",
+                        amount = actualCash,
+                        isIncome = true,
+                        title = "فاتورة بيع #$invoiceNumber ($itemsCountText)",
+                        details = "العميل: $finalCustomer${if (actualTransfer > 0 || actualDebt > 0) " (جزء نقدي)" else ""}",
+                        timestamp = now,
+                        referenceSaleId = firstSaleId
+                    )
+                )
+            }
+
+            // Phase 5: Single Exchange Transfer & Balance Update
+            if (actualTransfer > 0 && exchangeAccount != null) {
+                dao.updateExchangeBalance(exchangeAccount.id, actualTransfer)
+                dao.insertExchangeTransfer(
+                    ExchangeTransfer(
+                        accountId = exchangeAccount.id,
+                        accountName = exchangeAccount.name,
+                        type = "مبيعات تحويل",
+                        amount = actualTransfer,
+                        isCredit = true,
+                        title = "تحويل فاتورة #$invoiceNumber ($itemsCountText)",
+                        referenceNumber = transferRef,
+                        notes = "فاتورة بيع #${invoiceNumber} | العميل: $finalCustomer",
+                        timestamp = now
+                    )
+                )
+            }
+
+            // Phase 6: Single Debt Record
+            if (actualDebt > 0) {
+                dao.insertDebt(
+                    DebtRecord(
+                        type = "CUSTOMER",
+                        partyName = finalCustomer,
+                        phone = customerPhone,
+                        originalAmount = actualDebt,
+                        paidAmount = 0.0,
+                        remainingAmount = actualDebt,
+                        details = "آجل فاتورة بيع #$invoiceNumber ($itemsCountText)",
+                        referenceSaleId = firstSaleId,
+                        dueDate = now + 86400000L * 15,
+                        createdAt = now,
+                        isSettled = false
+                    )
+                )
+            }
+
+            // Phase 7: Single Audit Log
+            dao.insertAuditLog(
+                AuditLogRecord(
+                    action = "تسجيل فاتورة بيع",
+                    actor = employee?.name ?: "صاحب المحل",
+                    details = "فاتورة #$invoiceNumber ($itemsCountText): صافي ${FormatUtils.formatCurrency(netTotal)} ($paymentType)",
+                    timestamp = now
+                )
+            )
+
+            invoiceNumber
+        }
+    }
+
     // --- Sale Execution (Cash, Wallet Transfer, Split Half-Cash/Half-Transfer, Debt) ---
     suspend fun executeSale(
         product: ProductItem,

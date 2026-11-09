@@ -31,7 +31,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
+import com.example.data.model.CartSaleItem
+import com.example.data.model.Employee
 import com.example.data.model.ExchangeAccount
+import com.example.data.model.PaymentMethods
 import com.example.data.model.ProductItem
 import com.example.ui.StoreViewModel
 import com.example.ui.theme.*
@@ -55,6 +58,7 @@ fun SaleScreen(
     val context = LocalContext.current
     val products by viewModel.products.collectAsStateWithLifecycle()
     val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
+    val employees by viewModel.employees.collectAsStateWithLifecycle()
     val parties by viewModel.parties.collectAsStateWithLifecycle()
     val customerParties = remember(parties) { parties.filter { it.type == "CUSTOMER" } }
     val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
@@ -69,17 +73,30 @@ fun SaleScreen(
     var showAddCustomerDialog by remember { mutableStateOf(false) }
     var discountInputStr by remember { mutableStateOf("0") }
 
+    // Employee Selection
+    var selectedEmployee by remember { mutableStateOf<Employee?>(null) }
+
     // Payment details
-    var paymentType by remember { mutableStateOf("نقداً") } // "نقداً", "تحويل عبر الصراف", "نصف كاش ونصف حوالة", "آجل (دين)"
+    var paymentType by remember { mutableStateOf(PaymentMethods.CASH) }
     var customerName by remember { mutableStateOf("") }
     var customerPhone by remember { mutableStateOf("") }
     var selectedExchangeAccount by remember { mutableStateOf<ExchangeAccount?>(null) }
-    var cashPaidAmount by remember { mutableStateOf(0.0) }
-    var transferPaidAmount by remember { mutableStateOf(0.0) }
+    var transferRef by remember { mutableStateOf("") }
+
+    // Custom Split (Cash + Transfer + Debt)
+    var cashPartInput by remember { mutableStateOf("") }
+    var transferPartInput by remember { mutableStateOf("") }
+    var debtPartInput by remember { mutableStateOf("") }
 
     LaunchedEffect(exchangeAccounts) {
         if (selectedExchangeAccount == null && exchangeAccounts.isNotEmpty()) {
             selectedExchangeAccount = exchangeAccounts.firstOrNull()
+        }
+    }
+
+    LaunchedEffect(employees) {
+        if (selectedEmployee == null && employees.isNotEmpty()) {
+            selectedEmployee = employees.firstOrNull()
         }
     }
 
@@ -106,6 +123,16 @@ fun SaleScreen(
     val subtotal = cartItems.sumOf { it.unitPrice * it.quantity }
     val totalAmount = (subtotal - discountValue).coerceAtLeast(0.0)
 
+    // Sync custom split defaults if split chosen
+    LaunchedEffect(paymentType, totalAmount) {
+        if (paymentType == PaymentMethods.CUSTOM_SPLIT && cashPartInput.isBlank() && transferPartInput.isBlank() && debtPartInput.isBlank()) {
+            val third = (totalAmount / 3).toLong()
+            cashPartInput = third.toString()
+            transferPartInput = third.toString()
+            debtPartInput = (totalAmount.toLong() - (third * 2)).toString()
+        }
+    }
+
     fun addToCart(product: ProductItem) {
         val existing = cartItems.find { it.product.id == product.id }
         if (existing != null) {
@@ -128,67 +155,121 @@ fun SaleScreen(
             viewModel.showMessage("سلة الفاتورة فارغة! أضف أصنافاً أولاً.")
             return
         }
-        if ((paymentType == "آجل (دين)" || paymentType == "بالدين") && customerName.isBlank()) {
-            viewModel.showMessage("يرجى كتابة اسم العميل لتسجيل فاتورة الآجل.")
-            return
-        }
-        if (paymentType == "تحويل عبر الصراف" && selectedExchangeAccount == null) {
-            viewModel.showMessage("يرجى اختيار حساب الصراف أو المحفظة.")
-            return
-        }
 
-        // Execute sale for each item in transaction
-        var errorOccurred = false
         val finalCustomer = customerName.ifBlank { "زبون نقدي" }
 
-        // Process all items
-        val itemsSnapshot = cartItems.toList()
-        for (item in itemsSnapshot) {
-            val itemProportion = if (subtotal > 0) (item.unitPrice * item.quantity) / subtotal else 1.0
-            val itemDiscount = discountValue * itemProportion
+        val actualCash: Double
+        val actualTransfer: Double
+        val actualDebt: Double
 
-            viewModel.executeSale(
-                product = item.product,
-                quantity = item.quantity,
-                sellPrice = item.unitPrice,
-                discount = itemDiscount,
-                customerName = finalCustomer,
-                customerPhone = customerPhone,
-                paymentType = paymentType,
-                employee = null,
-                unit = item.unit,
-                cashPart = if (paymentType == "نصف كاش ونصف حوالة") totalAmount / 2 else 0.0,
-                transferPart = if (paymentType == "نصف كاش ونصف حوالة") totalAmount / 2 else 0.0,
-                exchangeAccount = selectedExchangeAccount,
-                transferRef = ""
-            ) {
-                // Success per item
+        when (paymentType) {
+            PaymentMethods.CASH, "نقداً", "نقداً (كاش)" -> {
+                actualCash = totalAmount
+                actualTransfer = 0.0
+                actualDebt = 0.0
+            }
+            PaymentMethods.TRANSFER, "تحويل عبر الصراف", "تحويل صرافة" -> {
+                if (selectedExchangeAccount == null) {
+                    viewModel.showMessage("يرجى اختيار حساب الصراف أو المحفظة المحول إليها.")
+                    return
+                }
+                actualCash = 0.0
+                actualTransfer = totalAmount
+                actualDebt = 0.0
+            }
+            PaymentMethods.CREDIT, "آجل (دين)", "بالدين" -> {
+                if (customerName.trim().isBlank()) {
+                    viewModel.showMessage("يرجى كتابة أو اختيار اسم العميل لتسجيل فاتورة الآجل.")
+                    return
+                }
+                actualCash = 0.0
+                actualTransfer = 0.0
+                actualDebt = totalAmount
+            }
+            PaymentMethods.SPLIT, "نصف كاش ونصف حوالة" -> {
+                if (selectedExchangeAccount == null) {
+                    viewModel.showMessage("يرجى اختيار حساب الصراف أو المحفظة للدفعة المحولة.")
+                    return
+                }
+                val half = (totalAmount / 2).toLong().toDouble()
+                actualCash = half
+                actualTransfer = totalAmount - half
+                actualDebt = 0.0
+            }
+            PaymentMethods.CUSTOM_SPLIT, "مختلط (كاش + حوالة + آجل)" -> {
+                val c = cashPartInput.toDoubleOrNull() ?: 0.0
+                val t = transferPartInput.toDoubleOrNull() ?: 0.0
+                val d = debtPartInput.toDoubleOrNull() ?: 0.0
+                val sumParts = c + t + d
+                if (kotlin.math.abs(sumParts - totalAmount) > 1.0) {
+                    viewModel.showMessage("مجموع الكاش ($c) والتحويل ($t) والآجل ($d) يجب أن يعادل صافي الفاتورة ($totalAmount ريال)!")
+                    return
+                }
+                if (t > 0 && selectedExchangeAccount == null) {
+                    viewModel.showMessage("يرجى اختيار حساب الصراف أو المحفظة لمبلغ التحويل ($t ريال).")
+                    return
+                }
+                if (d > 0 && customerName.trim().isBlank()) {
+                    viewModel.showMessage("يرجى كتابة أو اختيار اسم العميل لتسجيل المبلغ الآجل ($d ريال).")
+                    return
+                }
+                actualCash = c
+                actualTransfer = t
+                actualDebt = d
+            }
+            else -> {
+                actualCash = totalAmount
+                actualTransfer = 0.0
+                actualDebt = 0.0
             }
         }
 
-        if (andShare) {
-            val invoiceText = InvoiceHelper.generateThermalReceiptText(
-                storeName = storeSettings?.storeName ?: "أزياء الأصالة",
-                phoneNumber = storeSettings?.phoneNumber ?: "0501234567",
-                address = storeSettings?.address ?: "صنعاء",
-                invoiceId = System.currentTimeMillis() % 10000,
-                timestamp = System.currentTimeMillis(),
-                customerName = finalCustomer,
-                cashierName = "المدير",
-                items = itemsSnapshot.map { it.product.modelName to Triple(it.quantity, it.unitPrice, it.unitPrice * it.quantity) },
-                totalAmount = totalAmount,
-                discount = discountValue,
-                paymentType = paymentType,
-                headerNote = storeSettings?.invoiceHeader ?: "جودة .. تراث .. أناقة",
-                footerNote = storeSettings?.invoiceFooter ?: "البضاعة المباعة ترد وتستبدل خلال 3 أيام"
+        val cartSaleItems = cartItems.map {
+            CartSaleItem(
+                product = it.product,
+                quantity = it.quantity,
+                sellPrice = it.unitPrice,
+                unit = it.unit
             )
-            InvoiceHelper.shareInvoiceText(context, invoiceText)
         }
 
-        cartItems.clear()
-        discountValue = 0.0
-        viewModel.showMessage("تم حفظ الفاتورة بنجاح!")
-        onBack()
+        val itemsSnapshot = cartItems.toList()
+
+        viewModel.executeCartSale(
+            items = cartSaleItems,
+            discount = discountValue,
+            customerName = if (actualDebt > 0) customerName.ifBlank { "عميل آجل" } else finalCustomer,
+            customerPhone = customerPhone,
+            paymentType = paymentType,
+            cashPart = actualCash,
+            transferPart = actualTransfer,
+            debtPart = actualDebt,
+            exchangeAccount = selectedExchangeAccount,
+            transferRef = transferRef,
+            employee = selectedEmployee
+        ) { generatedInvoiceNumber ->
+            if (andShare) {
+                val invoiceText = InvoiceHelper.generateThermalReceiptText(
+                    storeName = storeSettings?.storeName ?: "أزياء الأصالة",
+                    phoneNumber = storeSettings?.phoneNumber ?: "0501234567",
+                    address = storeSettings?.address ?: "صنعاء",
+                    invoiceId = (generatedInvoiceNumber.hashCode().toLong().let { if (it < 0) -it else it }) % 100000,
+                    timestamp = System.currentTimeMillis(),
+                    customerName = finalCustomer,
+                    cashierName = selectedEmployee?.name ?: "صاحب المحل",
+                    items = itemsSnapshot.map { it.product.modelName to Triple(it.quantity, it.unitPrice, it.unitPrice * it.quantity) },
+                    totalAmount = totalAmount,
+                    discount = discountValue,
+                    paymentType = paymentType,
+                    headerNote = storeSettings?.invoiceHeader ?: "جودة .. تراث .. أناقة",
+                    footerNote = storeSettings?.invoiceFooter ?: "البضاعة المباعة ترد وتستبدل خلال 3 أيام"
+                )
+                InvoiceHelper.shareInvoiceText(context, invoiceText)
+            }
+            cartItems.clear()
+            discountValue = 0.0
+            onBack()
+        }
     }
 
     Scaffold(
@@ -518,35 +599,114 @@ fun SaleScreen(
                             }
                         }
 
-                        // Payment Methods Chips
-                        Text("طريقة الدفع:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF475569))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            listOf("نقداً", "تحويل عبر الصراف", "نصف كاش ونصف حوالة", "آجل (دين)").forEach { pType ->
-                                val isPSelected = paymentType == pType
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = if (isPSelected) PdfHeaderNavy else Color(0xFFF1F5F9),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clickable { paymentType = pType }
-                                ) {
-                                    Text(
-                                        text = pType,
-                                        color = if (isPSelected) Color.White else Color(0xFF475569),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                        modifier = Modifier.padding(vertical = 8.dp)
+                        // Employee / Cashier selector
+                        if (employees.isNotEmpty()) {
+                            Text("البائع / الموظف المسؤول:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF475569))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(employees) { emp ->
+                                    val isEmp = selectedEmployee?.id == emp.id
+                                    FilterChip(
+                                        selected = isEmp,
+                                        onClick = { selectedEmployee = emp },
+                                        label = { Text(emp.name, fontSize = 11.sp) }
                                     )
                                 }
                             }
                         }
 
-                        // Exchange Account Selector if transfer
-                        if (paymentType == "تحويل عبر الصراف" || paymentType == "نصف كاش ونصف حوالة") {
+                        // Payment Methods Chips
+                        Text("طريقة الدفع:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF475569))
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(listOf("نقداً", "تحويل عبر الصراف", "آجل (دين)", "نصف كاش ونصف حوالة", "مختلط (كاش + حوالة + آجل)")) { pType ->
+                                val isPSelected = paymentType == pType
+                                FilterChip(
+                                    selected = isPSelected,
+                                    onClick = { paymentType = pType },
+                                    label = { Text(pType, fontSize = 11.sp, fontWeight = if (isPSelected) FontWeight.Bold else FontWeight.Normal) }
+                                )
+                            }
+                        }
+
+                        // Custom Split UI (Cash + Transfer + Debt)
+                        if (paymentType == "مختلط (كاش + حوالة + آجل)") {
+                            Card(
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text("توزيع مبالغ الدفع المختلط (كاش + تحويل + آجل):", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF1E293B))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        OutlinedTextField(
+                                            value = cashPartInput,
+                                            onValueChange = { cashPartInput = it },
+                                            label = { Text("نقداً (كاش)", fontSize = 10.sp) },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        OutlinedTextField(
+                                            value = transferPartInput,
+                                            onValueChange = { transferPartInput = it },
+                                            label = { Text("تحويل صرافة", fontSize = 10.sp) },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        OutlinedTextField(
+                                            value = debtPartInput,
+                                            onValueChange = { debtPartInput = it },
+                                            label = { Text("آجل (دين)", fontSize = 10.sp) },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                    }
+
+                                    val cVal = cashPartInput.toDoubleOrNull() ?: 0.0
+                                    val tVal = transferPartInput.toDoubleOrNull() ?: 0.0
+                                    val dVal = debtPartInput.toDoubleOrNull() ?: 0.0
+                                    val sumVal = cVal + tVal + dVal
+                                    val isMatch = kotlin.math.abs(sumVal - totalAmount) <= 1.0
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "المجموع المدخل: ${FormatUtils.formatCurrency(sumVal)}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isMatch) Color(0xFF16A34A) else Color(0xFFDC2626)
+                                        )
+                                        Text(
+                                            text = if (isMatch) "متطابق مع الإجمالي ✓" else "الفارق: ${FormatUtils.formatCurrency(totalAmount - sumVal)}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isMatch) Color(0xFF16A34A) else Color(0xFFDC2626)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Exchange Account Selector if transfer is involved
+                        val needsExchange = paymentType == "تحويل عبر الصراف" ||
+                                paymentType == "نصف كاش ونصف حوالة" ||
+                                (paymentType == "مختلط (كاش + حوالة + آجل)" && (transferPartInput.toDoubleOrNull() ?: 0.0) > 0.0)
+
+                        if (needsExchange) {
                             Text("اختر حساب الصراف أو المحفظة المحول إليها:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F766E))
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 items(exchangeAccounts) { acc ->
@@ -732,23 +892,33 @@ fun PdfProductShelfCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Product Image
-            val imageRes = when {
-                product.modelName.contains("بشت") || product.category.contains("بشت") -> R.drawable.img_bisht
-                product.modelName.contains("شماغ") || product.category.contains("شماغ") -> R.drawable.img_shemagh
-                product.modelName.contains("قماش") || product.category.contains("قماش") -> R.drawable.img_fabrics
-                else -> R.drawable.img_thobe
-            }
-
-            Image(
-                painter = painterResource(id = imageRes),
-                contentDescription = product.modelName,
-                contentScale = ContentScale.Crop,
+            // Category Icon Badge (بدون صور للمنتجات بناءً على طلب العميل)
+            Box(
                 modifier = Modifier
-                    .size(68.dp)
+                    .size(54.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFFF1F5F9))
-            )
+                    .background(
+                        when {
+                            product.category.contains("بشت") || product.modelName.contains("بشت") -> Color(0xFFFEF3C7)
+                            product.category.contains("كوت") || product.modelName.contains("كوت") -> Color(0xFFEFF6FF)
+                            product.category.contains("جاكت") || product.modelName.contains("جاكت") -> Color(0xFFF0FDF4)
+                            else -> Color(0xFFF1F5F9)
+                        }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Checkroom,
+                    contentDescription = product.modelName,
+                    tint = when {
+                        product.category.contains("بشت") || product.modelName.contains("بشت") -> Color(0xFFD97706)
+                        product.category.contains("كوت") || product.modelName.contains("كوت") -> Color(0xFF2563EB)
+                        product.category.contains("جاكت") || product.modelName.contains("جاكت") -> Color(0xFF16A34A)
+                        else -> Color(0xFF334155)
+                    },
+                    modifier = Modifier.size(28.dp)
+                )
+            }
 
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
@@ -814,23 +984,33 @@ fun PdfCartItemRow(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.weight(1f)
             ) {
-                // Product Image
-                val imageRes = when {
-                    item.product.modelName.contains("بشت") || item.product.category.contains("بشت") -> R.drawable.img_bisht
-                    item.product.modelName.contains("شماغ") || item.product.category.contains("شماغ") -> R.drawable.img_shemagh
-                    item.product.modelName.contains("قماش") || item.product.category.contains("قماش") -> R.drawable.img_fabrics
-                    else -> R.drawable.img_thobe
-                }
-
-                Image(
-                    painter = painterResource(id = imageRes),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
+                // Category Icon Badge (بدون صور للمنتجات بناءً على طلب العميل)
+                Box(
                     modifier = Modifier
-                        .size(46.dp)
+                        .size(44.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFFF1F5F9))
-                )
+                        .background(
+                            when {
+                                item.product.category.contains("بشت") || item.product.modelName.contains("بشت") -> Color(0xFFFEF3C7)
+                                item.product.category.contains("كوت") || item.product.modelName.contains("كوت") -> Color(0xFFEFF6FF)
+                                item.product.category.contains("جاكت") || item.product.modelName.contains("جاكت") -> Color(0xFFF0FDF4)
+                                else -> Color(0xFFF1F5F9)
+                            }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Checkroom,
+                        contentDescription = null,
+                        tint = when {
+                            item.product.category.contains("بشت") || item.product.modelName.contains("بشت") -> Color(0xFFD97706)
+                            item.product.category.contains("كوت") || item.product.modelName.contains("كوت") -> Color(0xFF2563EB)
+                            item.product.category.contains("جاكت") || item.product.modelName.contains("جاكت") -> Color(0xFF16A34A)
+                            else -> Color(0xFF334155)
+                        },
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
 
                 // Stepper: [-] Qty [+]
                 Row(
