@@ -62,6 +62,32 @@ data class CartSaleItem(
     val unit: String = "حبه"
 )
 
+data class CartPurchaseItem(
+    val category: String,
+    val modelName: String,
+    val color: String,
+    val size: String,
+    val unit: String = "درزن", // حبه، نص درزن، درزن، كورجه
+    val unitCount: Double = 1.0, // عدد الوحدات (مثلاً 2 درزن)
+    val buyPricePerUnit: Double, // سعر الشراء للوحدة
+    val sellPricePerUnit: Double, // سعر البيع للوحدة
+    val barcode: String = "",
+    val colorsCount: Int = 1,
+    val colorDetails: String = "",
+    val notes: String = ""
+) {
+    val multiplier: Int get() = when (unit) {
+        "درزن" -> 12
+        "نص درزن" -> 6
+        "كورجه" -> 20
+        else -> 1
+    }
+    val totalPieces: Int get() = (unitCount * multiplier).toInt().coerceAtLeast(1)
+    val lineCost: Double get() = buyPricePerUnit * unitCount
+    val buyPricePerPiece: Double get() = if (totalPieces > 0) lineCost / totalPieces else 0.0
+    val sellPricePerPiece: Double get() = if (totalPieces > 0) (sellPricePerUnit * unitCount) / totalPieces else 0.0
+}
+
 @Entity(tableName = "purchases")
 data class PurchaseRecord(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

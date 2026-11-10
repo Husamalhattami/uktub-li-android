@@ -541,6 +541,208 @@ object InvoiceHelper {
         return file
     }
 
+    fun generateMultiItemPurchaseInvoicePdf(
+        context: Context,
+        invoiceNumber: String,
+        supplierName: String,
+        paymentMethod: String,
+        exchangeAccountName: String,
+        transferRef: String,
+        items: List<CartPurchaseItem>,
+        totalCost: Double,
+        cashPaid: Double,
+        transferPaid: Double,
+        debtAmount: Double,
+        timestamp: Long,
+        settings: StoreSettings?
+    ): File {
+        val calculatedHeight = (520 + (items.size * 36)).coerceAtLeast(680)
+        val pdfDocument = PdfDocument()
+        val pageInfo = PdfDocument.PageInfo.Builder(480, calculatedHeight, 1).create()
+        val page = pdfDocument.startPage(pageInfo)
+        val canvas: Canvas = page.canvas
+
+        val titlePaint = Paint().apply {
+            isAntiAlias = true
+            color = Color.rgb(15, 30, 54)
+            textSize = 17f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
+        val subTitlePaint = Paint().apply {
+            isAntiAlias = true
+            color = Color.rgb(100, 116, 139)
+            textSize = 11f
+            textAlign = Paint.Align.CENTER
+        }
+        val boldPaint = Paint().apply {
+            isAntiAlias = true
+            color = Color.rgb(15, 23, 42)
+            textSize = 12f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.RIGHT
+        }
+        val regularPaint = Paint().apply {
+            isAntiAlias = true
+            color = Color.rgb(51, 65, 85)
+            textSize = 11f
+            textAlign = Paint.Align.RIGHT
+        }
+        val tableHeaderPaint = Paint().apply {
+            isAntiAlias = true
+            color = Color.rgb(30, 41, 59)
+            textSize = 11f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        val leftPaint = Paint().apply {
+            isAntiAlias = true
+            color = Color.rgb(15, 23, 42)
+            textSize = 11f
+            textAlign = Paint.Align.LEFT
+        }
+        val linePaint = Paint().apply {
+            color = Color.rgb(226, 232, 240)
+            strokeWidth = 1f
+        }
+
+        val shopName = settings?.shopNameAr?.ifBlank { "الجرادي للملابس الجاهزة" } ?: "الجرادي للملابس الجاهزة"
+        val currency = settings?.currency ?: "ريال"
+        val phone = settings?.phone ?: "778383570"
+        val address = settings?.address ?: "صنعاء - اليمن"
+
+        var y = 35f
+        canvas.drawText(shopName, 240f, y, titlePaint)
+        y += 18f
+        canvas.drawText("سند قيد فاتورة مشتريات واستلام بضاعة للمستودع", 240f, y, subTitlePaint)
+        y += 16f
+        canvas.drawText("$address  •  هاتف: $phone", 240f, y, subTitlePaint)
+        y += 18f
+        canvas.drawLine(20f, y, 460f, y, linePaint)
+        y += 20f
+
+        boldPaint.textAlign = Paint.Align.RIGHT
+        canvas.drawText("فاتورة مشتريات: $invoiceNumber", 450f, y, boldPaint)
+        leftPaint.textAlign = Paint.Align.LEFT
+        canvas.drawText("${FormatUtils.formatDate(timestamp)} - ${FormatUtils.formatTime(timestamp)}", 30f, y, leftPaint)
+        y += 20f
+
+        regularPaint.textAlign = Paint.Align.RIGHT
+        canvas.drawText("المورد: ${supplierName.ifBlank { "مورد عام" }}", 450f, y, boldPaint)
+        leftPaint.textAlign = Paint.Align.LEFT
+        canvas.drawText("طريقة الدفع: $paymentMethod", 30f, y, leftPaint)
+        y += 18f
+
+        if (exchangeAccountName.isNotBlank() || transferRef.isNotBlank()) {
+            regularPaint.textAlign = Paint.Align.RIGHT
+            canvas.drawText("حساب الصراف: $exchangeAccountName", 450f, y, regularPaint)
+            if (transferRef.isNotBlank()) {
+                leftPaint.textAlign = Paint.Align.LEFT
+                canvas.drawText("رقم الحوالة: #$transferRef", 30f, y, leftPaint)
+            }
+            y += 18f
+        }
+
+        canvas.drawLine(20f, y, 460f, y, linePaint)
+        y += 20f
+
+        // Table Header
+        val bgPaint = Paint().apply { color = Color.rgb(241, 245, 249) }
+        canvas.drawRect(20f, y - 14f, 460f, y + 10f, bgPaint)
+
+        tableHeaderPaint.textAlign = Paint.Align.RIGHT
+        canvas.drawText("الصنف والمواصفات", 445f, y, tableHeaderPaint)
+        tableHeaderPaint.textAlign = Paint.Align.CENTER
+        canvas.drawText("الكمية / الوحدة", 260f, y, tableHeaderPaint)
+        canvas.drawText("سعر الشراء", 165f, y, tableHeaderPaint)
+        tableHeaderPaint.textAlign = Paint.Align.LEFT
+        canvas.drawText("الإجمالي", 35f, y, tableHeaderPaint)
+        y += 20f
+
+        // Table Rows
+        items.forEachIndexed { index, item ->
+            if (index % 2 == 1) {
+                val rowBg = Paint().apply { color = Color.rgb(248, 250, 252) }
+                canvas.drawRect(20f, y - 12f, 460f, y + 16f, rowBg)
+            }
+
+            regularPaint.textAlign = Paint.Align.RIGHT
+            val itemTitle = "${item.modelName} (${item.category})"
+            canvas.drawText(itemTitle, 445f, y, regularPaint)
+
+            regularPaint.textAlign = Paint.Align.CENTER
+            val unitStr = if (item.unit == "حبه") "${item.totalPieces} حبة" else "${item.unitCount.toInt()} ${item.unit} (${item.totalPieces} حبة)"
+            canvas.drawText(unitStr, 260f, y, regularPaint)
+            canvas.drawText(FormatUtils.formatNumber(item.buyPricePerUnit), 165f, y, regularPaint)
+
+            regularPaint.textAlign = Paint.Align.LEFT
+            canvas.drawText("${FormatUtils.formatNumber(item.lineCost)} $currency", 35f, y, regularPaint)
+
+            y += 14f
+            val specDetails = "المقاس: ${item.size} | اللون: ${item.color}"
+            subTitlePaint.textAlign = Paint.Align.RIGHT
+            canvas.drawText(specDetails, 445f, y, subTitlePaint)
+            y += 14f
+        }
+
+        y += 6f
+        canvas.drawLine(20f, y, 460f, y, linePaint)
+        y += 22f
+
+        // Totals Box
+        regularPaint.textAlign = Paint.Align.RIGHT
+        canvas.drawText("إجمالي تكلفة المشتريات (${items.size} أصناف):", 280f, y, regularPaint)
+        leftPaint.textAlign = Paint.Align.LEFT
+        canvas.drawText(FormatUtils.formatCurrency(totalCost, currency), 35f, y, leftPaint)
+        y += 20f
+
+        if (cashPaid > 0) {
+            regularPaint.textAlign = Paint.Align.RIGHT
+            canvas.drawText("المدفوع نقداً من الصندوق:", 280f, y, regularPaint)
+            leftPaint.textAlign = Paint.Align.LEFT
+            canvas.drawText(FormatUtils.formatCurrency(cashPaid, currency), 35f, y, leftPaint)
+            y += 18f
+        }
+
+        if (transferPaid > 0) {
+            regularPaint.textAlign = Paint.Align.RIGHT
+            canvas.drawText("المدفوع تحويل عبر الصرافة:", 280f, y, regularPaint)
+            leftPaint.textAlign = Paint.Align.LEFT
+            canvas.drawText(FormatUtils.formatCurrency(transferPaid, currency), 35f, y, leftPaint)
+            y += 18f
+        }
+
+        if (debtAmount > 0) {
+            val debtP = Paint().apply {
+                isAntiAlias = true
+                color = Color.rgb(220, 38, 38)
+                textSize = 12f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textAlign = Paint.Align.RIGHT
+            }
+            canvas.drawText("المبلغ المقيد ديناً للمورد (عليا زلط):", 280f, y, debtP)
+            debtP.textAlign = Paint.Align.LEFT
+            canvas.drawText(FormatUtils.formatCurrency(debtAmount, currency), 35f, y, debtP)
+            y += 20f
+        }
+
+        canvas.drawLine(20f, y, 460f, y, linePaint)
+        y += 20f
+
+        subTitlePaint.textAlign = Paint.Align.CENTER
+        canvas.drawText("تم استلام وإدخال الأصناف بنجاح لمخزون المستودع", 240f, y, subTitlePaint)
+
+        pdfDocument.finishPage(page)
+
+        val invoicesDir = File(context.cacheDir, "invoices")
+        if (!invoicesDir.exists()) invoicesDir.mkdirs()
+        val file = File(invoicesDir, "فاتورة_شراء_${invoiceNumber.replace("/", "_")}.pdf")
+        FileOutputStream(file).use { out ->
+            pdfDocument.writeTo(out)
+        }
+        pdfDocument.close()
+        return file
+    }
+
     // ==========================================
     // 4. Daily Cash Drawer & Movement Statement PDF
     // ==========================================

@@ -86,6 +86,25 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     val products: StateFlow<List<ProductItem>> = repository.allProducts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    private val _customCategories = MutableStateFlow<Set<String>>(emptySet())
+    val allCategories: StateFlow<List<String>> = combine(products, _customCategories) { prods, custom ->
+        val defaultPresets = listOf("بشت", "كوت", "دجلة", "جاكت", "ثوب", "قميص", "بنطلون", "دشداشة", "بدلة", "شماغ/شال", "أقمشة", "إكسسوارات")
+        val fromProds = prods.map { it.category.trim() }.filter { it.isNotBlank() }
+        (listOf("الكل") + defaultPresets + custom + fromProds).distinct().filter { it.isNotBlank() }
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        listOf("الكل", "بشت", "كوت", "دجلة", "جاكت", "ثوب", "قميص", "بنطلون", "دشداشة", "بدلة", "شماغ/شال", "أقمشة", "إكسسوارات")
+    )
+
+    fun addNewCategory(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isNotBlank()) {
+            _customCategories.value = _customCategories.value + trimmed
+            _userMessage.value = "تمت إضافة نوع الصنف: $trimmed"
+        }
+    }
+
     val sales: StateFlow<List<SaleTransaction>> = repository.allSales
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -261,6 +280,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         exchangeAccount: ExchangeAccount? = null,
         transferRef: String = "",
         employee: Employee? = null,
+        customInvoiceNumber: String = "",
         onSuccess: (invoiceNumber: String) -> Unit
     ) {
         viewModelScope.launch {
@@ -276,12 +296,48 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                     debtPart = debtPart,
                     exchangeAccount = exchangeAccount,
                     transferRef = transferRef,
-                    employee = employee
+                    employee = employee,
+                    customInvoiceNumber = customInvoiceNumber
                 )
                 _userMessage.value = "تم حفظ فاتورة البيع ($invoiceNumber) بنجاح!"
                 onSuccess(invoiceNumber)
             } catch (e: Exception) {
                 _userMessage.value = e.message ?: "تعذر إتمام عملية البيع"
+            }
+        }
+    }
+
+    fun executeCartPurchase(
+        items: List<CartPurchaseItem>,
+        supplierName: String,
+        invoiceNumber: String,
+        paymentMethod: String,
+        cashPaidPart: Double = 0.0,
+        transferPaidPart: Double = 0.0,
+        debtPart: Double = 0.0,
+        exchangeAccount: ExchangeAccount? = null,
+        transferRef: String = "",
+        notes: String = "",
+        onSuccess: (invoiceNumber: String) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                val finalInvoiceNum = repository.executeCartPurchase(
+                    items = items,
+                    supplierName = supplierName,
+                    invoiceNumber = invoiceNumber,
+                    paymentMethod = paymentMethod,
+                    cashPaidPart = cashPaidPart,
+                    transferPaidPart = transferPaidPart,
+                    debtPart = debtPart,
+                    exchangeAccount = exchangeAccount,
+                    transferRef = transferRef,
+                    notes = notes
+                )
+                _userMessage.value = "تم حفظ وتأكيد فاتورة الشراء ($finalInvoiceNum) بنجاح!"
+                onSuccess(finalInvoiceNum)
+            } catch (e: Exception) {
+                _userMessage.value = e.message ?: "تعذر إتمام فاتورة الشراء"
             }
         }
     }
@@ -465,6 +521,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         notes: String,
         paidFromCashDrawer: Boolean,
         exchangeAccount: ExchangeAccount? = null,
+        referenceNumber: String = "",
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -483,7 +540,8 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 amount = amount,
                 notes = notes,
                 paidFromCashDrawer = paidFromCashDrawer,
-                exchangeAccount = exchangeAccount
+                exchangeAccount = exchangeAccount,
+                referenceNumber = referenceNumber
             )
             _userMessage.value = "تم تسجيل $type للعامل $employeeName بنجاح"
             onSuccess()
@@ -521,6 +579,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         amount: Double,
         fromCashToExchange: Boolean,
         notes: String,
+        referenceNumber: String = "",
         onSuccess: () -> Unit = {}
     ) {
         viewModelScope.launch {
@@ -528,7 +587,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "يرجى تحديد مبلغ التحويل"
                 return@launch
             }
-            repository.transferBetweenCashAndExchange(accountId, amount, fromCashToExchange, notes)
+            repository.transferBetweenCashAndExchange(accountId, amount, fromCashToExchange, notes, referenceNumber)
             val actionName = if (fromCashToExchange) "إيداع كاش لحساب الصراف" else "سحب كاش من الصراف للصندوق"
             _userMessage.value = "تم تنفيذ $actionName بنجاح!"
             onSuccess()
@@ -541,6 +600,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         notes: String,
         paymentMethod: String = "نقداً",
         exchangeAccount: ExchangeAccount? = null,
+        referenceNumber: String = "",
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -552,7 +612,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "مبلغ الدفعة أكبر من المبلغ المتبقي (${FormatUtils.formatCurrency(debt.remainingAmount)})"
                 return@launch
             }
-            repository.recordDebtPayment(debt, amount, notes, paymentMethod, exchangeAccount)
+            repository.recordDebtPayment(debt, amount, notes, paymentMethod, exchangeAccount, referenceNumber)
             _userMessage.value = "تم تسجيل الدفعة بنجاح وتحديث الصندوق/الصراف والدين"
             onSuccess()
         }
@@ -609,6 +669,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         notes: String,
         paymentMethod: String = "نقداً",
         exchangeAccount: ExchangeAccount? = null,
+        referenceNumber: String = "",
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -622,7 +683,8 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 totalPayment = totalPayment,
                 notes = notes,
                 paymentMethod = paymentMethod,
-                exchangeAccount = exchangeAccount
+                exchangeAccount = exchangeAccount,
+                referenceNumber = referenceNumber
             )
             if (result) {
                 val actionType = if (partyType == "CUSTOMER") "قبض زلط من العميل" else "سداد دفعة للمورد"
