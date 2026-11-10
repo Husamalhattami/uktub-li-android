@@ -40,6 +40,32 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
 
     fun getRepository(): StoreRepository = repository
 
+    init {
+        viewModelScope.launch {
+            repository.seedInitialDataIfEmpty()
+            val existing = repository.getStoreSettingsDirect()
+            if (existing == null) {
+                repository.saveStoreSettings(
+                    StoreSettings(
+                        shopNameAr = "الجرادي للملابس الجاهزة",
+                        shopNameEn = "Al-Jaradi Ready-to-Wear",
+                        phone = "778383570",
+                        invoiceHeader = "الجرادي للملابس الجاهزة"
+                    )
+                )
+            } else if (existing.shopNameAr.contains("الأناقة") || existing.shopNameAr == "حسابي للمحل" || existing.phone != "778383570") {
+                repository.saveStoreSettings(
+                    existing.copy(
+                        shopNameAr = "الجرادي للملابس الجاهزة",
+                        shopNameEn = "Al-Jaradi Ready-to-Wear",
+                        phone = "778383570",
+                        invoiceHeader = "الجرادي للملابس الجاهزة"
+                    )
+                )
+            }
+        }
+    }
+
     // --- Navigation State ---
     private val _currentScreen = MutableStateFlow(AppScreen.HOME)
     val currentScreen: StateFlow<AppScreen> = _currentScreen.asStateFlow()
@@ -375,6 +401,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         receiptNumber: String,
         paidFromCash: Boolean,
         exchangeAccount: ExchangeAccount? = null,
+        employee: Employee? = null,
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -388,9 +415,10 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 notes = notes,
                 receiptNumber = receiptNumber,
                 paidFromCash = paidFromCash,
-                exchangeAccount = exchangeAccount
+                exchangeAccount = exchangeAccount,
+                employee = employee
             )
-            _userMessage.value = "تم تسجيل المصروف بنجاح"
+            _userMessage.value = if (employee != null) "تم تسجيل صرفة يومية للعامل (${employee.name}) بنجاح" else "تم تسجيل المصروف بنجاح"
             onSuccess()
         }
     }

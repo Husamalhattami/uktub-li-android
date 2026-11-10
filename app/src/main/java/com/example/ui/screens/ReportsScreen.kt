@@ -23,6 +23,7 @@ import com.example.ui.components.StatCard
 import com.example.ui.components.StoreTopBar
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
+import com.example.ui.util.InvoiceHelper
 
 @Composable
 fun ReportsScreen(
@@ -140,7 +141,7 @@ fun ReportsScreen(
     }
 
     fun shareReportText() {
-        val storeTitle = storeSettings?.storeName ?: "محل الأناقة للملابس الرجالية"
+        val storeTitle = storeSettings?.storeName ?: "الجرادي للملابس الجاهزة"
         val report = buildString {
             appendLine("📊 تقرير أرباح ومبيعات: $storeTitle")
             appendLine("الفترة: $selectedPeriod (${FormatUtils.formatDate(System.currentTimeMillis())})")
@@ -177,15 +178,50 @@ fun ReportsScreen(
                 activeShift = activeShift,
                 onBackClick = onBack,
                 trailingAction = {
-                    IconButton(
-                        onClick = { shareReportText() },
-                        modifier = Modifier.testTag("btn_share_report")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "مشاركة التقرير",
-                            tint = Color.White
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = {
+                                val file = InvoiceHelper.generateFinancialReportPdf(
+                                    context = context,
+                                    periodTitle = selectedPeriod,
+                                    sales = filteredSales,
+                                    expenses = filteredExpenses,
+                                    employeeTx = filteredSalaries,
+                                    purchases = purchases,
+                                    settings = storeSettings
+                                )
+                                InvoiceHelper.printPdfFile(context, file, "تقرير_مالي_$selectedPeriod")
+                            },
+                            modifier = Modifier.testTag("btn_print_report_pdf")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Print,
+                                contentDescription = "طباعة تقرير PDF",
+                                tint = Color.White
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                val file = InvoiceHelper.generateFinancialReportPdf(
+                                    context = context,
+                                    periodTitle = selectedPeriod,
+                                    sales = filteredSales,
+                                    expenses = filteredExpenses,
+                                    employeeTx = filteredSalaries,
+                                    purchases = purchases,
+                                    settings = storeSettings
+                                )
+                                InvoiceHelper.sharePdfFile(context, file, "مشاركة تقرير مالي")
+                            },
+                            modifier = Modifier.testTag("btn_share_report_pdf")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "مشاركة PDF",
+                                tint = Color.White
+                            )
+                        }
                     }
                 }
             )

@@ -230,7 +230,8 @@ fun SaleReceiptDialog(
 
     val receiptText = buildString {
         appendLine("══════════════════════════")
-        appendLine("      محل الملابس الرجالية     ")
+        appendLine("      الجرادي للملابس الجاهزة     ")
+        appendLine("          هاتف: 778383570         ")
         appendLine("       فاتورة بيع رقم #${sale.id}      ")
         appendLine("══════════════════════════")
         appendLine("التاريخ: ${receipt.dateStr}  ${receipt.timeStr}")

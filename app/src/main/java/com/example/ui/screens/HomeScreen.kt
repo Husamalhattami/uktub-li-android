@@ -74,7 +74,7 @@ fun HomeScreen(
         },
         topBar = {
             StoreTopBar(
-                title = storeSettings?.storeName ?: "حسابي للمحل",
+                title = storeSettings?.storeName ?: "الجرادي للملابس الجاهزة",
                 subtitle = "إدارة أسهل .. لمحل أكثر نجاحاً",
                 trailingAction = {
                     Row(verticalAlignment = Alignment.CenterVertically) {

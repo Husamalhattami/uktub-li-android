@@ -43,6 +43,8 @@ class StoreRepository(
     val allAuditLogs: Flow<List<AuditLogRecord>> = dao.getAllAuditLogs()
     val storeSettings: Flow<StoreSettings?> = dao.getStoreSettings()
 
+    suspend fun getStoreSettingsDirect(): StoreSettings? = dao.getStoreSettingsDirect()
+
     suspend fun logAudit(action: String, actor: String = "المدير", details: String) {
         dao.insertAuditLog(AuditLogRecord(action = action, actor = actor, details = details, timestamp = System.currentTimeMillis()))
     }
@@ -1314,16 +1316,23 @@ class StoreRepository(
         notes: String,
         receiptNumber: String,
         paidFromCash: Boolean,
-        exchangeAccount: ExchangeAccount? = null
+        exchangeAccount: ExchangeAccount? = null,
+        employee: Employee? = null
     ): Long {
         val activeShiftObj = dao.getActiveShift().firstOrNull()
         val shiftId = activeShiftObj?.id ?: 0L
         val now = System.currentTimeMillis()
 
+        val finalNotes = if (employee != null) {
+            "صرفة يومية للعامل: ${employee.name}${if (notes.isNotBlank()) " - $notes" else ""}"
+        } else {
+            notes
+        }
+
         val expense = ExpenseRecord(
             category = category,
             amount = amount,
-            notes = notes,
+            notes = finalNotes,
             receiptNumber = receiptNumber,
             timestamp = now,
             paidFromCash = paidFromCash,
@@ -1333,15 +1342,32 @@ class StoreRepository(
         )
         val id = dao.insertExpense(expense)
 
+        // If this expense is for an employee daily stipend, record in employee statement
+        if (employee != null) {
+            val empTx = EmployeeTransaction(
+                employeeId = employee.id,
+                employeeName = employee.name,
+                type = "صرفة يومية",
+                amount = amount,
+                notes = notes.ifBlank { "صرفة يومية من خانة المصروفات" },
+                timestamp = now,
+                shiftId = shiftId,
+                paidFromCash = paidFromCash,
+                exchangeAccountId = exchangeAccount?.id ?: 0L,
+                exchangeAccountName = exchangeAccount?.name ?: ""
+            )
+            dao.insertEmployeeTransaction(empTx)
+        }
+
         if (paidFromCash) {
             dao.insertCashMovement(
                 CashDrawerMovement(
                     shiftId = shiftId,
-                    type = "EXPENSE_PAID",
+                    type = if (employee != null) "SALARY_PAID" else "EXPENSE_PAID",
                     amount = amount,
                     isIncome = false,
-                    title = "مصروف: $category",
-                    details = notes.ifBlank { "وصل: $receiptNumber" },
+                    title = if (employee != null) "صرفة يومية: ${employee.name}" else "مصروف: $category",
+                    details = finalNotes.ifBlank { "وصل: $receiptNumber" },
                     timestamp = now,
                     referenceExpenseId = id
                 )
@@ -1355,9 +1381,9 @@ class StoreRepository(
                     type = "سحب مصروف",
                     amount = amount,
                     isCredit = false,
-                    title = "مصروف من الصراف: $category",
+                    title = if (employee != null) "صرفة يومية: ${employee.name} (عبر ${exchangeAccount.name})" else "مصروف من الصراف: $category",
                     referenceNumber = receiptNumber,
-                    notes = notes,
+                    notes = finalNotes,
                     timestamp = now
                 )
             )

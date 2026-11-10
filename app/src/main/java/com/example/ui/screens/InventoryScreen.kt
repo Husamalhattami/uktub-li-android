@@ -598,43 +598,42 @@ fun PdfInventoryProductCard(
                 }
             }
 
-            // Right Box: Category Icon & Badge (بدون صور للمنتجات بناءً على طلب العميل)
-            Box(
-                modifier = Modifier
-                    .size(68.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(
-                        when {
-                            product.category.contains("بشت") || product.modelName.contains("بشت") -> Color(0xFFFEF3C7)
-                            product.category.contains("كوت") || product.modelName.contains("كوت") -> Color(0xFFEFF6FF)
-                            product.category.contains("جاكت") || product.modelName.contains("جاكت") -> Color(0xFFF0FDF4)
-                            else -> Color(0xFFF1F5F9)
-                        }
-                    ),
-                contentAlignment = Alignment.Center
+            // Right Box: Category & Price Tag (بدون أي أيقونات أو صور بناءً على طلب العميل)
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = when {
+                    product.category.contains("بشت") || product.modelName.contains("بشت") -> Color(0xFFFEF3C7)
+                    product.category.contains("كوت") || product.modelName.contains("كوت") -> Color(0xFFEFF6FF)
+                    product.category.contains("جاكت") || product.modelName.contains("جاكت") -> Color(0xFFF0FDF4)
+                    else -> Color(0xFFF1F5F9)
+                },
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCBD5E1).copy(alpha = 0.5f)),
+                modifier = Modifier.width(72.dp)
             ) {
                 Column(
+                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Checkroom,
-                        contentDescription = null,
-                        tint = when {
-                            product.category.contains("بشت") || product.modelName.contains("بشت") -> Color(0xFFD97706)
-                            product.category.contains("كوت") || product.modelName.contains("كوت") -> Color(0xFF2563EB)
-                            product.category.contains("جاكت") || product.modelName.contains("جاكت") -> Color(0xFF16A34A)
-                            else -> Color(0xFF475569)
-                        },
-                        modifier = Modifier.size(26.dp)
+                    Text(
+                        text = "النوع",
+                        fontSize = 9.sp,
+                        color = Color(0xFF64748B)
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = product.category.ifBlank { "ملبوسات" },
-                        fontSize = 9.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF475569),
-                        maxLines = 1
+                        color = Color(0xFF0F172A),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "${product.sellPrice.toInt()} ريال",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color(0xFF16A34A)
                     )
                 }
             }

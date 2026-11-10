@@ -157,7 +157,8 @@ object InvoiceHelper {
         val details: String,
         val quantity: Int,
         val unitPrice: Double,
-        val total: Double
+        val total: Double,
+        val unit: String = "حبه"
     )
 
     fun generateSaleInvoicePdf(
@@ -238,8 +239,8 @@ object InvoiceHelper {
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
 
-        val shopName = settings?.shopNameAr?.ifBlank { "محل الأناقة للملابس الرجالية" } ?: "محل الأناقة للملابس الرجالية"
-        val phone = settings?.phone?.ifBlank { "770315173" } ?: "770315173"
+        val shopName = settings?.shopNameAr?.ifBlank { "الجرادي للملابس الجاهزة" } ?: "الجرادي للملابس الجاهزة"
+        val phone = settings?.phone?.ifBlank { "778383570" } ?: "778383570"
         val address = settings?.address?.ifBlank { "صنعاء - التحرير" } ?: "صنعاء - التحرير"
         val currency = settings?.currency ?: "ريال"
         val headerNote = settings?.invoiceHeader ?: "جودة .. تراث .. أناقة"
@@ -304,7 +305,7 @@ object InvoiceHelper {
             canvas.drawText(item.name, 445f, y, regularPaint)
 
             regularPaint.textAlign = Paint.Align.CENTER
-            canvas.drawText("${item.quantity}", 260f, y, regularPaint)
+            canvas.drawText("${item.quantity} ${item.unit}", 260f, y, regularPaint)
             canvas.drawText(FormatUtils.formatNumber(item.unitPrice), 170f, y, regularPaint)
 
             regularPaint.textAlign = Paint.Align.LEFT
@@ -461,7 +462,7 @@ object InvoiceHelper {
             strokeWidth = 1f
         }
 
-        val shopName = settings?.shopNameAr?.ifBlank { "محل الأناقة للملابس الرجالية" } ?: "محل الأناقة للملابس الرجالية"
+        val shopName = settings?.shopNameAr?.ifBlank { "الجرادي للملابس الجاهزة" } ?: "الجرادي للملابس الجاهزة"
         val currency = settings?.currency ?: "ريال"
 
         var y = 35f
@@ -590,7 +591,7 @@ object InvoiceHelper {
             strokeWidth = 1f
         }
 
-        val shopName = settings?.shopNameAr?.ifBlank { "محل الأناقة للملابس الرجالية" } ?: "محل الأناقة للملابس الرجالية"
+        val shopName = settings?.shopNameAr?.ifBlank { "الجرادي للملابس الجاهزة" } ?: "الجرادي للملابس الجاهزة"
         val currency = settings?.currency ?: "ريال"
 
         var y = 35f
@@ -716,7 +717,7 @@ object InvoiceHelper {
             strokeWidth = 1f
         }
 
-        val shopName = settings?.shopNameAr?.ifBlank { "محل الأناقة للملابس الرجالية" } ?: "محل الأناقة للملابس الرجالية"
+        val shopName = settings?.shopNameAr?.ifBlank { "الجرادي للملابس الجاهزة" } ?: "الجرادي للملابس الجاهزة"
         val currency = settings?.currency ?: "ريال"
 
         var y = 35f
@@ -848,7 +849,7 @@ object InvoiceHelper {
             strokeWidth = 1f
         }
 
-        val shopName = settings?.shopNameAr?.ifBlank { "محل الأناقة للملابس الرجالية" } ?: "محل الأناقة للملابس الرجالية"
+        val shopName = settings?.shopNameAr?.ifBlank { "الجرادي للملابس الجاهزة" } ?: "الجرادي للملابس الجاهزة"
         val currency = settings?.currency ?: "ريال"
         val partyTypeTitle = if (party.type == "CUSTOMER") "عميل / زبون" else "مورد / شركة"
 
@@ -1038,7 +1039,7 @@ object InvoiceHelper {
             strokeWidth = 1f
         }
 
-        val shopName = settings?.shopNameAr?.ifBlank { "محل الأناقة للملابس الرجالية" } ?: "محل الأناقة للملابس الرجالية"
+        val shopName = settings?.shopNameAr?.ifBlank { "الجرادي للملابس الجاهزة" } ?: "الجرادي للملابس الجاهزة"
         val currency = settings?.currency ?: "ريال"
 
         val totalSales = sales.sumOf { it.totalAmount }

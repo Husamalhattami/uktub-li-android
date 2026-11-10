@@ -41,13 +41,13 @@ fun SettingsScreen(
     val settingsState by viewModel.storeSettings.collectAsStateWithLifecycle()
     val auditLogs by viewModel.auditLogs.collectAsStateWithLifecycle()
 
-    var storeName by remember(settingsState) { mutableStateOf(settingsState?.storeName ?: "محل الأناقة للملابس الرجالية") }
-    var storeNameEn by remember(settingsState) { mutableStateOf(settingsState?.storeNameEn ?: "Elegance Menswear") }
-    var phone by remember(settingsState) { mutableStateOf(settingsState?.phoneNumber ?: "0501234567") }
-    var address by remember(settingsState) { mutableStateOf(settingsState?.address ?: "صنعاء - شارع حائل") }
+    var storeName by remember(settingsState) { mutableStateOf(settingsState?.storeName ?: "الجرادي للملابس الجاهزة") }
+    var storeNameEn by remember(settingsState) { mutableStateOf(settingsState?.storeNameEn ?: "Al-Jaradi Ready-to-Wear") }
+    var phone by remember(settingsState) { mutableStateOf(settingsState?.phoneNumber ?: "778383570") }
+    var address by remember(settingsState) { mutableStateOf(settingsState?.address ?: "صنعاء - اليمن") }
     var currency by remember(settingsState) { mutableStateOf(settingsState?.currencySymbol ?: "ريال") }
     var taxNumber by remember(settingsState) { mutableStateOf(settingsState?.taxNumber ?: "") }
-    var invoiceHeader by remember(settingsState) { mutableStateOf(settingsState?.invoiceHeader ?: "أهلاً وسهلاً بكم في محل الأناقة للملابس الرجالية") }
+    var invoiceHeader by remember(settingsState) { mutableStateOf(settingsState?.invoiceHeader ?: "الجرادي للملابس الجاهزة") }
     var invoiceFooter by remember(settingsState) { mutableStateOf(settingsState?.invoiceFooter ?: "البضاعة المباعة ترد وتستبدل خلال 3 أيام بشرط وجود الفاتورة وبحالتها الأصلية") }
     var managerPin by remember(settingsState) { mutableStateOf(settingsState?.managerPin ?: "1234") }
 
@@ -224,7 +224,7 @@ fun SettingsScreen(
                             onClick = {
                                 val updated = StoreSettings(
                                     id = 1,
-                                    shopNameAr = storeName.trim().ifBlank { "محل الأناقة" },
+                                    shopNameAr = storeName.trim().ifBlank { "الجرادي للملابس الجاهزة" },
                                     shopNameEn = storeNameEn.trim(),
                                     phone = phone.trim(),
                                     address = address.trim(),

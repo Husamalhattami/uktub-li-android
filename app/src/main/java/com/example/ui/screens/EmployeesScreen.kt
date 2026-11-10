@@ -29,12 +29,15 @@ import com.example.ui.components.QuickThousandAdder
 import com.example.ui.components.StoreTopBar
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
+import com.example.ui.util.InvoiceHelper
 
 @Composable
 fun EmployeesScreen(
     viewModel: StoreViewModel,
     onBack: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
     val employees by viewModel.employees.collectAsStateWithLifecycle()
     val employeeTransactions by viewModel.employeeTransactions.collectAsStateWithLifecycle()
     val sales by viewModel.sales.collectAsStateWithLifecycle()
@@ -350,9 +353,55 @@ fun EmployeesScreen(
     // View History Modal
     viewHistoryEmployee?.let { emp ->
         val txs = employeeTransactions.filter { it.employeeId == emp.id }
+        val empSales = sales.filter { it.employeeId == emp.id }
+        val totalSalesAmount = empSales.sumOf { it.totalAmount }
+
         AlertDialog(
             onDismissRequest = { viewHistoryEmployee = null },
-            title = { Text("كشف حركات: ${emp.name}", fontWeight = FontWeight.Bold) },
+            title = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("كشف حركات: ${emp.name}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        IconButton(
+                            onClick = {
+                                val file = InvoiceHelper.generateEmployeeStatementPdf(
+                                    context = context,
+                                    employee = emp,
+                                    transactions = txs,
+                                    salesCount = empSales.size,
+                                    totalSalesAmount = totalSalesAmount,
+                                    settings = storeSettings
+                                )
+                                InvoiceHelper.printPdfFile(context, file, "كشف_موظف_${emp.name}")
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Print, contentDescription = "طباعة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(18.dp))
+                        }
+
+                        IconButton(
+                            onClick = {
+                                val file = InvoiceHelper.generateEmployeeStatementPdf(
+                                    context = context,
+                                    employee = emp,
+                                    transactions = txs,
+                                    salesCount = empSales.size,
+                                    totalSalesAmount = totalSalesAmount,
+                                    settings = storeSettings
+                                )
+                                InvoiceHelper.sharePdfFile(context, file, "مشاركة كشف موظف")
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = "مشاركة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            },
             text = {
                 if (txs.isEmpty()) {
                     Text("لا توجد سلف أو خصومات مسجلة لهذا العامل بعد.")

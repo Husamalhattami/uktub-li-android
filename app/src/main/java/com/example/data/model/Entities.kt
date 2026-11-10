@@ -239,13 +239,13 @@ data class AuditLogRecord(
 @Entity(tableName = "store_settings")
 data class StoreSettings(
     @PrimaryKey val id: Int = 1,
-    val shopNameAr: String = "محل الأناقة للملابس الرجالية",
-    val shopNameEn: String = "Al-Anaqah Menswear",
-    val phone: String = "770315173",
-    val address: String = "صنعاء - شارع القصر / التحرير",
+    val shopNameAr: String = "الجرادي للملابس الجاهزة",
+    val shopNameEn: String = "Al-Jaradi Ready-to-Wear",
+    val phone: String = "778383570",
+    val address: String = "صنعاء - اليمن",
     val currency: String = "ريال",
     val taxNumber: String = "",
-    val invoiceHeader: String = "أهلاً وسهلاً بكم في محل الأناقة للملابس الرجالية",
+    val invoiceHeader: String = "الجرادي للملابس الجاهزة",
     val invoiceFooter: String = "البضاعة المباعة ترد وتستبدل خلال 3 أيام بشرط وجود الفاتورة وبحالتها الأصلية.",
     val showProfitInReports: Boolean = true,
     val managerPin: String = "1234",

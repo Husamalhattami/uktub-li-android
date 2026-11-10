@@ -39,6 +39,7 @@ fun ExpensesScreen(
 ) {
     val expenses by viewModel.expenses.collectAsStateWithLifecycle()
     val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
+    val employees by viewModel.employees.collectAsStateWithLifecycle()
     val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
 
     var showAddDialog by remember { mutableStateOf(false) }
@@ -46,6 +47,7 @@ fun ExpensesScreen(
     var selectedFilterCategory by remember { mutableStateOf("الكل") }
 
     val presetCategories = listOf(
+        "صرفة يومية لعامل",
         "إيجار المحل",
         "الكهرباء",
         "الماء",
@@ -268,6 +270,7 @@ fun ExpensesScreen(
     // Add Expense Dialog
     if (showAddDialog) {
         var selectedCat by remember { mutableStateOf(presetCategories.first()) }
+        var selectedEmployee by remember { mutableStateOf(employees.firstOrNull()) }
         var amountStr by remember { mutableStateOf("") }
         var notes by remember { mutableStateOf("") }
         var receiptNo by remember { mutableStateOf("") }
@@ -307,10 +310,42 @@ fun ExpensesScreen(
                                 onClick = { selectedCat = cat },
                                 label = { Text(cat, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = BrandNavy,
+                                    selectedContainerColor = if (cat == "صرفة يومية لعامل") BrandBlue else BrandNavy,
                                     selectedLabelColor = Color.White
                                 )
                             )
+                        }
+                    }
+
+                    // Employee selector when daily stipend is chosen
+                    if (selectedCat == "صرفة يومية لعامل") {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFFEFF6FF),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("اختر العامل المستلم للصرفة اليومية:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E40AF))
+                                if (employees.isEmpty()) {
+                                    Text("لا يوجد عمال مسجلون حالياً! يرجى إضافة العامل في قسم العمال أولاً.", fontSize = 11.sp, color = Color(0xFFDC2626))
+                                } else {
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        items(employees) { emp ->
+                                            val isSel = selectedEmployee?.id == emp.id
+                                            FilterChip(
+                                                selected = isSel,
+                                                onClick = { selectedEmployee = emp },
+                                                label = { Text(emp.name, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = Color(0xFF1E40AF),
+                                                    selectedLabelColor = Color.White
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -410,6 +445,16 @@ fun ExpensesScreen(
                     onClick = {
                         val amount = amountStr.toDoubleOrNull() ?: 0.0
                         val isCash = paymentSource == "كاش"
+                        val empToPass = if (selectedCat == "صرفة يومية لعامل") selectedEmployee else null
+                        if (selectedCat == "صرفة يومية لعامل" && empToPass == null) {
+                            viewModel.showMessage("يرجى اختيار العامل لتسجيل الصرفة اليومية!")
+                            return@Button
+                        }
+                        if (amount <= 0) {
+                            viewModel.showMessage("يرجى إدخال مبلغ صحيح أكبر من صفر!")
+                            return@Button
+                        }
+
                         viewModel.recordExpense(
                             category = selectedCat,
                             amount = amount,
@@ -417,6 +462,7 @@ fun ExpensesScreen(
                             receiptNumber = receiptNo,
                             paidFromCash = isCash,
                             exchangeAccount = if (!isCash) selectedExchangeAcc else null,
+                            employee = empToPass,
                             onSuccess = { showAddDialog = false }
                         )
                     },
@@ -533,26 +579,44 @@ fun ExpenseItemCard(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.weight(1f)
             ) {
+                val isStipend = expense.category == "صرفة يومية لعامل" || expense.category.contains("صرفة")
                 Box(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
-                        .background(FintechRoseBg),
+                        .background(if (isStipend) Color(0xFFEFF6FF) else FintechRoseBg),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Receipt,
+                        imageVector = if (isStipend) Icons.Default.Badge else Icons.Default.Receipt,
                         contentDescription = null,
-                        tint = FintechRose,
+                        tint = if (isStipend) Color(0xFF1E40AF) else FintechRose,
                         modifier = Modifier.size(22.dp)
                     )
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
-                    Text(
-                        text = expense.category,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = SlateTextPrimary)
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = expense.category,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = SlateTextPrimary)
+                        )
+                        if (isStipend) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFFDBEAFE),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF93C5FD))
+                            ) {
+                                Text(
+                                    text = "صرفة عامل",
+                                    color = Color(0xFF1E40AF),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
                     if (expense.notes.isNotBlank()) {
                         Text(
                             text = expense.notes,

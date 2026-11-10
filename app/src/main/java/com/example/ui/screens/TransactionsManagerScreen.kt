@@ -172,7 +172,8 @@ fun TransactionsManagerScreen(
                                                 details = "${sale.category} | ${sale.color} | ${sale.size}",
                                                 quantity = sale.quantity,
                                                 unitPrice = sale.unitSellPrice,
-                                                total = sale.totalAmount
+                                                total = sale.totalAmount,
+                                                unit = sale.unit
                                             )
                                         ),
                                         subtotal = sale.unitSellPrice * sale.quantity,
@@ -202,7 +203,8 @@ fun TransactionsManagerScreen(
                                                 details = "${sale.category} | ${sale.color} | ${sale.size}",
                                                 quantity = sale.quantity,
                                                 unitPrice = sale.unitSellPrice,
-                                                total = sale.totalAmount
+                                                total = sale.totalAmount,
+                                                unit = sale.unit
                                             )
                                         ),
                                         subtotal = sale.unitSellPrice * sale.quantity,
