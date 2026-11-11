@@ -130,17 +130,16 @@ fun SaleScreen(
         }
     }
 
-    val categories = listOf("الكل", "ثياب", "بشوت", "إكسسوارات", "أقمشة")
+    val categories by viewModel.allCategories.collectAsStateWithLifecycle()
+    var showAddCategoryDialog by remember { mutableStateOf(false) }
+    var newCategoryInput by remember { mutableStateOf("") }
+    var customInvoiceNumber by remember { mutableStateOf("") }
 
     val filteredProducts = remember(products, searchQuery, selectedCategory) {
         products.filter { prod ->
             val matchCat = when (selectedCategory) {
                 "الكل" -> true
-                "ثياب" -> prod.category.contains("ثوب") || prod.category.contains("ثياب")
-                "بشوت" -> prod.category.contains("بشت") || prod.category.contains("دجلة")
-                "إكسسوارات" -> prod.category.contains("شماغ") || prod.category.contains("عقال") || prod.category.contains("إكسسوار")
-                "أقمشة" -> prod.category.contains("قماش") || prod.category.contains("طاقة")
-                else -> prod.category.contains(selectedCategory)
+                else -> prod.category.equals(selectedCategory, ignoreCase = true) || prod.category.contains(selectedCategory, ignoreCase = true)
             }
             val matchQuery = searchQuery.isBlank() ||
                     prod.modelName.contains(searchQuery, ignoreCase = true) ||
@@ -279,7 +278,8 @@ fun SaleScreen(
             debtPart = actualDebt,
             exchangeAccount = selectedExchangeAccount,
             transferRef = transferRef,
-            employee = selectedEmployee
+            employee = selectedEmployee,
+            customInvoiceNumber = customInvoiceNumber
         ) { generatedInvoiceNumber ->
             val pdfFile = try {
                 InvoiceHelper.generateSaleInvoicePdf(
@@ -483,6 +483,31 @@ fun SaleScreen(
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    item {
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0xFFEFF6FF),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                Color(0xFF3B82F6)
+                            ),
+                            modifier = Modifier.clickable { showAddCategoryDialog = true }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "نوع جديد +",
+                                    color = Color(0xFF2563EB),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
                     items(categories) { cat ->
                         val isSelected = selectedCategory == cat
                         Surface(
@@ -793,6 +818,18 @@ fun SaleScreen(
                             }
                         }
 
+                        // Paper Booklet Invoice Number (Optional)
+                        OutlinedTextField(
+                            value = customInvoiceNumber,
+                            onValueChange = { customInvoiceNumber = it },
+                            label = { Text("رقم الفاتورة الدفترية / الورقية (اختياري)", fontSize = 11.sp) },
+                            placeholder = { Text("فارغ = ترقيم تلقائي", fontSize = 11.sp) },
+                            leadingIcon = { Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = PdfGoldDark, modifier = Modifier.size(18.dp)) },
+                            modifier = Modifier.fillMaxWidth().testTag("custom_invoice_number_input"),
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp)
+                        )
+
                         // Exchange Account Selector if transfer is involved
                         val needsExchange = paymentType == "تحويل عبر الصراف" ||
                                 paymentType == "نصف كاش ونصف حوالة" ||
@@ -810,6 +847,16 @@ fun SaleScreen(
                                     )
                                 }
                             }
+                            OutlinedTextField(
+                                value = transferRef,
+                                onValueChange = { transferRef = it },
+                                label = { Text("رقم الحوالة / إشعار الصراف (سند التحويل) *", fontSize = 11.sp) },
+                                placeholder = { Text("أدخل رقم الحوالة هنا", fontSize = 11.sp) },
+                                leadingIcon = { Icon(Icons.Default.ConfirmationNumber, contentDescription = null, tint = Color(0xFF0F766E), modifier = Modifier.size(18.dp)) },
+                                modifier = Modifier.fillMaxWidth().testTag("transfer_ref_input"),
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp)
+                            )
                         }
 
                         HorizontalDivider(color = Color(0xFFF1F5F9))
@@ -935,6 +982,49 @@ fun SaleScreen(
             },
             dismissButton = {
                 OutlinedButton(onClick = { showDiscountDialog = false }) { Text("إلغاء") }
+            }
+        )
+    if (showAddCategoryDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddCategoryDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Category, contentDescription = null, tint = PdfGoldDark)
+                    Text("إضافة نوع صنف جديد", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("اكتب اسم نوع الصنف وسيظهر فوراً في قائمة الاختيارات السريعة:", fontSize = 12.sp, color = Color(0xFF64748B))
+                    OutlinedTextField(
+                        value = newCategoryInput,
+                        onValueChange = { newCategoryInput = it },
+                        label = { Text("اسم نوع الصنف (مثلاً: أرواب، سراويل، كوفيات...)") },
+                        modifier = Modifier.fillMaxWidth().testTag("new_category_input_field"),
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val trimmed = newCategoryInput.trim()
+                        if (trimmed.isNotBlank()) {
+                            viewModel.addNewCategory(trimmed)
+                            selectedCategory = trimmed
+                            newCategoryInput = ""
+                            showAddCategoryDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PdfGoldDark),
+                    modifier = Modifier.testTag("confirm_add_category_btn")
+                ) {
+                    Text("إضافة واختيار")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showAddCategoryDialog = false }) { Text("إلغاء") }
             }
         )
     }
@@ -1207,6 +1297,7 @@ fun SaleScreen(
             }
         )
     }
+}
 }
 
 // ==========================================

@@ -487,41 +487,101 @@ fun ExpensesScreen(
         var amountStr by remember { mutableStateOf(exp.amount.toLong().toString()) }
         var notes by remember { mutableStateOf(exp.notes) }
         var receiptNo by remember { mutableStateOf(exp.receiptNumber) }
+        var paymentSource by remember { mutableStateOf(if (exp.paidFromCash) "كاش" else "صراف") }
+        var selectedExchangeAcc by remember {
+            mutableStateOf(exchangeAccounts.firstOrNull { it.id == exp.exchangeAccountId } ?: exchangeAccounts.firstOrNull())
+        }
 
         AlertDialog(
             onDismissRequest = { expenseToEdit = null },
-            title = { Text("تعديل بيانات المصروف", fontWeight = FontWeight.Bold, color = SlateTextPrimary) },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Edit, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(20.dp))
+                    Text("تعديل بيانات المصروف / الصرفة", fontWeight = FontWeight.Bold, color = SlateTextPrimary)
+                }
+            },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    OutlinedTextField(
-                        value = cat,
-                        onValueChange = { cat = it },
-                        label = { Text("نوع المصروف") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
+                    Text("نوع المصروف:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = SlateTextSecondary))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(presetCategories) { c ->
+                            val isSel = cat == c
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { cat = c },
+                                label = { Text(c, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+
                     OutlinedTextField(
                         value = amountStr,
                         onValueChange = { amountStr = it },
-                        label = { Text("المبلغ (ريال)") },
+                        label = { Text("المبلغ (ريال) *") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp)
                     )
+
+                    QuickThousandAdder(
+                        currentValue = amountStr,
+                        onValueChange = { amountStr = it }
+                    )
+
+                    // Payment source
+                    Text("مصدر الدفع:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = SlateTextSecondary))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val isCash = paymentSource == "كاش"
+                        FilterChip(
+                            selected = isCash,
+                            onClick = { paymentSource = "كاش" },
+                            label = { Text("كاش من الصندوق") },
+                            leadingIcon = { Icon(Icons.Default.AttachMoney, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = !isCash,
+                            onClick = { paymentSource = "صراف" },
+                            label = { Text("من حساب صراف/محفظة") },
+                            leadingIcon = { Icon(Icons.Default.AccountBalance, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    if (paymentSource == "صراف") {
+                        if (exchangeAccounts.isNotEmpty()) {
+                            Text("اختر حساب الصراف أو المحفظة:", style = MaterialTheme.typography.labelSmall.copy(color = SlateTextMuted))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(exchangeAccounts) { acc ->
+                                    val isSel = selectedExchangeAcc?.id == acc.id
+                                    FilterChip(
+                                        selected = isSel,
+                                        onClick = { selectedExchangeAcc = acc },
+                                        label = { Text(acc.name, fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = receiptNo,
+                        onValueChange = { receiptNo = it },
+                        label = { Text("رقم الوصل / الحوالة (اختياري)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
                     OutlinedTextField(
                         value = notes,
                         onValueChange = { notes = it },
                         label = { Text("ملاحظات") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                    OutlinedTextField(
-                        value = receiptNo,
-                        onValueChange = { receiptNo = it },
-                        label = { Text("رقم الوصل") },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp)
                     )
@@ -531,12 +591,20 @@ fun ExpensesScreen(
                 Button(
                     onClick = {
                         val newAmount = amountStr.toDoubleOrNull() ?: exp.amount
+                        if (newAmount <= 0) {
+                            viewModel.showMessage("يرجى إدخال مبلغ صحيح أكبر من الصفر!")
+                            return@Button
+                        }
+                        val isCash = paymentSource == "كاش"
                         viewModel.updateExpense(
                             exp.copy(
                                 category = cat,
                                 amount = newAmount,
                                 notes = notes,
-                                receiptNumber = receiptNo
+                                receiptNumber = receiptNo,
+                                paidFromCash = isCash,
+                                exchangeAccountId = if (isCash) 0L else (selectedExchangeAcc?.id ?: 0L),
+                                exchangeAccountName = if (isCash) "" else (selectedExchangeAcc?.name ?: "")
                             ),
                             onSuccess = { expenseToEdit = null }
                         )

@@ -3,6 +3,7 @@ package com.example.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,6 +50,7 @@ fun EmployeesScreen(
     var employeeToDelete by remember { mutableStateOf<Employee?>(null) }
     var actionDialogState by remember { mutableStateOf<Triple<Employee, String, String>?>(null) } // (Employee, ActionType: "سلفة" | "خصم غياب" | "صرف راتب", defaultNotes)
     var viewHistoryEmployee by remember { mutableStateOf<Employee?>(null) }
+    var editingEmployeeTx by remember { mutableStateOf<com.example.data.model.EmployeeTransaction?>(null) }
 
     Scaffold(
         topBar = {
@@ -156,6 +158,7 @@ fun EmployeesScreen(
         var notes by remember { mutableStateOf(defaultNote) }
         var paidFromCash by remember { mutableStateOf(true) }
         var selectedExchangeAccount by remember { mutableStateOf<ExchangeAccount?>(null) }
+        var transferRef by remember { mutableStateOf("") }
 
         AlertDialog(
             onDismissRequest = { actionDialogState = null },
@@ -231,6 +234,15 @@ fun EmployeesScreen(
                                         )
                                     }
                                 }
+
+                                OutlinedTextField(
+                                    value = transferRef,
+                                    onValueChange = { transferRef = it },
+                                    label = { Text("رقم الحوالة / سند الصراف (اختياري)") },
+                                    placeholder = { Text("مثال: 94821034") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp)
+                                )
                             }
                         }
                     }
@@ -248,6 +260,7 @@ fun EmployeesScreen(
                             notes = notes,
                             paidFromCashDrawer = if (actionType == "خصم غياب") false else paidFromCash,
                             exchangeAccount = if (actionType == "خصم غياب") null else selectedExchangeAccount,
+                            referenceNumber = if (actionType == "خصم غياب" || paidFromCash) "" else transferRef,
                             onSuccess = { actionDialogState = null }
                         )
                     },
@@ -441,11 +454,19 @@ fun EmployeesScreen(
                                         }
                                         Text(text = FormatUtils.formatDateTime(tx.timestamp), fontSize = 10.sp, color = SlateMuted)
                                     }
-                                    Text(
-                                        text = FormatUtils.formatCurrency(tx.amount),
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (tx.type == "سلفة" || tx.type == "صرف راتب") RubyExpense else EmeraldProfit
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(
+                                            text = FormatUtils.formatCurrency(tx.amount),
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (tx.type == "سلفة" || tx.type == "صرف راتب") RubyExpense else EmeraldProfit
+                                        )
+                                        IconButton(onClick = { editingEmployeeTx = tx }, modifier = Modifier.size(28.dp)) {
+                                            Icon(Icons.Default.Edit, contentDescription = "تعديل", tint = BrandBlue, modifier = Modifier.size(16.dp))
+                                        }
+                                        IconButton(onClick = { viewModel.deleteEmployeeTransaction(tx.id) }, modifier = Modifier.size(28.dp)) {
+                                            Icon(Icons.Default.DeleteOutline, contentDescription = "حذف", tint = RubyExpense, modifier = Modifier.size(16.dp))
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -455,6 +476,116 @@ fun EmployeesScreen(
             confirmButton = {
                 Button(onClick = { viewHistoryEmployee = null }) {
                     Text("إغلاق")
+                }
+            }
+        )
+    }
+
+    // Edit Employee Transaction Dialog
+    editingEmployeeTx?.let { tx ->
+        var amountStr by remember { mutableStateOf(tx.amount.toLong().toString()) }
+        var notes by remember { mutableStateOf(tx.notes) }
+        var paidFromCash by remember { mutableStateOf(tx.paidFromCash) }
+        var selectedExchangeAccount by remember {
+            mutableStateOf(exchangeAccounts.firstOrNull { it.id == tx.exchangeAccountId } ?: exchangeAccounts.firstOrNull())
+        }
+
+        AlertDialog(
+            onDismissRequest = { editingEmployeeTx = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Edit, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(20.dp))
+                    Text("تعديل حركة العامل (${tx.type})", fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("العامل: ${tx.employeeName}", fontWeight = FontWeight.Bold, color = SlateTextPrimary)
+
+                    OutlinedTextField(
+                        value = amountStr,
+                        onValueChange = { amountStr = it },
+                        label = { Text("المبلغ (ريال) *") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    QuickThousandAdder(
+                        currentValue = amountStr,
+                        onValueChange = { amountStr = it }
+                    )
+
+                    OutlinedTextField(
+                        value = notes,
+                        onValueChange = { notes = it },
+                        label = { Text("البيان / ملاحظات") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    if (tx.type != "خصم غياب") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(if (paidFromCash) "مصدر الدفع: الصندوق النقدي" else "مصدر الدفع: الصراف / المحفظة")
+                            Switch(
+                                checked = paidFromCash,
+                                onCheckedChange = {
+                                    paidFromCash = it
+                                    if (it) selectedExchangeAccount = null
+                                }
+                            )
+                        }
+
+                        if (!paidFromCash) {
+                            Text("اختر حساب الصراف أو المحفظة:", style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(exchangeAccounts) { acc ->
+                                    val isSel = selectedExchangeAccount?.id == acc.id
+                                    FilterChip(
+                                        selected = isSel,
+                                        onClick = { selectedExchangeAccount = acc },
+                                        label = { Text(acc.name, fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val amount = amountStr.toDoubleOrNull() ?: tx.amount
+                        if (amount <= 0) {
+                            viewModel.showMessage("يرجى إدخال مبلغ صحيح أكبر من الصفر!")
+                            return@Button
+                        }
+                        val isCash = if (tx.type == "خصم غياب") false else paidFromCash
+                        viewModel.updateEmployeeTransaction(
+                            tx.copy(
+                                amount = amount,
+                                notes = notes,
+                                paidFromCash = isCash,
+                                exchangeAccountId = if (isCash || tx.type == "خصم غياب") 0L else (selectedExchangeAccount?.id ?: 0L),
+                                exchangeAccountName = if (isCash || tx.type == "خصم غياب") "" else (selectedExchangeAccount?.name ?: "")
+                            ),
+                            onSuccess = { editingEmployeeTx = null }
+                        )
+                    }
+                ) {
+                    Text("حفظ التعديل")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { editingEmployeeTx = null }) {
+                    Text("إلغاء")
                 }
             }
         )

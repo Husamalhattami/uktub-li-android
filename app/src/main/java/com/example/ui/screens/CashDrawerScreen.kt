@@ -746,6 +746,7 @@ fun CashDrawerScreen(
         var fromCashToExchange by remember { mutableStateOf(true) }
         var selectedAcc by remember { mutableStateOf(exchangeAccounts.firstOrNull()) }
         var transferAmountStr by remember { mutableStateOf("") }
+        var transferRefNumber by remember { mutableStateOf("") }
         var transferNotes by remember { mutableStateOf("") }
 
         AlertDialog(
@@ -827,9 +828,19 @@ fun CashDrawerScreen(
                     )
 
                     OutlinedTextField(
+                        value = transferRefNumber,
+                        onValueChange = { transferRefNumber = it },
+                        label = { Text("رقم الحوالة / سند التحويل (اختياري)") },
+                        placeholder = { Text("مثال: 940281") },
+                        leadingIcon = { Icon(Icons.Default.ConfirmationNumber, contentDescription = null, tint = PdfHeaderNavy, modifier = Modifier.size(18.dp)) },
+                        modifier = Modifier.fillMaxWidth().testTag("cash_transfer_ref_input"),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
                         value = transferNotes,
                         onValueChange = { transferNotes = it },
-                        label = { Text("ملاحظات / مرجع التحويل (اختياري)") },
+                        label = { Text("ملاحظات إضافية (اختياري)") },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -857,7 +868,8 @@ fun CashDrawerScreen(
                             accountId = acc.id,
                             amount = amt,
                             fromCashToExchange = fromCashToExchange,
-                            notes = transferNotes.ifBlank { if (fromCashToExchange) "إيداع نقدي في ${acc.name}" else "سحب نقدي من ${acc.name}" }
+                            notes = transferNotes.ifBlank { if (fromCashToExchange) "إيداع نقدي في ${acc.name}" else "سحب نقدي من ${acc.name}" },
+                            referenceNumber = transferRefNumber.trim()
                         ) {
                             showTransferDialog = false
                         }

@@ -124,6 +124,9 @@ interface StoreDao {
     @Query("SELECT * FROM employee_transactions WHERE id = :id")
     suspend fun getEmployeeTransactionById(id: Long): EmployeeTransaction?
 
+    @Update
+    suspend fun updateEmployeeTransaction(transaction: EmployeeTransaction)
+
     @Query("DELETE FROM employee_transactions WHERE id = :id")
     suspend fun deleteEmployeeTransaction(id: Long)
 

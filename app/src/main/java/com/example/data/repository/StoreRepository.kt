@@ -1639,13 +1639,58 @@ class StoreRepository(
         return id
     }
 
-    suspend fun updateExpense(expense: ExpenseRecord) {
-        dao.updateExpense(expense)
+    suspend fun updateExpense(newExpense: ExpenseRecord) {
+        val oldExpense = dao.getExpenseById(newExpense.id) ?: run {
+            dao.updateExpense(newExpense)
+            return
+        }
+
+        // Revert old financial impact
+        if (oldExpense.paidFromCash) {
+            dao.deleteCashMovementsForExpense(oldExpense.id)
+        } else if (oldExpense.exchangeAccountId > 0) {
+            dao.updateExchangeBalance(oldExpense.exchangeAccountId, oldExpense.amount)
+        }
+
+        // Apply new financial impact
+        if (newExpense.paidFromCash) {
+            val shiftId = dao.getActiveShift().firstOrNull()?.id ?: 0L
+            val isStipend = newExpense.category == "صرفة يومية لعامل" || newExpense.category.contains("صرفة")
+            dao.insertCashMovement(
+                CashDrawerMovement(
+                    shiftId = shiftId,
+                    type = if (isStipend) "SALARY_PAID" else "EXPENSE_PAID",
+                    amount = newExpense.amount,
+                    isIncome = false,
+                    title = "مصروف: ${newExpense.category}",
+                    details = newExpense.notes.ifBlank { "وصل: ${newExpense.receiptNumber}" },
+                    timestamp = newExpense.timestamp,
+                    referenceExpenseId = newExpense.id
+                )
+            )
+        } else if (newExpense.exchangeAccountId > 0) {
+            dao.updateExchangeBalance(newExpense.exchangeAccountId, -newExpense.amount)
+            dao.insertExchangeTransfer(
+                ExchangeTransfer(
+                    accountId = newExpense.exchangeAccountId,
+                    accountName = newExpense.exchangeAccountName,
+                    type = "سحب مصروف",
+                    amount = newExpense.amount,
+                    isCredit = false,
+                    title = "مصروف من الصراف: ${newExpense.category}",
+                    referenceNumber = newExpense.receiptNumber,
+                    notes = newExpense.notes,
+                    timestamp = newExpense.timestamp
+                )
+            )
+        }
+
+        dao.updateExpense(newExpense)
     }
 
     suspend fun deleteExpense(id: Long) {
-        dao.deleteCashMovementsForExpense(id)
         val exp = dao.getExpenseById(id)
+        dao.deleteCashMovementsForExpense(id)
         if (exp != null && exp.exchangeAccountId > 0) {
             dao.updateExchangeBalance(exp.exchangeAccountId, exp.amount)
         }
@@ -1666,8 +1711,61 @@ class StoreRepository(
         dao.deleteEmployee(employeeId)
     }
 
+    suspend fun updateEmployeeTransaction(newTx: EmployeeTransaction) {
+        val oldTx = dao.getEmployeeTransactionById(newTx.id) ?: run {
+            dao.updateEmployeeTransaction(newTx)
+            return
+        }
+
+        // Revert old impact
+        if (oldTx.paidFromCash) {
+            dao.deleteCashMovementsForEmployeeTx(oldTx.id)
+        } else if (oldTx.exchangeAccountId > 0) {
+            dao.updateExchangeBalance(oldTx.exchangeAccountId, oldTx.amount)
+        }
+
+        // Apply new impact
+        if (newTx.paidFromCash) {
+            val shiftId = dao.getActiveShift().firstOrNull()?.id ?: 0L
+            val isSalary = newTx.type == "صرف راتب"
+            dao.insertCashMovement(
+                CashDrawerMovement(
+                    shiftId = shiftId,
+                    type = if (isSalary) "SALARY_PAID" else "ADVANCE_PAID",
+                    amount = newTx.amount,
+                    isIncome = false,
+                    title = "${newTx.type}: ${newTx.employeeName}",
+                    details = newTx.notes,
+                    timestamp = newTx.timestamp,
+                    referenceEmployeeTxId = newTx.id
+                )
+            )
+        } else if (newTx.exchangeAccountId > 0) {
+            dao.updateExchangeBalance(newTx.exchangeAccountId, -newTx.amount)
+            dao.insertExchangeTransfer(
+                ExchangeTransfer(
+                    accountId = newTx.exchangeAccountId,
+                    accountName = newTx.exchangeAccountName,
+                    type = "سحب لموظف",
+                    amount = newTx.amount,
+                    isCredit = false,
+                    title = "${newTx.type}: ${newTx.employeeName}",
+                    referenceNumber = "",
+                    notes = newTx.notes,
+                    timestamp = newTx.timestamp
+                )
+            )
+        }
+
+        dao.updateEmployeeTransaction(newTx)
+    }
+
     suspend fun deleteEmployeeTransaction(txId: Long) {
+        val tx = dao.getEmployeeTransactionById(txId)
         dao.deleteCashMovementsForEmployeeTx(txId)
+        if (tx != null && !tx.paidFromCash && tx.exchangeAccountId > 0) {
+            dao.updateExchangeBalance(tx.exchangeAccountId, tx.amount)
+        }
         dao.deleteEmployeeTransaction(txId)
     }
 
@@ -1834,6 +1932,7 @@ class StoreRepository(
     }
 
     suspend fun addNewDebt(debt: DebtRecord): Long = dao.insertDebt(debt)
+    suspend fun updateDebt(debt: DebtRecord) = dao.updateDebt(debt)
     suspend fun deleteDebt(id: Long) = dao.deleteDebt(id)
 
     // --- Parties Management (Customers & Suppliers) ---

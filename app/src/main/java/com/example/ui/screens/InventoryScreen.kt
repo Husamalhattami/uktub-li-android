@@ -50,7 +50,9 @@ fun InventoryScreen(
     var editingProduct by remember { mutableStateOf<ProductItem?>(null) }
     var productToDelete by remember { mutableStateOf<ProductItem?>(null) }
 
-    val categories = listOf("الكل", "الأثواب", "الأقمشة", "البشوت", "إكسسوارات")
+    val categories by viewModel.allCategories.collectAsStateWithLifecycle()
+    var showAddCategoryDialog by remember { mutableStateOf(false) }
+    var newCategoryInput by remember { mutableStateOf("") }
 
     val totalItemsCount = products.size
     val availableCount = products.count { it.quantity > 5 }
@@ -60,11 +62,7 @@ fun InventoryScreen(
         products.filter { prod ->
             val matchCat = when (selectedCategory) {
                 "الكل" -> true
-                "الأثواب" -> prod.category.contains("ثوب") || prod.category.contains("ثياب")
-                "البشوت" -> prod.category.contains("بشت") || prod.category.contains("دجلة")
-                "الأقمشة" -> prod.category.contains("قماش") || prod.category.contains("طاقة")
-                "إكسسوارات" -> prod.category.contains("شماغ") || prod.category.contains("عقال") || prod.category.contains("إكسسوار")
-                else -> prod.category.contains(selectedCategory)
+                else -> prod.category.equals(selectedCategory, ignoreCase = true) || prod.category.contains(selectedCategory, ignoreCase = true)
             }
             val matchQuery = searchQuery.isBlank() ||
                     prod.modelName.contains(searchQuery, ignoreCase = true) ||
@@ -231,6 +229,26 @@ fun InventoryScreen(
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    item {
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0xFFEFF6FF),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                Color(0xFF3B82F6)
+                            ),
+                            modifier = Modifier.clickable { showAddCategoryDialog = true }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("نوع جديد +", color = Color(0xFF2563EB), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+                    }
                     items(categories) { cat ->
                         val isSelected = selectedCategory == cat
                         Surface(
@@ -366,6 +384,51 @@ fun InventoryScreen(
             },
             dismissButton = {
                 OutlinedButton(onClick = { productToDelete = null }) { Text("إلغاء") }
+            }
+        )
+    }
+
+    if (showAddCategoryDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddCategoryDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Category, contentDescription = null, tint = PdfHeaderNavy)
+                    Text("إضافة نوع صنف جديد", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("اكتب اسم نوع الصنف وسيظهر فوراً في قائمة الاختيارات السريعة:", fontSize = 12.sp, color = Color(0xFF64748B))
+                    OutlinedTextField(
+                        value = newCategoryInput,
+                        onValueChange = { newCategoryInput = it },
+                        label = { Text("اسم نوع الصنف (مثلاً: أرواب، سراويل، شيلان...)") },
+                        modifier = Modifier.fillMaxWidth().testTag("inventory_new_category_input"),
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val trimmed = newCategoryInput.trim()
+                        if (trimmed.isNotBlank()) {
+                            viewModel.addNewCategory(trimmed)
+                            selectedCategory = trimmed
+                            newCategoryInput = ""
+                            showAddCategoryDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PdfHeaderNavy),
+                    modifier = Modifier.testTag("confirm_add_inventory_category_btn")
+                ) {
+                    Text("إضافة واختيار")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showAddCategoryDialog = false }) { Text("إلغاء") }
             }
         )
     }

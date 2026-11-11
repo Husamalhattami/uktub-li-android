@@ -548,6 +548,14 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateEmployeeTransaction(transaction: EmployeeTransaction, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.updateEmployeeTransaction(transaction)
+            _userMessage.value = "تم تعديل حركة العامل بنجاح"
+            onSuccess()
+        }
+    }
+
     fun deleteEmployeeTransaction(txId: Long) {
         viewModelScope.launch {
             repository.deleteEmployeeTransaction(txId)
@@ -626,6 +634,18 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
             }
             repository.addNewDebt(debt)
             _userMessage.value = "تم تسجيل الدين الجديد"
+            onSuccess()
+        }
+    }
+
+    fun updateDebt(debt: DebtRecord, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            if (debt.originalAmount <= 0) {
+                _userMessage.value = "يرجى إدخال مبلغ صحيح للدين"
+                return@launch
+            }
+            repository.updateDebt(debt)
+            _userMessage.value = "تم تعديل بيانات الدين بنجاح"
             onSuccess()
         }
     }

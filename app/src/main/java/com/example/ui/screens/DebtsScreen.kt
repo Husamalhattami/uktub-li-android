@@ -56,8 +56,9 @@ fun DebtsScreen(
     var payingForParty by remember { mutableStateOf<Pair<PartyAccount, Double>?>(null) }
     var addingDebtForParty by remember { mutableStateOf<PartyAccount?>(null) }
 
-    // Direct debt item payment
+    // Direct debt item payment & editing
     var payingDirectDebt by remember { mutableStateOf<DebtRecord?>(null) }
+    var editingDirectDebt by remember { mutableStateOf<DebtRecord?>(null) }
     var showDirectAddDebtDialog by remember { mutableStateOf(false) }
 
     // Search and filter states
@@ -499,6 +500,7 @@ fun DebtsScreen(
                         DebtItemCard(
                             debt = debt,
                             onRecordPayment = { payingDirectDebt = debt },
+                            onEdit = { editingDirectDebt = debt },
                             onDelete = { viewModel.deleteDebt(debt.id) }
                         )
                     }
@@ -551,7 +553,7 @@ fun DebtsScreen(
             totalDebt = totalDebt,
             exchangeAccounts = exchangeAccounts,
             onDismiss = { payingForParty = null },
-            onConfirm = { amount, paymentMethod, exchangeAcc, notes ->
+            onConfirm = { amount, paymentMethod, exchangeAcc, notes, transferRef ->
                 viewModel.recordPartyPayment(
                     partyName = party.name,
                     partyType = party.type,
@@ -559,6 +561,7 @@ fun DebtsScreen(
                     notes = notes,
                     paymentMethod = paymentMethod,
                     exchangeAccount = exchangeAcc,
+                    referenceNumber = transferRef,
                     onSuccess = { payingForParty = null }
                 )
             }
@@ -672,6 +675,7 @@ fun DebtsScreen(
         var paymentNotes by remember { mutableStateOf("دفعة سداد") }
         var paymentMethod by remember { mutableStateOf("نقداً") }
         var selectedExchangeAcc by remember { mutableStateOf<ExchangeAccount?>(null) }
+        var paymentTransferRef by remember { mutableStateOf("") }
 
         AlertDialog(
             onDismissRequest = { payingDirectDebt = null },
@@ -731,20 +735,32 @@ fun DebtsScreen(
                         )
                     }
 
-                    if (paymentMethod == "صرافة/محفظة" && exchangeAccounts.isNotEmpty()) {
-                        Text("اختر حساب الصراف / المحفظة:", style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            exchangeAccounts.forEach { acc ->
-                                FilterChip(
-                                    selected = selectedExchangeAcc?.id == acc.id,
-                                    onClick = { selectedExchangeAcc = acc },
-                                    label = { Text(acc.name, fontSize = 11.sp) }
-                                )
+                    if (paymentMethod == "صرافة/محفظة") {
+                        if (exchangeAccounts.isNotEmpty()) {
+                            Text("اختر حساب الصراف / المحفظة:", style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                exchangeAccounts.forEach { acc ->
+                                    FilterChip(
+                                        selected = selectedExchangeAcc?.id == acc.id,
+                                        onClick = { selectedExchangeAcc = acc },
+                                        label = { Text(acc.name, fontSize = 11.sp) }
+                                    )
+                                }
                             }
                         }
+
+                        OutlinedTextField(
+                            value = paymentTransferRef,
+                            onValueChange = { paymentTransferRef = it },
+                            label = { Text("رقم الحوالة / إشعار الصراف (سند التحويل) *") },
+                            placeholder = { Text("أدخل رقم الحوالة هنا") },
+                            leadingIcon = { Icon(Icons.Default.ConfirmationNumber, contentDescription = null, tint = LuxuryGold, modifier = Modifier.size(18.dp)) },
+                            modifier = Modifier.fillMaxWidth().testTag("debt_payment_transfer_ref_input"),
+                            singleLine = true
+                        )
                     }
 
                     OutlinedTextField(
@@ -765,6 +781,7 @@ fun DebtsScreen(
                             notes = paymentNotes,
                             paymentMethod = paymentMethod,
                             exchangeAccount = selectedExchangeAcc,
+                            referenceNumber = paymentTransferRef.trim(),
                             onSuccess = { payingDirectDebt = null }
                         )
                     },
@@ -775,6 +792,102 @@ fun DebtsScreen(
             },
             dismissButton = {
                 OutlinedButton(onClick = { payingDirectDebt = null }) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
+
+    // --- DIALOG: Edit Direct Debt Record ---
+    editingDirectDebt?.let { debt ->
+        var partyName by remember { mutableStateOf(debt.partyName) }
+        var phone by remember { mutableStateOf(debt.phone) }
+        var amountStr by remember { mutableStateOf(debt.originalAmount.toLong().toString()) }
+        var details by remember { mutableStateOf(debt.details) }
+
+        AlertDialog(
+            onDismissRequest = { editingDirectDebt = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Edit, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(20.dp))
+                    Text(
+                        text = if (debt.type == "CUSTOMER") "تعديل دين العميل: ${debt.partyName}" else "تعديل دين المورد: ${debt.partyName}",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedTextField(
+                        value = partyName,
+                        onValueChange = { partyName = it },
+                        label = { Text("الاسم") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = phone,
+                        onValueChange = { phone = it },
+                        label = { Text("رقم الهاتف") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = amountStr,
+                        onValueChange = { amountStr = it },
+                        label = { Text("المبلغ الأصلي للدين (ريال)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    QuickThousandAdder(
+                        currentValue = amountStr,
+                        onValueChange = { amountStr = it }
+                    )
+
+                    OutlinedTextField(
+                        value = details,
+                        onValueChange = { details = it },
+                        label = { Text("البيان / تفاصيل البضاعة") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val newOriginal = amountStr.toDoubleOrNull() ?: debt.originalAmount
+                        if (newOriginal <= 0) {
+                            viewModel.showMessage("يرجى إدخال مبلغ دين صحيح أكبر من صفر!")
+                            return@Button
+                        }
+                        val newRemaining = (newOriginal - debt.paidAmount).coerceAtLeast(0.0)
+                        viewModel.updateDebt(
+                            debt.copy(
+                                partyName = partyName.trim(),
+                                phone = phone.trim(),
+                                originalAmount = newOriginal,
+                                remainingAmount = newRemaining,
+                                details = details.trim(),
+                                isSettled = newRemaining <= 0.01
+                            ),
+                            onSuccess = { editingDirectDebt = null }
+                        )
+                    }
+                ) {
+                    Text("حفظ التعديل")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { editingDirectDebt = null }) {
                     Text("إلغاء")
                 }
             }
@@ -1281,12 +1394,13 @@ fun PartyPaymentDialog(
     totalDebt: Double,
     exchangeAccounts: List<ExchangeAccount>,
     onDismiss: () -> Unit,
-    onConfirm: (amount: Double, paymentMethod: String, exchangeAccount: ExchangeAccount?, notes: String) -> Unit
+    onConfirm: (amount: Double, paymentMethod: String, exchangeAccount: ExchangeAccount?, notes: String, transferRef: String) -> Unit
 ) {
     val isCustomer = party.type == "CUSTOMER"
     var amountStr by remember { mutableStateOf(totalDebt.toLong().toString()) }
     var paymentMethod by remember { mutableStateOf("نقداً") } // "نقداً" or "صرافة/محفظة"
     var selectedExchangeAcc by remember { mutableStateOf(exchangeAccounts.firstOrNull()) }
+    var transferRef by remember { mutableStateOf("") }
     var notes by remember {
         mutableStateOf(if (isCustomer) "قبض زلط نقدية من العميل" else "سداد دفعة للمورد")
     }
@@ -1377,6 +1491,15 @@ fun PartyPaymentDialog(
                                 )
                             }
                         }
+
+                        OutlinedTextField(
+                            value = transferRef,
+                            onValueChange = { transferRef = it },
+                            label = { Text("رقم الحوالة / إشعار الصراف (سند التحويل) *") },
+                            placeholder = { Text("مثال: 94827104") },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        )
                     }
                 }
 
@@ -1402,7 +1525,7 @@ fun PartyPaymentDialog(
             Button(
                 onClick = {
                     val amount = amountStr.toDoubleOrNull() ?: 0.0
-                    onConfirm(amount, paymentMethod, selectedExchangeAcc, notes)
+                    onConfirm(amount, paymentMethod, selectedExchangeAcc, notes, transferRef)
                 },
                 modifier = Modifier.testTag("btn_confirm_party_payment")
             ) {
@@ -1584,6 +1707,7 @@ fun PartyStatementDialog(
 fun DebtItemCard(
     debt: DebtRecord,
     onRecordPayment: () -> Unit,
+    onEdit: () -> Unit = {},
     onDelete: () -> Unit
 ) {
     val context = LocalContext.current
@@ -1729,8 +1853,13 @@ fun DebtItemCard(
                     }
                 }
 
-                IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.DeleteOutline, contentDescription = "حذف", tint = SlateMuted)
+                Row {
+                    IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Edit, contentDescription = "تعديل", tint = BrandBlue)
+                    }
+                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.DeleteOutline, contentDescription = "حذف", tint = SlateMuted)
+                    }
                 }
             }
         }
