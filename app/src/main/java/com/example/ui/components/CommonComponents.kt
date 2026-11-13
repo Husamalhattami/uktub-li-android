@@ -36,6 +36,7 @@ import com.example.ui.CompletedSaleReceipt
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
 import com.example.ui.util.InvoiceHelper
+import com.example.ui.util.StatementHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,6 +45,7 @@ fun StoreTopBar(
     subtitle: String = "إدارة أسهل .. لمحل أكثر نجاحاً",
     showBackButton: Boolean = false,
     activeShift: CashDrawerShift? = null,
+    logoPath: String = "",
     onBackClick: () -> Unit = {},
     onShiftClick: () -> Unit = {},
     trailingAction: @Composable (() -> Unit)? = null
@@ -68,21 +70,12 @@ fun StoreTopBar(
                     )
                 }
             } else {
-                Box(
-                    modifier = Modifier
-                        .padding(start = 12.dp, end = 6.dp)
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color.White.copy(alpha = 0.12f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Storefront,
-                        contentDescription = null,
-                        tint = PdfGoldPrimary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
+                com.example.ui.util.StoreLogoBadge(
+                    logoPath = logoPath,
+                    size = 40.dp,
+                    cornerRadius = 10.dp,
+                    modifier = Modifier.padding(start = 12.dp, end = 6.dp)
+                )
             }
         },
         title = {
@@ -970,32 +963,439 @@ fun CollectionSuccessDialog(
             }
         },
         confirmButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            val file = InvoiceHelper.generateCollectionVoucherPdf(context, receipt, settings)
+                            InvoiceHelper.printPdfFile(context, file, "سند_قبض_${receipt.voucherNumber}")
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("طباعة", maxLines = 1)
+                    }
+                    Button(
+                        onClick = {
+                            val file = InvoiceHelper.generateCollectionVoucherPdf(context, receipt, settings)
+                            InvoiceHelper.sharePdfFile(context, file, "مشاركة سند قبض #${receipt.voucherNumber}")
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("مشاركة PDF", maxLines = 1)
+                    }
+                }
                 OutlinedButton(
                     onClick = {
-                        val file = InvoiceHelper.generateCollectionVoucherPdf(context, receipt, settings)
-                        InvoiceHelper.printPdfFile(context, file, "سند_قبض_${receipt.voucherNumber}")
-                    }
-                ) {
-                    Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("طباعة")
-                }
-                Button(
-                    onClick = {
-                        val file = InvoiceHelper.generateCollectionVoucherPdf(context, receipt, settings)
-                        InvoiceHelper.sharePdfFile(context, file, "مشاركة سند قبض #${receipt.voucherNumber}")
+                        val txt = StatementHelper.formatCollectionVoucherText(receipt, settings)
+                        StatementHelper.shareText(context, txt, "مشاركة سند قبض #${receipt.voucherNumber}")
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("share_collection_text_button")
                 ) {
-                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("مشاركة PDF")
+                    Icon(Icons.Default.Forum, contentDescription = null, tint = FintechEmerald, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("مشاركة نص للواتساب والتواصل", color = FintechEmerald, fontWeight = FontWeight.Bold)
                 }
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss, modifier = Modifier.testTag("close_collection_receipt_button")) {
+                Text("إغلاق")
+            }
+        }
+    )
+}
+
+@Composable
+fun SupplierPaymentDialog(
+    supplierParties: List<PartyAccount>,
+    supplierDebts: List<DebtRecord>,
+    exchangeAccounts: List<ExchangeAccount>,
+    initialParty: PartyAccount? = null,
+    onDismiss: () -> Unit,
+    onConfirm: (
+        supplierName: String,
+        party: PartyAccount?,
+        amount: Double,
+        voucherNumber: String,
+        paymentMethod: String,
+        exchangeAccount: ExchangeAccount?,
+        notes: String
+    ) -> Unit
+) {
+    var selectedParty by remember { mutableStateOf(initialParty) }
+    var supplierName by remember { mutableStateOf(initialParty?.name ?: "") }
+    var amountStr by remember { mutableStateOf("") }
+    var voucherNumber by remember { mutableStateOf("") }
+    var paymentMethod by remember { mutableStateOf("نقداً") }
+    var selectedAccount by remember { mutableStateOf(exchangeAccounts.firstOrNull()) }
+    var notes by remember { mutableStateOf("") }
+
+    val matchedDebtTotal = remember(selectedParty, supplierName, supplierDebts) {
+        val nameToMatch = (selectedParty?.name ?: supplierName).trim()
+        if (nameToMatch.isBlank()) 0.0
+        else supplierDebts
+            .filter { it.type == "SUPPLIER" && !it.isSettled && it.partyName.trim().equals(nameToMatch, ignoreCase = true) }
+            .sumOf { it.remainingAmount }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.LocalShipping, contentDescription = null, tint = FintechRose)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "تسديد لمورد (سند صرف)",
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    "اختر المورد أو اكتب اسمه لتسديد مستحقاته أو تسجيل دفعة مقدمة:",
+                    fontSize = 12.sp,
+                    color = SlateTextSecondary
+                )
+
+                if (supplierParties.isNotEmpty()) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(supplierParties) { party ->
+                            val isSelected = selectedParty?.id == party.id
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    if (isSelected) {
+                                        selectedParty = null
+                                        supplierName = ""
+                                    } else {
+                                        selectedParty = party
+                                        supplierName = party.name
+                                    }
+                                },
+                                label = { Text(party.name, fontSize = 11.sp, maxLines = 1) }
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = supplierName,
+                    onValueChange = {
+                        supplierName = it
+                        if (selectedParty?.name != it) selectedParty = null
+                    },
+                    label = { Text("اسم المورد *") },
+                    placeholder = { Text("مثال: شركة الأندلس للتجارة") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("supplier_pay_name_input")
+                )
+
+                if (matchedDebtTotal > 0.0) {
+                    Surface(
+                        color = FintechRoseBg,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("المستحق للمورد بذمتنا:", fontSize = 12.sp, color = FintechRose)
+                            Text(
+                                FormatUtils.formatCurrency(matchedDebtTotal),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = FintechRose
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = amountStr,
+                    onValueChange = { amountStr = it },
+                    label = { Text("المبلغ المسدد *") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("supplier_pay_amount_input")
+                )
+
+                QuickThousandAdder(
+                    currentValue = amountStr,
+                    onValueChange = { amountStr = it }
+                )
+
+                OutlinedTextField(
+                    value = voucherNumber,
+                    onValueChange = { voucherNumber = it },
+                    label = { Text("رقم السند (اختياري)") },
+                    placeholder = { Text("اتركه فارغاً للتوليد التلقائي (SRF-0001)") },
+                    supportingText = {
+                        Text(
+                            "إذا وُجد رقم سند صرف أدخله هنا، وإذا تُرك فارغاً يتم توليده تلقائياً",
+                            fontSize = 11.sp
+                        )
+                    },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("supplier_pay_voucher_input")
+                )
+
+                Text("جهة الصرف والدفع:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = paymentMethod == "نقداً",
+                        onClick = { paymentMethod = "نقداً" },
+                        label = { Text("نقداً من الصندوق", fontSize = 12.sp, maxLines = 1) },
+                        modifier = Modifier.weight(1f).testTag("supplier_pay_method_cash")
+                    )
+                    FilterChip(
+                        selected = paymentMethod == "صرافة/محفظة",
+                        onClick = { paymentMethod = "صرافة/محفظة" },
+                        label = { Text("صرافة / محفظة", fontSize = 12.sp, maxLines = 1) },
+                        modifier = Modifier.weight(1f).testTag("supplier_pay_method_exchange")
+                    )
+                }
+
+                if (paymentMethod == "صرافة/محفظة") {
+                    if (exchangeAccounts.isEmpty()) {
+                        Surface(
+                            color = FintechRoseBg,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                "لا توجد حسابات صرافة أو محافظ مضافة بعد — أضف حساب صرافة أولاً أو ادفع نقداً من الصندوق.",
+                                fontSize = 11.sp,
+                                color = FintechRose,
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    } else {
+                        Text("اختر حساب الصرافة/المحفظة:", fontSize = 11.sp, color = SlateTextSecondary)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(exchangeAccounts) { acc ->
+                                FilterChip(
+                                    selected = selectedAccount?.id == acc.id,
+                                    onClick = { selectedAccount = acc },
+                                    label = { Text("${acc.name} (${FormatUtils.formatNumber(acc.balance)})", fontSize = 11.sp, maxLines = 1) }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("ملاحظات / البيان (اختياري)") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("supplier_pay_notes_input")
+                )
+            }
+        },
+        confirmButton = {
+            val amountVal = amountStr.toDoubleOrNull() ?: 0.0
+            val canConfirm = amountVal > 0.0 && supplierName.isNotBlank() && (paymentMethod == "نقداً" || selectedAccount != null)
+            Button(
+                onClick = {
+                    onConfirm(
+                        supplierName,
+                        selectedParty,
+                        amountVal,
+                        voucherNumber,
+                        paymentMethod,
+                        if (paymentMethod == "نقداً") null else selectedAccount,
+                        notes
+                    )
+                },
+                enabled = canConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = FintechRose),
+                modifier = Modifier.testTag("supplier_pay_confirm_button")
+            ) {
+                Text("تأكيد الصرف والتسديد")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("إلغاء")
+            }
+        }
+    )
+}
+
+@Composable
+fun SupplierPaymentSuccessDialog(
+    receipt: SupplierPaymentReceiptResult,
+    settings: StoreSettings?,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = FintechRose, modifier = Modifier.size(28.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("تم توثيق سند الصرف للمورد!", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        },
+        text = {
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = SlateBg),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .border(1.dp, SlateBorder, RoundedCornerShape(12.dp))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(14.dp)
+                        .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Surface(
+                        color = FintechRoseBg,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "رقم السند: #${receipt.voucherNumber}",
+                            fontWeight = FontWeight.Bold,
+                            color = FintechRose,
+                            fontSize = 15.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                        )
+                    }
+
+                    HorizontalDivider(color = SlateBorder)
+                    ReceiptRow("صرفنا إلى المورد:", receipt.supplierName, isBold = true)
+                    ReceiptRow("طريقة الصرف:", if (receipt.paymentMethod == "نقداً") "نقداً من الصندوق" else "صرافة (${receipt.exchangeAccountName})")
+                    if (receipt.appliedToDebtAmount > 0.0) {
+                        ReceiptRow("مسدد من الدين:", FormatUtils.formatCurrency(receipt.appliedToDebtAmount), color = FintechEmerald, isBold = true)
+                    }
+                    if (receipt.directPaymentAmount > 0.0) {
+                        ReceiptRow("دفعة مباشرة / مقدمة:", FormatUtils.formatCurrency(receipt.directPaymentAmount))
+                    }
+                    ReceiptRow(
+                        "المتبقي للمورد بذمتنا:",
+                        FormatUtils.formatCurrency(receipt.remainingSupplierDebt),
+                        color = if (receipt.remainingSupplierDebt > 0) FintechRose else FintechEmerald,
+                        isBold = true
+                    )
+                    if (receipt.notes.isNotBlank()) {
+                        ReceiptRow("البيان:", receipt.notes)
+                    }
+                    ReceiptRow("التاريخ:", FormatUtils.formatDateTime(receipt.timestamp))
+
+                    HorizontalDivider(color = SlateBorder)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("المبلغ المسدد:", fontWeight = FontWeight.Bold)
+                        Text(
+                            FormatUtils.formatCurrency(receipt.amount),
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, color = FintechRose)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            val file = InvoiceHelper.generateSupplierPaymentVoucherPdf(context, receipt, settings)
+                            InvoiceHelper.printPdfFile(context, file, "سند_صرف_${receipt.voucherNumber}")
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("طباعة", maxLines = 1)
+                    }
+                    Button(
+                        onClick = {
+                            val file = InvoiceHelper.generateSupplierPaymentVoucherPdf(context, receipt, settings)
+                            InvoiceHelper.sharePdfFile(context, file, "مشاركة سند صرف #${receipt.voucherNumber}")
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("مشاركة PDF", maxLines = 1)
+                    }
+                }
+                OutlinedButton(
+                    onClick = {
+                        val txt = StatementHelper.formatSupplierPaymentVoucherText(receipt, settings)
+                        StatementHelper.shareText(context, txt, "مشاركة سند صرف #${receipt.voucherNumber}")
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("share_supplier_payment_text_button")
+                ) {
+                    Icon(Icons.Default.Forum, contentDescription = null, tint = FintechEmerald, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("مشاركة نص للواتساب والتواصل", color = FintechEmerald, fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag("close_supplier_payment_receipt_button")) {
                 Text("إغلاق")
             }
         }

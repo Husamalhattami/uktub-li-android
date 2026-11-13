@@ -44,24 +44,15 @@ fun ExpensesScreen(
     val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
     val employees by viewModel.employees.collectAsStateWithLifecycle()
     val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
+    val dynamicExpenseCategories by viewModel.expenseCategories.collectAsStateWithLifecycle()
 
     var showAddDialog by remember { mutableStateOf(false) }
     var expenseToEdit by remember { mutableStateOf<ExpenseRecord?>(null) }
     var selectedFilterCategory by remember { mutableStateOf("الكل") }
 
-    val presetCategories = listOf(
-        "صرفة يومية لعامل",
-        "إيجار المحل",
-        "الكهرباء",
-        "الماء",
-        "الإنترنت",
-        "النقل والشحن",
-        "التغليف والأكياس",
-        "التصليح والصيانة",
-        "الضيافة والشاي",
-        "الدعاية والإعلان",
-        "مصروف متفرقات"
-    )
+    val presetCategories = remember(dynamicExpenseCategories, expenses) {
+        (dynamicExpenseCategories + expenses.map { it.category.trim() }.filter { it.isNotBlank() }).distinct()
+    }
 
     val totalExpensesThisMonth = remember(expenses) {
         expenses.filter { FormatUtils.isThisMonth(it.timestamp) }.sumOf { it.amount }
@@ -279,7 +270,7 @@ fun ExpensesScreen(
 
     // Add Expense Dialog
     if (showAddDialog) {
-        var selectedCat by remember { mutableStateOf(presetCategories.first()) }
+        var selectedCat by remember { mutableStateOf(dynamicExpenseCategories.firstOrNull() ?: "مصروف متفرقات") }
         var selectedEmployee by remember { mutableStateOf(employees.firstOrNull()) }
         var amountStr by remember { mutableStateOf("") }
         var notes by remember { mutableStateOf("") }
@@ -315,7 +306,7 @@ fun ExpensesScreen(
                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, color = SlateTextSecondary)
                     )
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(presetCategories) { cat ->
+                        items(dynamicExpenseCategories) { cat ->
                             val isSelected = selectedCat == cat
                             FilterChip(
                                 selected = isSelected,

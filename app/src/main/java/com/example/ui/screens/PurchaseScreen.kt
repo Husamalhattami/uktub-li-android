@@ -41,6 +41,7 @@ import com.example.ui.util.ClothingSizes
 import com.example.ui.util.ClothingUnits
 import com.example.ui.util.FormatUtils
 import com.example.ui.util.InvoiceHelper
+import com.example.ui.util.StatementHelper
 import java.io.File
 
 data class CompletedPurchaseReceipt(
@@ -70,6 +71,8 @@ fun PurchaseScreen(
     val parties by viewModel.parties.collectAsStateWithLifecycle()
     val supplierParties = remember(parties) { parties.filter { it.type == "SUPPLIER" } }
     val allDynamicCategories by viewModel.allCategories.collectAsStateWithLifecycle()
+    val dynamicSizes by viewModel.productSizes.collectAsStateWithLifecycle()
+    val dynamicColors by viewModel.productColors.collectAsStateWithLifecycle()
 
     // Filter out "الكل" for item category selection
     val selectableCategories = remember(allDynamicCategories) {
@@ -95,9 +98,18 @@ fun PurchaseScreen(
     }
     var showAddCategoryDialog by remember { mutableStateOf(false) }
     var newCategoryInput by remember { mutableStateOf("") }
+    var showAddSizeDialog by remember { mutableStateOf(false) }
+    var newSizeInput by remember { mutableStateOf("") }
+    var showAddColorDialog by remember { mutableStateOf(false) }
+    var newColorInput by remember { mutableStateOf("") }
 
     var modelName by remember { mutableStateOf("") }
-    var selectedSize by remember { mutableStateOf(ClothingSizes.BIG) }
+    var selectedSize by remember { mutableStateOf(dynamicSizes.firstOrNull() ?: ClothingSizes.BIG) }
+    LaunchedEffect(dynamicSizes) {
+        if (selectedSize !in dynamicSizes && dynamicSizes.isNotEmpty()) {
+            selectedSize = dynamicSizes.first()
+        }
+    }
     var selectedUnit by remember { mutableStateOf(ClothingUnits.DOZEN) }
     var unitCountStr by remember { mutableStateOf("1") }
     var buyPricePerUnitStr by remember { mutableStateOf("15000") }
@@ -106,8 +118,12 @@ fun PurchaseScreen(
     var itemNotes by remember { mutableStateOf("") }
 
     // Color Assortment for item
-    val popularColors = listOf("أسود", "أبيض", "كحلي", "بيج", "رمادي", "رصاصي", "بني", "زيتي", "سكري", "أزرق")
-    val selectedColorsSet = remember { mutableStateListOf("أسود", "كحلي", "بيج") }
+    val selectedColorsSet = remember { mutableStateListOf<String>() }
+    LaunchedEffect(dynamicColors) {
+        if (selectedColorsSet.isEmpty() && dynamicColors.isNotEmpty()) {
+            selectedColorsSet.addAll(dynamicColors.take(3))
+        }
+    }
     var customColorsText by remember { mutableStateOf("") }
     var colorsCount by remember { mutableIntStateOf(3) }
 
@@ -371,7 +387,7 @@ fun PurchaseScreen(
                             )
                         )
                         Text(
-                            text = storeSettings?.shopNameAr ?: "الجرادي للملابس الجاهزة",
+                            text = storeSettings?.shopNameAr?.ifBlank { "متجري" } ?: "متجري",
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = Color(0xFF90CDF4),
                                 fontSize = 11.sp
@@ -591,17 +607,30 @@ fun PurchaseScreen(
 
                         // Size Selection
                         Text("المقاس:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            listOf(ClothingSizes.BIG, ClothingSizes.MEDIUM, ClothingSizes.SMALL, ClothingSizes.YOUTH).forEach { sz ->
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item {
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = Color(0xFFEFF6FF),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B82F6)),
+                                    modifier = Modifier.clickable { showAddSizeDialog = true }
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(15.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("مقاس +", color = Color(0xFF2563EB), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                            items(dynamicSizes) { sz ->
                                 val isSel = selectedSize == sz
                                 FilterChip(
                                     selected = isSel,
                                     onClick = { selectedSize = sz },
-                                    label = { Text(sz, fontSize = 11.sp) },
-                                    modifier = Modifier.weight(1f)
+                                    label = { Text(sz, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) }
                                 )
                             }
                         }
@@ -696,7 +725,24 @@ fun PurchaseScreen(
                         // Colors Assortment
                         Text("الألوان والتشكيلة:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            items(popularColors) { col ->
+                            item {
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = Color(0xFFEFF6FF),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B82F6)),
+                                    modifier = Modifier.clickable { showAddColorDialog = true }
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(15.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("لون +", color = Color(0xFF2563EB), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                            items(dynamicColors) { col ->
                                 val isSelected = selectedColorsSet.contains(col)
                                 FilterChip(
                                     selected = isSelected,
@@ -1115,6 +1161,88 @@ fun PurchaseScreen(
         )
     }
 
+    if (showAddSizeDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddSizeDialog = false },
+            title = { Text("إضافة مقاس جديد", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedTextField(
+                        value = newSizeInput,
+                        onValueChange = { newSizeInput = it },
+                        label = { Text("اسم المقاس (مثلاً: شبابي، جامبو، 42...)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val trimmed = newSizeInput.trim()
+                        if (trimmed.isNotBlank()) {
+                            viewModel.addConfigItem(com.example.data.model.StoreConfigTypes.PRODUCT_SIZE, trimmed)
+                            selectedSize = trimmed
+                            newSizeInput = ""
+                            showAddSizeDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PdfGoldDark)
+                ) { Text("إضافة واختيار") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showAddSizeDialog = false }) { Text("إلغاء") }
+            }
+        )
+    }
+
+    if (showAddColorDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddColorDialog = false },
+            title = { Text("إضافة لون جديد", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedTextField(
+                        value = newColorInput,
+                        onValueChange = { newColorInput = it },
+                        label = { Text("اسم اللون (مثلاً: عودي، خمري، فضي...)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val trimmed = newColorInput.trim()
+                        if (trimmed.isNotBlank()) {
+                            viewModel.addConfigItem(com.example.data.model.StoreConfigTypes.PRODUCT_COLOR, trimmed)
+                            if (!selectedColorsSet.contains(trimmed)) {
+                                selectedColorsSet.add(trimmed)
+                            }
+                            newColorInput = ""
+                            showAddColorDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PdfGoldDark)
+                ) { Text("إضافة واختيار") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showAddColorDialog = false }) { Text("إلغاء") }
+            }
+        )
+    }
+
     // 2. Add Supplier Dialog
     if (showAddSupplierDialog) {
         AddOrEditPartyDialog(
@@ -1198,6 +1326,65 @@ fun PurchaseScreen(
                                     Text(FormatUtils.formatCurrency(receipt.debtAmount), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
                                 }
                             }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                val file = receipt.pdfFile ?: InvoiceHelper.generateMultiItemPurchaseInvoicePdf(
+                                    context = context,
+                                    invoiceNumber = receipt.invoiceNumber,
+                                    supplierName = receipt.supplierName,
+                                    paymentMethod = receipt.paymentMethod,
+                                    exchangeAccountName = receipt.exchangeAccountName,
+                                    transferRef = receipt.transferRef,
+                                    items = receipt.items,
+                                    totalCost = receipt.totalCost,
+                                    cashPaid = receipt.cashPaid,
+                                    transferPaid = receipt.transferPaid,
+                                    debtAmount = receipt.debtAmount,
+                                    timestamp = receipt.timestamp,
+                                    settings = storeSettings
+                                )
+                                InvoiceHelper.sharePdfFile(context, file, "مشاركة فاتورة شراء #${receipt.invoiceNumber}")
+                            },
+                            modifier = Modifier.weight(1f).height(44.dp).testTag("btn_purchase_receipt_share_pdf"),
+                            contentPadding = PaddingValues(horizontal = 6.dp)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("مشاركة PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = {
+                                val txt = StatementHelper.formatMultiItemPurchaseText(
+                                    invoiceNumber = receipt.invoiceNumber,
+                                    supplierName = receipt.supplierName,
+                                    paymentMethod = receipt.paymentMethod,
+                                    itemsCount = receipt.items.size,
+                                    totalCost = receipt.totalCost,
+                                    cashPaid = receipt.cashPaid,
+                                    transferPaid = receipt.transferPaid,
+                                    debtAmount = receipt.debtAmount,
+                                    exchangeAccountName = receipt.exchangeAccountName,
+                                    transferRef = receipt.transferRef,
+                                    timestamp = receipt.timestamp,
+                                    settings = storeSettings
+                                )
+                                StatementHelper.shareText(context, txt, "مشاركة فاتورة شراء #${receipt.invoiceNumber}")
+                            },
+                            modifier = Modifier.weight(1f).height(44.dp).testTag("btn_purchase_receipt_share_whatsapp"),
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldProfit)
+                        ) {
+                            Icon(Icons.Default.Chat, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("واتساب / نص", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

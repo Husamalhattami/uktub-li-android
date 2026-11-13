@@ -692,8 +692,9 @@ fun StoreAuditScreen(
 
     // Add Exchange Account Dialog
     if (showAddAccountDialog) {
+        val dynamicAccountTypes by viewModel.accountTypes.collectAsStateWithLifecycle()
         var newAccName by remember { mutableStateOf("") }
-        var newAccType by remember { mutableStateOf("صراف") }
+        var newAccType by remember { mutableStateOf(dynamicAccountTypes.firstOrNull() ?: "صراف") }
         var newAccNumber by remember { mutableStateOf("") }
         var newAccBalanceStr by remember { mutableStateOf("0") }
 
@@ -718,7 +719,7 @@ fun StoreAuditScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(listOf("صراف", "محفظة", "حساب بنكي")) { typeName ->
+                        items(dynamicAccountTypes) { typeName ->
                             FilterChip(
                                 selected = newAccType == typeName,
                                 onClick = { newAccType = typeName },

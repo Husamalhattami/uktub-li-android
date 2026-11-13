@@ -24,6 +24,7 @@ import com.example.ui.components.StoreTopBar
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
 import com.example.ui.util.InvoiceHelper
+import com.example.ui.util.StatementHelper
 
 @Composable
 fun ReportsScreen(
@@ -36,6 +37,9 @@ fun ReportsScreen(
     val purchases by viewModel.purchases.collectAsStateWithLifecycle()
     val products by viewModel.products.collectAsStateWithLifecycle()
     val debts by viewModel.debts.collectAsStateWithLifecycle()
+    val debtPayments by viewModel.debtPayments.collectAsStateWithLifecycle()
+    val cashBalance by viewModel.currentCashBalance.collectAsStateWithLifecycle()
+    val totalExchangeBalance by viewModel.totalExchangeBalance.collectAsStateWithLifecycle()
     val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
     val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -52,76 +56,66 @@ fun ReportsScreen(
         }
     }
 
-    val filteredSales = remember(sales, selectedPeriod) {
+    fun matchesSelectedPeriod(timestamp: Long): Boolean {
         val now = System.currentTimeMillis()
         val sevenDaysAgo = now - 7 * 86400000L
-        sales.filter {
-            when (selectedPeriod) {
-                "اليوم" -> FormatUtils.isToday(it.timestamp)
-                "أمس" -> isYesterday(it.timestamp)
-                "هذا الأسبوع" -> it.timestamp >= sevenDaysAgo
-                "هذا الشهر" -> FormatUtils.isThisMonth(it.timestamp)
-                else -> true
-            }
+        return when (selectedPeriod) {
+            "اليوم" -> FormatUtils.isToday(timestamp)
+            "أمس" -> isYesterday(timestamp)
+            "هذا الأسبوع" -> timestamp >= sevenDaysAgo
+            "هذا الشهر" -> FormatUtils.isThisMonth(timestamp)
+            else -> true
         }
     }
 
-    val filteredExpenses = remember(expenses, selectedPeriod) {
-        val now = System.currentTimeMillis()
-        val sevenDaysAgo = now - 7 * 86400000L
-        expenses.filter {
-            when (selectedPeriod) {
-                "اليوم" -> FormatUtils.isToday(it.timestamp)
-                "أمس" -> isYesterday(it.timestamp)
-                "هذا الأسبوع" -> it.timestamp >= sevenDaysAgo
-                "هذا الشهر" -> FormatUtils.isThisMonth(it.timestamp)
-                else -> true
-            }
-        }
-    }
+    val filteredSales = remember(sales, selectedPeriod) { sales.filter { matchesSelectedPeriod(it.timestamp) } }
+    val filteredPurchases = remember(purchases, selectedPeriod) { purchases.filter { matchesSelectedPeriod(it.timestamp) } }
+    val filteredExpenses = remember(expenses, selectedPeriod) { expenses.filter { matchesSelectedPeriod(it.timestamp) } }
+    val filteredEmployeeTx = remember(employeeTransactions, selectedPeriod) { employeeTransactions.filter { matchesSelectedPeriod(it.timestamp) } }
+    val filteredPayments = remember(debtPayments, selectedPeriod) { debtPayments.filter { matchesSelectedPeriod(it.timestamp) } }
 
-    val filteredSalaries = remember(employeeTransactions, selectedPeriod) {
-        val now = System.currentTimeMillis()
-        val sevenDaysAgo = now - 7 * 86400000L
-        employeeTransactions.filter { (it.type == "صرف راتب" || it.type == "سلفة") }.filter {
-            when (selectedPeriod) {
-                "اليوم" -> FormatUtils.isToday(it.timestamp)
-                "أمس" -> isYesterday(it.timestamp)
-                "هذا الأسبوع" -> it.timestamp >= sevenDaysAgo
-                "هذا الشهر" -> FormatUtils.isThisMonth(it.timestamp)
-                else -> true
-            }
-        }
+    val reportSummary = remember(
+        selectedPeriod,
+        filteredSales,
+        filteredPurchases,
+        filteredExpenses,
+        filteredEmployeeTx,
+        filteredPayments,
+        debts,
+        products,
+        cashBalance,
+        totalExchangeBalance
+    ) {
+        StatementHelper.buildDailyReportSummary(
+            periodTitle = selectedPeriod,
+            filteredSales = filteredSales,
+            filteredPurchases = filteredPurchases,
+            filteredExpenses = filteredExpenses,
+            filteredEmployeeTx = filteredEmployeeTx,
+            filteredPayments = filteredPayments,
+            allDebts = debts,
+            allProducts = products,
+            currentCashBalance = cashBalance,
+            currentExchangeBalance = totalExchangeBalance
+        )
     }
 
     // Calculations
-    val totalSales = remember(filteredSales) { filteredSales.sumOf { it.totalAmount } }
-    val cashSales = remember(filteredSales) { filteredSales.sumOf { it.cashAmount } }
-    val transferSales = remember(filteredSales) { filteredSales.sumOf { it.transferAmount } }
-    val debtSales = remember(filteredSales) { filteredSales.filter { it.paymentType.contains("دين") || it.paymentType.contains("آجل") }.sumOf { it.totalAmount } }
-
-    val cogs = remember(filteredSales) { filteredSales.sumOf { it.unitBuyPrice * it.quantity } }
-    val grossProfit = totalSales - cogs
-
-    val totalExpensesAmount = remember(filteredExpenses) { filteredExpenses.sumOf { it.amount } }
-    val totalSalariesAmount = remember(filteredSalaries) { filteredSalaries.sumOf { it.amount } }
-
-    // Real Net Profit Equation: Sales - COGS - Expenses - Salaries
-    val netProfit = grossProfit - totalExpensesAmount - totalSalariesAmount
-
-    // Inventory Value
-    val inventoryCapital = remember(products) { products.sumOf { it.buyPrice * it.quantity } }
-
-    // Outstanding Debts
-    val customerDebtsTotal = remember(debts) { debts.filter { it.type == "CUSTOMER" && !it.isSettled }.sumOf { it.remainingAmount } }
-    val supplierDebtsTotal = remember(debts) { debts.filter { it.type == "SUPPLIER" && !it.isSettled }.sumOf { it.remainingAmount } }
+    val totalSales = reportSummary.totalSales
+    val cashSales = reportSummary.cashSales
+    val debtSales = reportSummary.debtSales
+    val cogs = reportSummary.cogs
+    val totalExpensesAmount = reportSummary.expensesTotal
+    val totalSalariesAmount = reportSummary.salariesAndAdvancesTotal
+    val netProfit = reportSummary.netProfit
+    val customerDebtsTotal = reportSummary.totalCustomerDebts
+    val supplierDebtsTotal = reportSummary.totalSupplierDebts
 
     // Item profit breakdown
     val itemProfitList = remember(filteredSales) {
         filteredSales.groupBy { it.productName }
             .map { (name, list) ->
                 val qty = list.sumOf { it.quantity }
-                val rev = list.sumOf { it.totalAmount }
                 val prof = list.sumOf { it.profit }
                 Triple(name, qty, prof)
             }
@@ -132,7 +126,6 @@ fun ReportsScreen(
     val employeeSalesList = remember(filteredSales) {
         filteredSales.groupBy { it.employeeName.ifBlank { "صاحب المحل" } }
             .map { (empName, list) ->
-                val count = list.size
                 val total = list.sumOf { it.totalAmount }
                 val profit = list.sumOf { it.profit }
                 Triple(empName, total, profit)
@@ -141,33 +134,8 @@ fun ReportsScreen(
     }
 
     fun shareReportText() {
-        val storeTitle = storeSettings?.storeName ?: "الجرادي للملابس الجاهزة"
-        val report = buildString {
-            appendLine("📊 تقرير أرباح ومبيعات: $storeTitle")
-            appendLine("الفترة: $selectedPeriod (${FormatUtils.formatDate(System.currentTimeMillis())})")
-            appendLine("━━━━━━━━━━━━━━━━━━━━━━")
-            appendLine("• إجمالي المبيعات: ${FormatUtils.formatCurrency(totalSales)}")
-            appendLine("  - نقداً (كاش): ${FormatUtils.formatCurrency(cashSales)}")
-            appendLine("  - تحويل صرافة: ${FormatUtils.formatCurrency(transferSales)}")
-            appendLine("  - آجل (بالدين): ${FormatUtils.formatCurrency(debtSales)}")
-            appendLine("• تكلفة البضاعة المباعة: ${FormatUtils.formatCurrency(cogs)}")
-            appendLine("• مجمل الربح التجاري: ${FormatUtils.formatCurrency(grossProfit)}")
-            appendLine("• المصروفات التشغيلية: ${FormatUtils.formatCurrency(totalExpensesAmount)}")
-            appendLine("• الرواتب والسلف: ${FormatUtils.formatCurrency(totalSalariesAmount)}")
-            appendLine("━━━━━━━━━━━━━━━━━━━━━━")
-            appendLine("🌟 صافي الربح الحقيقي: ${FormatUtils.formatCurrency(netProfit)}")
-            appendLine("━━━━━━━━━━━━━━━━━━━━━━")
-            appendLine("📦 قيمة المخزون الحالي: ${FormatUtils.formatCurrency(inventoryCapital)}")
-            appendLine("💰 ديون الزبائن المستحقة: ${FormatUtils.formatCurrency(customerDebtsTotal)}")
-            appendLine("🚚 ديون الموردين المطلوب سدادها: ${FormatUtils.formatCurrency(supplierDebtsTotal)}")
-        }
-
-        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(android.content.Intent.EXTRA_SUBJECT, "تقرير مالي - $storeTitle")
-            putExtra(android.content.Intent.EXTRA_TEXT, report)
-        }
-        context.startActivity(android.content.Intent.createChooser(intent, "مشاركة التقرير المحاسبي"))
+        val text = StatementHelper.formatDailyReportText(reportSummary, storeSettings)
+        StatementHelper.shareText(context, text, "مشاركة التقرير المحاسبي")
     }
 
     Scaffold(
@@ -183,11 +151,9 @@ fun ReportsScreen(
                             onClick = {
                                 val file = InvoiceHelper.generateFinancialReportPdf(
                                     context = context,
-                                    periodTitle = selectedPeriod,
-                                    sales = filteredSales,
-                                    expenses = filteredExpenses,
-                                    employeeTx = filteredSalaries,
-                                    purchases = purchases,
+                                    report = reportSummary,
+                                    topItems = itemProfitList,
+                                    employeeSales = employeeSalesList,
                                     settings = storeSettings
                                 )
                                 InvoiceHelper.printPdfFile(context, file, "تقرير_مالي_$selectedPeriod")
@@ -205,11 +171,9 @@ fun ReportsScreen(
                             onClick = {
                                 val file = InvoiceHelper.generateFinancialReportPdf(
                                     context = context,
-                                    periodTitle = selectedPeriod,
-                                    sales = filteredSales,
-                                    expenses = filteredExpenses,
-                                    employeeTx = filteredSalaries,
-                                    purchases = purchases,
+                                    report = reportSummary,
+                                    topItems = itemProfitList,
+                                    employeeSales = employeeSalesList,
                                     settings = storeSettings
                                 )
                                 InvoiceHelper.sharePdfFile(context, file, "مشاركة تقرير مالي")
@@ -255,6 +219,98 @@ fun ReportsScreen(
                             label = { Text(period, fontWeight = FontWeight.Bold) },
                             modifier = Modifier.testTag("report_period_$period")
                         )
+                    }
+                }
+            }
+
+            // Export & Share Action Bar (PDF + WhatsApp + Copy)
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "تصدير ومشاركة تقرير ($selectedPeriod)",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = PdfHeaderNavy
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    val file = InvoiceHelper.generateFinancialReportPdf(
+                                        context = context,
+                                        report = reportSummary,
+                                        topItems = itemProfitList,
+                                        employeeSales = employeeSalesList,
+                                        settings = storeSettings
+                                    )
+                                    InvoiceHelper.printPdfFile(context, file, "تقرير_مالي_$selectedPeriod")
+                                },
+                                modifier = Modifier.weight(1f).height(42.dp).testTag("btn_report_print_pdf"),
+                                contentPadding = PaddingValues(horizontal = 6.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = PdfHeaderNavy)
+                            ) {
+                                Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("طباعة PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    val file = InvoiceHelper.generateFinancialReportPdf(
+                                        context = context,
+                                        report = reportSummary,
+                                        topItems = itemProfitList,
+                                        employeeSales = employeeSalesList,
+                                        settings = storeSettings
+                                    )
+                                    InvoiceHelper.sharePdfFile(context, file, "مشاركة تقرير مالي")
+                                },
+                                modifier = Modifier.weight(1f).height(42.dp).testTag("btn_report_share_pdf"),
+                                contentPadding = PaddingValues(horizontal = 6.dp)
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("مشاركة PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { shareReportText() },
+                                modifier = Modifier.weight(1f).height(42.dp).testTag("btn_report_share_text"),
+                                contentPadding = PaddingValues(horizontal = 6.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = EmeraldProfit)
+                            ) {
+                                Icon(Icons.Default.Chat, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("مشاركة واتساب", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    val txt = StatementHelper.formatDailyReportText(reportSummary, storeSettings)
+                                    StatementHelper.copyToClipboard(context, txt, "تقرير $selectedPeriod")
+                                },
+                                modifier = Modifier.weight(1f).height(42.dp).testTag("btn_report_copy_text"),
+                                contentPadding = PaddingValues(horizontal = 6.dp)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("نسخ التقرير", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
             }
@@ -315,6 +371,31 @@ fun ReportsScreen(
                             )
                         }
                     }
+                }
+            }
+
+            // Collections & Supplier Payments Overview Row
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    StatCard(
+                        title = "تحصيلات العملاء ($selectedPeriod)",
+                        value = FormatUtils.formatCurrency(reportSummary.collectionsTotal),
+                        icon = Icons.Default.CallReceived,
+                        containerColor = EmeraldLight,
+                        contentColor = EmeraldProfit,
+                        modifier = Modifier.weight(1f)
+                    )
+                    StatCard(
+                        title = "سداد الموردين ($selectedPeriod)",
+                        value = FormatUtils.formatCurrency(reportSummary.supplierPaymentsTotal),
+                        icon = Icons.Default.CallMade,
+                        containerColor = RubyLight,
+                        contentColor = RubyExpense,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
 

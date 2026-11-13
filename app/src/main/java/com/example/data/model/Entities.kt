@@ -201,6 +201,19 @@ data class CollectionReceiptResult(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+data class SupplierPaymentReceiptResult(
+    val voucherNumber: String,
+    val supplierName: String,
+    val amount: Double,
+    val paymentMethod: String,
+    val exchangeAccountName: String = "",
+    val appliedToDebtAmount: Double = 0.0,
+    val directPaymentAmount: Double = 0.0,
+    val remainingSupplierDebt: Double = 0.0,
+    val notes: String = "",
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 @Entity(tableName = "shifts")
 data class CashDrawerShift(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -289,13 +302,32 @@ data class StoreSettings(
     val invoiceFooter: String = "البضاعة المباعة ترد وتستبدل خلال 3 أيام بشرط وجود الفاتورة وبحالتها الأصلية.",
     val showProfitInReports: Boolean = true,
     val managerPin: String = "1234",
-    val isManagerRole: Boolean = true
+    val isManagerRole: Boolean = true,
+    val logoPath: String = "",
+    val isSetupCompleted: Boolean = false
 ) {
     val storeName: String get() = shopNameAr
     val storeNameEn: String get() = shopNameEn
     val phoneNumber: String get() = phone
     val currencySymbol: String get() = currency
 }
+
+object StoreConfigTypes {
+    const val PRODUCT_CATEGORY = "PRODUCT_CATEGORY"
+    const val PRODUCT_SIZE = "PRODUCT_SIZE"
+    const val EXPENSE_CATEGORY = "EXPENSE_CATEGORY"
+    const val ACCOUNT_TYPE = "ACCOUNT_TYPE"
+    const val PRODUCT_COLOR = "PRODUCT_COLOR"
+    const val EMPLOYEE_ROLE = "EMPLOYEE_ROLE"
+}
+
+@Entity(tableName = "store_config_items")
+data class StoreConfigItem(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val type: String,
+    val name: String,
+    val createdAt: Long = System.currentTimeMillis()
+)
 
 object PaymentMethods {
     const val CASH = "نقداً (كاش)"

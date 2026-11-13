@@ -46,6 +46,7 @@ import com.example.ui.theme.*
 import com.example.ui.util.ClothingUnits
 import com.example.ui.util.FormatUtils
 import com.example.ui.util.InvoiceHelper
+import com.example.ui.util.StatementHelper
 
 data class CartItem(
     val product: ProductItem,
@@ -396,7 +397,7 @@ fun SaleScreen(
                     ) {
                         Column(horizontalAlignment = Alignment.End) {
                             Text(
-                                text = storeSettings?.storeName ?: "أزياء الأصالة",
+                                text = storeSettings?.storeName?.ifBlank { "متجري" } ?: "متجري",
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.Bold,
                                     color = PdfGoldPrimary,
@@ -404,22 +405,18 @@ fun SaleScreen(
                                 )
                             )
                             Text(
-                                text = "للملابس الرجالية",
+                                text = storeSettings?.phone?.takeIf { it.isNotBlank() } ?: "نقطة البيع",
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     color = Color.White.copy(alpha = 0.7f),
                                     fontSize = 9.sp
                                 )
                             )
                         }
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color.White.copy(alpha = 0.12f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.Storefront, contentDescription = null, tint = PdfGoldPrimary, modifier = Modifier.size(20.dp))
-                        }
+                        com.example.ui.util.StoreLogoBadge(
+                            logoPath = storeSettings?.logoPath.orEmpty(),
+                            size = 34.dp,
+                            cornerRadius = 8.dp
+                        )
                     }
                 }
             )
@@ -1727,6 +1724,78 @@ fun SaleScreen(
                             Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF0F1E36), modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("مشاركة PDF", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF0F1E36))
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val mappedCartItems = receipt.items.map {
+                            CartSaleItem(
+                                product = it.product,
+                                quantity = it.quantity,
+                                sellPrice = it.unitPrice,
+                                unit = it.unit
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                val txt = StatementHelper.formatMultiItemSaleText(
+                                    invoiceNumber = receipt.invoiceNumber,
+                                    customerName = receipt.customerName,
+                                    paymentType = receipt.paymentType,
+                                    items = mappedCartItems,
+                                    discount = receipt.discount,
+                                    netTotal = receipt.netTotal,
+                                    cashPaid = receipt.cashPaid,
+                                    transferPaid = receipt.transferPaid,
+                                    debtAmount = receipt.debtAmount,
+                                    exchangeAccountName = receipt.exchangeAccountName,
+                                    timestamp = receipt.timestamp,
+                                    settings = storeSettings
+                                )
+                                StatementHelper.shareText(context, txt, "مشاركة فاتورة #${receipt.invoiceNumber}")
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .testTag("btn_sale_receipt_share_whatsapp"),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldProfit)
+                        ) {
+                            Icon(Icons.Default.Chat, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("مشاركة واتساب", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.White)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                val txt = StatementHelper.formatMultiItemSaleText(
+                                    invoiceNumber = receipt.invoiceNumber,
+                                    customerName = receipt.customerName,
+                                    paymentType = receipt.paymentType,
+                                    items = mappedCartItems,
+                                    discount = receipt.discount,
+                                    netTotal = receipt.netTotal,
+                                    cashPaid = receipt.cashPaid,
+                                    transferPaid = receipt.transferPaid,
+                                    debtAmount = receipt.debtAmount,
+                                    exchangeAccountName = receipt.exchangeAccountName,
+                                    timestamp = receipt.timestamp,
+                                    settings = storeSettings
+                                )
+                                StatementHelper.copyToClipboard(context, txt, "فاتورة #${receipt.invoiceNumber}")
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .testTag("btn_sale_receipt_copy_text"),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = Color(0xFF0F1E36), modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("نسخ النص", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF0F1E36))
                         }
                     }
                 }

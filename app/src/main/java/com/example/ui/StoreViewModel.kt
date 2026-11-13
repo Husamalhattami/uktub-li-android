@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 enum class AppScreen {
+    SETUP,
     HOME,
     SALE,
     PURCHASE,
@@ -41,46 +42,70 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
 
     fun getRepository(): StoreRepository = repository
 
-    init {
-        viewModelScope.launch {
-            val prefs = application.getSharedPreferences("hesabi_prefs", Context.MODE_PRIVATE)
-            if (!prefs.getBoolean("initial_wipe_v8_done", false)) {
-                repository.clearEverythingCompletely()
-                _customCategories.value = emptySet()
-                prefs.edit().putBoolean("initial_wipe_v8_done", true).apply()
-            }
-            val existing = repository.getStoreSettingsDirect()
-            if (existing == null) {
-                repository.saveStoreSettings(
-                    StoreSettings(
-                        shopNameAr = "الجرادي للملابس الجاهزة",
-                        shopNameEn = "Al-Jaradi Ready-to-Wear",
-                        phone = "778383570",
-                        invoiceHeader = "الجرادي للملابس الجاهزة"
-                    )
-                )
-            } else if (existing.shopNameAr.contains("الأناقة") || existing.shopNameAr == "حسابي للمحل" || existing.phone != "778383570") {
-                repository.saveStoreSettings(
-                    existing.copy(
-                        shopNameAr = "الجرادي للملابس الجاهزة",
-                        shopNameEn = "Al-Jaradi Ready-to-Wear",
-                        phone = "778383570",
-                        invoiceHeader = "الجرادي للملابس الجاهزة"
-                    )
-                )
-            }
-        }
-    }
+    private val _isInitialized = MutableStateFlow(false)
+    val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
 
     // --- Navigation State ---
     private val _currentScreen = MutableStateFlow(AppScreen.HOME)
     val currentScreen: StateFlow<AppScreen> = _currentScreen.asStateFlow()
 
+    init {
+        viewModelScope.launch {
+            val prefs = application.getSharedPreferences("hesabi_prefs", Context.MODE_PRIVATE)
+            if (!prefs.getBoolean("initial_wipe_v8_done", false)) {
+                repository.clearEverythingCompletely(clearConfigDictionaries = false)
+                prefs.edit().putBoolean("initial_wipe_v8_done", true).apply()
+            }
+            if (!prefs.getBoolean("config_dicts_seeded_v9", false)) {
+                if (repository.getConfigItemsCount() == 0) {
+                    repository.seedRecommendedDictionaries(includeSampleCategories = false)
+                }
+                prefs.edit().putBoolean("config_dicts_seeded_v9", true).apply()
+            }
+            val existing = repository.getStoreSettingsDirect()
+            val settings = if (existing == null) {
+                val initial = StoreSettings(
+                    id = 1,
+                    shopNameAr = "",
+                    shopNameEn = "",
+                    phone = "",
+                    address = "",
+                    currency = "ريال",
+                    taxNumber = "",
+                    invoiceHeader = "",
+                    invoiceFooter = "البضاعة المباعة ترد وتستبدل خلال 3 أيام بشرط وجود الفاتورة وبحالتها الأصلية.",
+                    logoPath = "",
+                    isSetupCompleted = false
+                )
+                repository.saveStoreSettings(initial)
+                initial
+            } else {
+                existing
+            }
+            if (!settings.isSetupCompleted) {
+                _currentScreen.value = AppScreen.SETUP
+            }
+            _isInitialized.value = true
+        }
+    }
+
     fun navigateTo(screen: AppScreen) {
         _currentScreen.value = screen
     }
 
+    fun openSetupWizard() {
+        _currentScreen.value = AppScreen.SETUP
+    }
+
     fun navigateBack(): Boolean {
+        if (_currentScreen.value == AppScreen.SETUP) {
+            val completed = storeSettings.value?.isSetupCompleted == true
+            if (completed) {
+                _currentScreen.value = AppScreen.HOME
+                return true
+            }
+            return false
+        }
         if (_currentScreen.value != AppScreen.HOME) {
             _currentScreen.value = AppScreen.HOME
             return true
@@ -92,21 +117,116 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     val products: StateFlow<List<ProductItem>> = repository.allProducts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _customCategories = MutableStateFlow<Set<String>>(emptySet())
-    val allCategories: StateFlow<List<String>> = combine(products, _customCategories) { prods, custom ->
+    val allConfigItems: StateFlow<List<StoreConfigItem>> = repository.allConfigItems
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val productCategoryItems: StateFlow<List<StoreConfigItem>> = allConfigItems.map { list ->
+        list.filter { it.type == StoreConfigTypes.PRODUCT_CATEGORY }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val productSizeItems: StateFlow<List<StoreConfigItem>> = allConfigItems.map { list ->
+        list.filter { it.type == StoreConfigTypes.PRODUCT_SIZE }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val expenseCategoryItems: StateFlow<List<StoreConfigItem>> = allConfigItems.map { list ->
+        list.filter { it.type == StoreConfigTypes.EXPENSE_CATEGORY }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val accountTypeItems: StateFlow<List<StoreConfigItem>> = allConfigItems.map { list ->
+        list.filter { it.type == StoreConfigTypes.ACCOUNT_TYPE }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val productColorItems: StateFlow<List<StoreConfigItem>> = allConfigItems.map { list ->
+        list.filter { it.type == StoreConfigTypes.PRODUCT_COLOR }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val employeeRoleItems: StateFlow<List<StoreConfigItem>> = allConfigItems.map { list ->
+        list.filter { it.type == StoreConfigTypes.EMPLOYEE_ROLE }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allCategories: StateFlow<List<String>> = combine(products, productCategoryItems) { prods, catItems ->
+        val fromConfig = catItems.map { it.name.trim() }.filter { it.isNotBlank() }
         val fromProds = prods.map { it.category.trim() }.filter { it.isNotBlank() }
-        (listOf("الكل") + custom + fromProds).distinct().filter { it.isNotBlank() }
+        (listOf("الكل") + fromConfig + fromProds).distinct().filter { it.isNotBlank() }
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
         listOf("الكل")
     )
 
+    val productSizes: StateFlow<List<String>> = productSizeItems.map { items ->
+        val names = items.map { it.name.trim() }.filter { it.isNotBlank() }
+        names.ifEmpty { listOf("كبير", "شبابي", "وسط", "صغير") }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("كبير", "شبابي", "وسط", "صغير"))
+
+    val expenseCategories: StateFlow<List<String>> = expenseCategoryItems.map { items ->
+        val names = items.map { it.name.trim() }.filter { it.isNotBlank() }
+        names.ifEmpty { listOf("صرفة يومية لعامل", "إيجار المحل", "الكهرباء", "مصروف متفرقات") }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("صرفة يومية لعامل", "إيجار المحل", "الكهرباء", "مصروف متفرقات"))
+
+    val accountTypes: StateFlow<List<String>> = accountTypeItems.map { items ->
+        val names = items.map { it.name.trim() }.filter { it.isNotBlank() }
+        names.ifEmpty { listOf("صراف", "محفظة", "حساب بنكي") }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("صراف", "محفظة", "حساب بنكي"))
+
+    val productColors: StateFlow<List<String>> = productColorItems.map { items ->
+        val names = items.map { it.name.trim() }.filter { it.isNotBlank() }
+        names.ifEmpty { listOf("أسود", "أبيض", "كحلي", "بيج", "رمادي", "بني") }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("أسود", "أبيض", "كحلي", "بيج", "رمادي", "بني"))
+
+    val employeeRoles: StateFlow<List<String>> = employeeRoleItems.map { items ->
+        val names = items.map { it.name.trim() }.filter { it.isNotBlank() }
+        names.ifEmpty { listOf("بائع", "كاشير", "خياط", "محاسب") }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("بائع", "كاشير", "خياط", "محاسب"))
+
     fun addNewCategory(name: String) {
+        addConfigItem(StoreConfigTypes.PRODUCT_CATEGORY, name, "تمت إضافة نوع الصنف: ${name.trim()}")
+    }
+
+    fun addConfigItem(type: String, name: String, customSuccessMsg: String? = null) {
         val trimmed = name.trim()
-        if (trimmed.isNotBlank()) {
-            _customCategories.value = _customCategories.value + trimmed
-            _userMessage.value = "تمت إضافة نوع الصنف: $trimmed"
+        if (trimmed.isBlank()) {
+            _userMessage.value = "يرجى كتابة الاسم أولاً"
+            return
+        }
+        viewModelScope.launch {
+            val inserted = repository.addConfigItem(type, trimmed)
+            _userMessage.value = if (inserted) {
+                customSuccessMsg ?: "تمت إضافة «$trimmed» بنجاح"
+            } else {
+                "«$trimmed» موجود مسبقاً"
+            }
+        }
+    }
+
+    fun updateConfigItem(item: StoreConfigItem, newName: String, onSuccess: () -> Unit = {}) {
+        val trimmed = newName.trim()
+        if (trimmed.isBlank()) {
+            _userMessage.value = "يرجى كتابة الاسم الجديد"
+            return
+        }
+        viewModelScope.launch {
+            val updated = repository.updateConfigItem(item, trimmed)
+            if (updated) {
+                _userMessage.value = "تم التعديل إلى «$trimmed» بنجاح"
+                onSuccess()
+            } else {
+                _userMessage.value = "يوجد عنصر آخر بنفس الاسم"
+            }
+        }
+    }
+
+    fun deleteConfigItem(item: StoreConfigItem) {
+        viewModelScope.launch {
+            repository.deleteConfigItem(item.id)
+            _userMessage.value = "تم حذف «${item.name}»"
+        }
+    }
+
+    fun restoreRecommendedDictionaries(includeSampleCategories: Boolean = false) {
+        viewModelScope.launch {
+            repository.seedRecommendedDictionaries(includeSampleCategories = includeSampleCategories)
+            _userMessage.value = "تمت إضافة القوائم الافتراضية بنجاح"
         }
     }
 
@@ -213,6 +333,52 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 onSuccess(result)
             } catch (e: Exception) {
                 _userMessage.value = e.message ?: "تعذر تنفيذ عملية التحصيل"
+            }
+        }
+    }
+
+    // --- Completed Supplier Payment Receipt Dialog Event ---
+    private val _completedSupplierPaymentReceipt = MutableStateFlow<SupplierPaymentReceiptResult?>(null)
+    val completedSupplierPaymentReceipt: StateFlow<SupplierPaymentReceiptResult?> = _completedSupplierPaymentReceipt.asStateFlow()
+
+    fun dismissSupplierPaymentReceipt() {
+        _completedSupplierPaymentReceipt.value = null
+    }
+
+    fun recordSupplierPaymentReceipt(
+        supplierName: String,
+        party: PartyAccount?,
+        amount: Double,
+        voucherNumberInput: String,
+        paymentMethod: String,
+        exchangeAccount: ExchangeAccount? = null,
+        notes: String = "",
+        onSuccess: (SupplierPaymentReceiptResult) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            if (amount <= 0.0) {
+                _userMessage.value = "يرجى إدخال مبلغ السداد"
+                return@launch
+            }
+            if (paymentMethod != "نقداً" && exchangeAccount == null) {
+                _userMessage.value = "يرجى اختيار حساب الصرافة أو المحفظة"
+                return@launch
+            }
+            try {
+                val result = repository.recordSupplierPaymentReceipt(
+                    supplierName = supplierName,
+                    party = party,
+                    amount = amount,
+                    voucherNumberInput = voucherNumberInput,
+                    paymentMethod = paymentMethod,
+                    exchangeAccount = exchangeAccount,
+                    notes = notes
+                )
+                _completedSupplierPaymentReceipt.value = result
+                _userMessage.value = "تم تسديد المورد بنجاح • رقم السند: ${result.voucherNumber}"
+                onSuccess(result)
+            } catch (e: Exception) {
+                _userMessage.value = e.message ?: "تعذر تنفيذ عملية التسديد للمورد"
             }
         }
     }
@@ -813,8 +979,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 repository.clearTransactionsOnly()
                 _userMessage.value = "تم تصفير وحذف جميع حركات البيع والشراء والمصروفات والديون"
             } else {
-                repository.clearEverythingCompletely()
-                _customCategories.value = emptySet()
+                repository.clearEverythingCompletely(clearConfigDictionaries = true)
                 _userMessage.value = "تم تهيئة التطبيق وإفراغ جميع البيانات والمنتجات والأنواع بالكامل"
             }
             onSuccess()
@@ -842,8 +1007,34 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveSettings(settings: StoreSettings) {
         viewModelScope.launch {
-            repository.saveStoreSettings(settings)
-            _userMessage.value = "تم حفظ إعدادات المحل والترويسة بنجاح"
+            repository.saveStoreSettings(settings.copy(id = 1, isSetupCompleted = true))
+            _userMessage.value = "تم حفظ إعدادات المحل والشعار بنجاح"
+        }
+    }
+
+    fun completeInitialSetup(
+        settings: StoreSettings,
+        categories: List<String>,
+        sizes: List<String>,
+        expenseCategories: List<String>,
+        accountTypes: List<String>,
+        colors: List<String>,
+        roles: List<String>,
+        onCompleted: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            repository.saveStoreSettings(settings.copy(id = 1, isSetupCompleted = true))
+            repository.replaceConfigItemsForSetup(
+                categories = categories,
+                sizes = sizes,
+                expenseCategories = expenseCategories,
+                accountTypes = accountTypes,
+                colors = colors,
+                roles = roles
+            )
+            _currentScreen.value = AppScreen.HOME
+            _userMessage.value = "تم حفظ تهيئة «${settings.shopNameAr}» وبدء تشغيل النظام بنجاح"
+            onCompleted()
         }
     }
 

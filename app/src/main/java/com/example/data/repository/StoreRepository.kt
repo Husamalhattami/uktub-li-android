@@ -42,6 +42,7 @@ class StoreRepository(
     val allParties: Flow<List<PartyAccount>> = dao.getAllParties()
     val allAuditLogs: Flow<List<AuditLogRecord>> = dao.getAllAuditLogs()
     val storeSettings: Flow<StoreSettings?> = dao.getStoreSettings()
+    val allConfigItems: Flow<List<StoreConfigItem>> = dao.getAllConfigItems()
 
     suspend fun getStoreSettingsDirect(): StoreSettings? = dao.getStoreSettingsDirect()
 
@@ -57,6 +58,122 @@ class StoreRepository(
             dao.updateStoreSettings(settings)
         }
         logAudit("تحديث الإعدادات", "المدير", "تم تحديث بيانات المحل والشعار ورقم الهاتف وإعدادات الفاتورة")
+    }
+
+    suspend fun addConfigItem(type: String, name: String): Boolean {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return false
+        val existing = dao.getConfigItemByTypeAndName(type, trimmed)
+        if (existing != null) return false
+        dao.insertConfigItem(StoreConfigItem(type = type, name = trimmed))
+        return true
+    }
+
+    suspend fun updateConfigItem(item: StoreConfigItem, newName: String): Boolean {
+        val trimmed = newName.trim()
+        if (trimmed.isBlank()) return false
+        val conflict = dao.getConfigItemByTypeAndName(item.type, trimmed)
+        if (conflict != null && conflict.id != item.id) return false
+
+        val oldName = item.name
+        runInTransaction {
+            dao.updateConfigItem(item.copy(name = trimmed))
+            if (oldName != trimmed) {
+                when (item.type) {
+                    StoreConfigTypes.PRODUCT_CATEGORY -> {
+                        dao.renameProductCategory(oldName, trimmed)
+                        dao.renameSaleCategory(oldName, trimmed)
+                        dao.renamePurchaseCategory(oldName, trimmed)
+                    }
+                    StoreConfigTypes.PRODUCT_SIZE -> {
+                        dao.renameProductSize(oldName, trimmed)
+                        dao.renameSaleSize(oldName, trimmed)
+                        dao.renamePurchaseSize(oldName, trimmed)
+                    }
+                    StoreConfigTypes.EXPENSE_CATEGORY -> {
+                        dao.renameExpenseCategory(oldName, trimmed)
+                    }
+                    StoreConfigTypes.ACCOUNT_TYPE -> {
+                        dao.renameExchangeAccountType(oldName, trimmed)
+                    }
+                    StoreConfigTypes.EMPLOYEE_ROLE -> {
+                        dao.renameEmployeeRole(oldName, trimmed)
+                    }
+                }
+            }
+            logAudit("تعديل قائمة النظام", "المدير", "تعديل '${oldName}' إلى '${trimmed}'")
+        }
+        return true
+    }
+
+    suspend fun deleteConfigItem(id: Long) {
+        dao.deleteConfigItem(id)
+    }
+
+    suspend fun getConfigItemsCount(): Int = dao.getConfigItemsCount()
+
+    suspend fun seedRecommendedDictionaries(includeSampleCategories: Boolean = false) {
+        runInTransaction {
+            val defaultSizes = listOf("كبير", "شبابي", "وسط", "صغير", "حر")
+            val defaultExpenseCategories = listOf(
+                "صرفة يومية لعامل",
+                "إيجار المحل",
+                "الكهرباء",
+                "الماء",
+                "الإنترنت",
+                "النقل والشحن",
+                "التغليف والأكياس",
+                "التصليح والصيانة",
+                "الضيافة والشاي",
+                "الدعاية والإعلان",
+                "مصروف متفرقات"
+            )
+            val defaultAccountTypes = listOf("صراف", "محفظة", "حساب بنكي", "شركة حوالات")
+            val defaultColors = listOf("أسود", "أبيض", "كحلي", "بيج", "رمادي", "بني", "زيتي", "سكري")
+            val defaultRoles = listOf("بائع", "كاشير", "خياط", "محاسب", "مدير فرع")
+
+            defaultSizes.forEach { addConfigItem(StoreConfigTypes.PRODUCT_SIZE, it) }
+            defaultExpenseCategories.forEach { addConfigItem(StoreConfigTypes.EXPENSE_CATEGORY, it) }
+            defaultAccountTypes.forEach { addConfigItem(StoreConfigTypes.ACCOUNT_TYPE, it) }
+            defaultColors.forEach { addConfigItem(StoreConfigTypes.PRODUCT_COLOR, it) }
+            defaultRoles.forEach { addConfigItem(StoreConfigTypes.EMPLOYEE_ROLE, it) }
+
+            if (includeSampleCategories) {
+                val sampleCategories = listOf("أكوات", "دجلات", "ثياب", "بشت", "جاكيتات", "شمغ")
+                sampleCategories.forEach { addConfigItem(StoreConfigTypes.PRODUCT_CATEGORY, it) }
+            }
+        }
+    }
+
+    suspend fun replaceConfigItemsForSetup(
+        categories: List<String>,
+        sizes: List<String>,
+        expenseCategories: List<String>,
+        accountTypes: List<String>,
+        colors: List<String>,
+        roles: List<String>
+    ) {
+        runInTransaction {
+            dao.deleteAllConfigItems()
+            categories.map { it.trim() }.filter { it.isNotBlank() }.distinct().forEach {
+                dao.insertConfigItem(StoreConfigItem(type = StoreConfigTypes.PRODUCT_CATEGORY, name = it))
+            }
+            sizes.map { it.trim() }.filter { it.isNotBlank() }.distinct().forEach {
+                dao.insertConfigItem(StoreConfigItem(type = StoreConfigTypes.PRODUCT_SIZE, name = it))
+            }
+            expenseCategories.map { it.trim() }.filter { it.isNotBlank() }.distinct().forEach {
+                dao.insertConfigItem(StoreConfigItem(type = StoreConfigTypes.EXPENSE_CATEGORY, name = it))
+            }
+            accountTypes.map { it.trim() }.filter { it.isNotBlank() }.distinct().forEach {
+                dao.insertConfigItem(StoreConfigItem(type = StoreConfigTypes.ACCOUNT_TYPE, name = it))
+            }
+            colors.map { it.trim() }.filter { it.isNotBlank() }.distinct().forEach {
+                dao.insertConfigItem(StoreConfigItem(type = StoreConfigTypes.PRODUCT_COLOR, name = it))
+            }
+            roles.map { it.trim() }.filter { it.isNotBlank() }.distinct().forEach {
+                dao.insertConfigItem(StoreConfigItem(type = StoreConfigTypes.EMPLOYEE_ROLE, name = it))
+            }
+        }
     }
 
     suspend fun seedInitialDataIfEmpty() {
@@ -1837,6 +1954,132 @@ class StoreRepository(
         }
     }
 
+    suspend fun recordSupplierPaymentReceipt(
+        supplierName: String,
+        party: PartyAccount?,
+        amount: Double,
+        voucherNumberInput: String,
+        paymentMethod: String, // "نقداً" or "صرافة/محفظة"
+        exchangeAccount: ExchangeAccount? = null,
+        notes: String = ""
+    ): SupplierPaymentReceiptResult {
+        require(amount > 0.0) { "يرجى إدخال مبلغ السداد" }
+        require(paymentMethod == "نقداً" || exchangeAccount != null) { "اختر حساب الصرافة أو المحفظة" }
+
+        return runInTransaction {
+            val now = System.currentTimeMillis()
+            val shiftId = dao.getActiveShift().firstOrNull()?.id ?: 0L
+            val finalVoucher = resolveVoucherNumber(voucherNumberInput, "SRF")
+            val rawSupplier = (party?.name ?: supplierName).trim()
+            val finalSupplier = rawSupplier.ifBlank { "مورد عام" }
+
+            var appliedToDebt = 0.0
+            var remainingToPay = amount
+
+            if (rawSupplier.isNotBlank()) {
+                val allDebtsList = dao.getAllDebts().firstOrNull().orEmpty()
+                val matchingDebts = allDebtsList.filter {
+                    it.type == "SUPPLIER" &&
+                    !it.isSettled &&
+                    it.partyName.trim().equals(rawSupplier, ignoreCase = true)
+                }.sortedBy { it.createdAt }
+
+                for (debt in matchingDebts) {
+                    if (remainingToPay <= 0.001) break
+                    val applyNow = minOf(remainingToPay, debt.remainingAmount)
+                    if (applyNow > 0.001) {
+                        recordDebtPayment(
+                            debt = debt,
+                            paymentAmount = applyNow,
+                            notes = notes.ifBlank { "تسديد لمورد / سند صرف" },
+                            paymentMethod = paymentMethod,
+                            exchangeAccount = exchangeAccount,
+                            referenceNumber = finalVoucher
+                        )
+                        appliedToDebt += applyNow
+                        remainingToPay -= applyNow
+                    }
+                }
+            }
+
+            if (remainingToPay > 0.001) {
+                val receiptNote = buildString {
+                    append("سند صرف لمورد: #$finalVoucher")
+                    if (notes.isNotBlank()) append(" | $notes")
+                }
+                dao.insertDebtPayment(
+                    DebtPayment(
+                        debtId = 0L,
+                        partyName = finalSupplier,
+                        amount = remainingToPay,
+                        timestamp = now,
+                        notes = receiptNote,
+                        shiftId = shiftId,
+                        paymentMethod = paymentMethod,
+                        exchangeAccountId = exchangeAccount?.id ?: 0L,
+                        voucherNumber = finalVoucher
+                    )
+                )
+
+                if (paymentMethod == "نقداً") {
+                    dao.insertCashMovement(
+                        CashDrawerMovement(
+                            shiftId = shiftId,
+                            type = "SUPPLIER_PAID",
+                            amount = remainingToPay,
+                            isIncome = false,
+                            title = "تسديد لمورد (سند #$finalVoucher): $finalSupplier",
+                            details = notes.ifBlank { "سند صرف نقدي مباشر لمورد" },
+                            timestamp = now
+                        )
+                    )
+                } else if (exchangeAccount != null) {
+                    dao.updateExchangeBalance(exchangeAccount.id, -remainingToPay)
+                    dao.insertExchangeTransfer(
+                        ExchangeTransfer(
+                            accountId = exchangeAccount.id,
+                            accountName = exchangeAccount.name,
+                            type = "سند صرف لمورد",
+                            amount = remainingToPay,
+                            isCredit = false,
+                            title = "تسديد لمورد عبر الصراف (سند #$finalVoucher): $finalSupplier",
+                            referenceNumber = finalVoucher,
+                            notes = notes.ifBlank { "سند صرف مباشر لمورد" },
+                            timestamp = now
+                        )
+                    )
+                }
+            }
+
+            val updatedDebtsList = dao.getAllDebts().firstOrNull().orEmpty()
+            val remainingSupplierDebt = if (rawSupplier.isNotBlank()) {
+                updatedDebtsList.filter {
+                    it.type == "SUPPLIER" &&
+                    !it.isSettled &&
+                    it.partyName.trim().equals(rawSupplier, ignoreCase = true)
+                }.sumOf { it.remainingAmount }
+            } else 0.0
+
+            logAudit(
+                action = "تسديد لمورد (سند صرف)",
+                details = "سند رقم #$finalVoucher | المورد: $finalSupplier | المبلغ: ${FormatUtils.formatCurrency(amount)} | طريقة الدفع: $paymentMethod"
+            )
+
+            SupplierPaymentReceiptResult(
+                voucherNumber = finalVoucher,
+                supplierName = finalSupplier,
+                amount = amount,
+                paymentMethod = paymentMethod,
+                exchangeAccountName = exchangeAccount?.name ?: "",
+                appliedToDebtAmount = appliedToDebt,
+                directPaymentAmount = remainingToPay.coerceAtLeast(0.0),
+                remainingSupplierDebt = remainingSupplierDebt,
+                notes = notes,
+                timestamp = now
+            )
+        }
+    }
+
     // --- Exchange Accounts & Wallets Management ---
     suspend fun saveExchangeAccount(account: ExchangeAccount): Long {
         return if (account.id == 0L) {
@@ -2010,13 +2253,16 @@ class StoreRepository(
         dao.deleteAllExchangeTransfers()
     }
 
-    suspend fun clearEverythingCompletely() {
+    suspend fun clearEverythingCompletely(clearConfigDictionaries: Boolean = false) {
         clearTransactionsOnly()
         dao.deleteAllProducts()
         dao.deleteAllEmployees()
         dao.deleteAllExchangeAccounts()
         dao.deleteAllParties()
         dao.deleteAllAuditLogs()
+        if (clearConfigDictionaries) {
+            dao.deleteAllConfigItems()
+        }
     }
 
     suspend fun executeStoreFullAudit(

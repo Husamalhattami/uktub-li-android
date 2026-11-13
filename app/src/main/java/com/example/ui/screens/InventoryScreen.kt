@@ -115,7 +115,7 @@ fun InventoryScreen(
                     ) {
                         Column(horizontalAlignment = Alignment.End) {
                             Text(
-                                text = "إدارة المتجر",
+                                text = storeSettings?.storeName?.ifBlank { "إدارة المتجر" } ?: "إدارة المتجر",
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.Bold,
                                     color = PdfGoldPrimary,
@@ -130,15 +130,11 @@ fun InventoryScreen(
                                 )
                             )
                         }
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color.White.copy(alpha = 0.12f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.Storefront, contentDescription = null, tint = PdfGoldPrimary, modifier = Modifier.size(20.dp))
-                        }
+                        com.example.ui.util.StoreLogoBadge(
+                            logoPath = storeSettings?.logoPath.orEmpty(),
+                            size = 34.dp,
+                            cornerRadius = 8.dp
+                        )
                     }
                 }
             )

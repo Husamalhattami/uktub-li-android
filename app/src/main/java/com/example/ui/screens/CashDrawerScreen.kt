@@ -32,9 +32,11 @@ import com.example.ui.StoreViewModel
 import com.example.ui.components.CollectionReceiptDialog
 import com.example.ui.components.QuickThousandAdder
 import com.example.ui.components.StoreTopBar
+import com.example.ui.components.SupplierPaymentDialog
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
 import com.example.ui.util.InvoiceHelper
+import com.example.ui.util.StatementHelper
 
 data class StatementRow(
     val dateStr: String,
@@ -59,6 +61,7 @@ fun CashDrawerScreen(
     val exchangeTransfers by viewModel.exchangeTransfers.collectAsStateWithLifecycle()
     val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
     val customerParties by viewModel.customerParties.collectAsStateWithLifecycle()
+    val supplierParties by viewModel.supplierParties.collectAsStateWithLifecycle()
     val debts by viewModel.debts.collectAsStateWithLifecycle()
     val context = androidx.compose.ui.platform.LocalContext.current
 
@@ -67,6 +70,7 @@ fun CashDrawerScreen(
     var showTransferDialog by remember { mutableStateOf(false) }
     var showAuditDialog by remember { mutableStateOf(false) }
     var showCollectionDialog by remember { mutableStateOf(false) }
+    var showSupplierPaymentDialog by remember { mutableStateOf(false) }
 
     var selectedPeriod by remember { mutableStateOf("آخر 7 أيام") } // "اليوم", "أمس", "آخر 7 أيام", "هذا الشهر", "الكل"
 
@@ -454,11 +458,25 @@ fun CashDrawerScreen(
                         }
                     }
 
-                    // Secondary Buttons: سحب المالك | إيداع سيولة
+                    // Secondary Buttons: تسديد مورد | سحب المالك | إيداع سيولة
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        Button(
+                            onClick = { showSupplierPaymentDialog = true },
+                            modifier = Modifier
+                                .weight(1.1f)
+                                .height(42.dp)
+                                .testTag("btn_cash_drawer_supplier_pay"),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = FintechRose)
+                        ) {
+                            Icon(Icons.Default.LocalShipping, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("تسديد مورد", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                        }
+
                         OutlinedButton(
                             onClick = { showWithdrawalDialog = true },
                             modifier = Modifier
@@ -563,6 +581,30 @@ fun CashDrawerScreen(
                             modifier = Modifier.size(36.dp)
                         ) {
                             Icon(Icons.Default.Share, contentDescription = "مشاركة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(18.dp))
+                        }
+
+                        // Share Cash Movement Text (WhatsApp)
+                        IconButton(
+                            onClick = {
+                                val income = statementRows.filter { it.isIncome }.sumOf { it.amount }
+                                val expense = statementRows.filter { !it.isIncome }.sumOf { it.amount }
+                                val recent = statementRows.take(15).map { r ->
+                                    "${r.dateStr} | ${r.description} (${r.accountName}): ${if (r.isIncome) "+" else "-"}${FormatUtils.formatNumber(r.amount)}"
+                                }
+                                val txt = StatementHelper.formatCashMovementSummaryText(
+                                    periodTitle = selectedPeriod,
+                                    cashBalance = cashBalance,
+                                    exchangeBalance = totalTransferBalance,
+                                    incomeTotal = income,
+                                    expenseTotal = expense,
+                                    recentLines = recent,
+                                    settings = storeSettings
+                                )
+                                StatementHelper.shareText(context, txt, "مشاركة حركة الصندوق والحسابات")
+                            },
+                            modifier = Modifier.size(36.dp).testTag("btn_share_cash_drawer_text")
+                        ) {
+                            Icon(Icons.Default.Forum, contentDescription = "مشاركة واتساب", tint = FintechEmerald, modifier = Modifier.size(18.dp))
                         }
 
                         // Period Dropdown Pill
@@ -962,6 +1004,28 @@ fun CashDrawerScreen(
                     notes = notes
                 ) {
                     showCollectionDialog = false
+                }
+            }
+        )
+    }
+
+    if (showSupplierPaymentDialog) {
+        SupplierPaymentDialog(
+            supplierParties = supplierParties,
+            supplierDebts = debts,
+            exchangeAccounts = exchangeAccounts,
+            onDismiss = { showSupplierPaymentDialog = false },
+            onConfirm = { supplierName, party, amount, voucher, method, account, notes ->
+                viewModel.recordSupplierPaymentReceipt(
+                    supplierName = supplierName,
+                    party = party,
+                    amount = amount,
+                    voucherNumberInput = voucher,
+                    paymentMethod = method,
+                    exchangeAccount = account,
+                    notes = notes
+                ) {
+                    showSupplierPaymentDialog = false
                 }
             }
         )

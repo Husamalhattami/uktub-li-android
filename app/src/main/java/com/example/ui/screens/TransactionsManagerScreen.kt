@@ -32,6 +32,7 @@ import com.example.ui.theme.*
 import androidx.compose.ui.platform.LocalContext
 import com.example.ui.util.FormatUtils
 import com.example.ui.util.InvoiceHelper
+import com.example.ui.util.StatementHelper
 
 @Composable
 fun TransactionsManagerScreen(
@@ -227,6 +228,10 @@ fun TransactionsManagerScreen(
                                         settings = storeSettings
                                     )
                                     InvoiceHelper.sharePdfFile(context, pdf, "مشاركة فاتورة_${sale.id}")
+                                },
+                                onShareText = {
+                                    val txt = StatementHelper.formatSaleRecordText(sale, storeSettings)
+                                    StatementHelper.shareText(context, txt, "مشاركة فاتورة بيع #${sale.id}")
                                 }
                             )
                         }
@@ -256,6 +261,10 @@ fun TransactionsManagerScreen(
                                 onSharePdf = {
                                     val pdf = InvoiceHelper.generatePurchaseInvoicePdf(context, purchase, storeSettings)
                                     InvoiceHelper.sharePdfFile(context, pdf, "مشاركة مشتريات_${purchase.id}")
+                                },
+                                onShareText = {
+                                    val txt = StatementHelper.formatPurchaseRecordText(purchase, storeSettings)
+                                    StatementHelper.shareText(context, txt, "مشاركة فاتورة شراء #${purchase.id}")
                                 }
                             )
                         }
@@ -579,7 +588,8 @@ fun SaleItemCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onPrintPdf: () -> Unit = {},
-    onSharePdf: () -> Unit = {}
+    onSharePdf: () -> Unit = {},
+    onShareText: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -699,6 +709,9 @@ fun SaleItemCard(
                     IconButton(onClick = onSharePdf, modifier = Modifier.size(30.dp)) {
                         Icon(Icons.Default.Share, contentDescription = "مشاركة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(16.dp))
                     }
+                    IconButton(onClick = onShareText, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Default.Chat, contentDescription = "مشاركة نص للواتساب", tint = EmeraldProfit, modifier = Modifier.size(16.dp))
+                    }
                     TextButton(
                         onClick = onEdit,
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
@@ -728,7 +741,8 @@ fun PurchaseItemCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onPrintPdf: () -> Unit = {},
-    onSharePdf: () -> Unit = {}
+    onSharePdf: () -> Unit = {},
+    onShareText: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -849,6 +863,9 @@ fun PurchaseItemCard(
                     }
                     IconButton(onClick = onSharePdf, modifier = Modifier.size(30.dp)) {
                         Icon(Icons.Default.Share, contentDescription = "مشاركة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(16.dp))
+                    }
+                    IconButton(onClick = onShareText, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Default.Chat, contentDescription = "مشاركة نص للواتساب", tint = EmeraldProfit, modifier = Modifier.size(16.dp))
                     }
                     TextButton(
                         onClick = onEdit,

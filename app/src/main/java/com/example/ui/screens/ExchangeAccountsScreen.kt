@@ -44,6 +44,7 @@ fun ExchangeAccountsScreen(
     val transfers by viewModel.exchangeTransfers.collectAsStateWithLifecycle()
     val totalExchangeBalance by viewModel.totalExchangeBalance.collectAsStateWithLifecycle()
     val cashBalance by viewModel.currentCashBalance.collectAsStateWithLifecycle()
+    val accountTypes by viewModel.accountTypes.collectAsStateWithLifecycle()
 
     var showAddEditDialog by remember { mutableStateOf<ExchangeAccount?>(null) }
     var showTransferDialog by remember { mutableStateOf<ExchangeAccount?>(null) }
@@ -262,6 +263,7 @@ fun ExchangeAccountsScreen(
     // Add / Edit Account Dialog
     showAddEditDialog?.let { currentAcc ->
         var name by remember { mutableStateOf(currentAcc.name) }
+        var accType by remember { mutableStateOf(currentAcc.type.ifBlank { accountTypes.firstOrNull() ?: "صراف" }) }
         var accNumber by remember { mutableStateOf(currentAcc.accountNumber) }
         var phone by remember { mutableStateOf(currentAcc.phone) }
         var initialBalanceStr by remember { mutableStateOf(if (currentAcc.id == 0L) "0" else currentAcc.balance.toLong().toString()) }
@@ -315,6 +317,20 @@ fun ExchangeAccountsScreen(
                         singleLine = true
                     )
 
+                    Text("نوع الحساب:", style = MaterialTheme.typography.labelSmall.copy(color = SlateTextSecondary))
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(accountTypes) { typeOpt ->
+                            FilterChip(
+                                selected = accType == typeOpt,
+                                onClick = { accType = typeOpt },
+                                label = { Text(typeOpt, fontSize = 11.sp, maxLines = 1) }
+                            )
+                        }
+                    }
+
                     OutlinedTextField(
                         value = accNumber,
                         onValueChange = { accNumber = it },
@@ -367,6 +383,7 @@ fun ExchangeAccountsScreen(
                         viewModel.saveExchangeAccount(
                             account = currentAcc.copy(
                                 name = name,
+                                type = accType,
                                 accountNumber = accNumber,
                                 phone = phone,
                                 balance = if (currentAcc.id == 0L) initBal else currentAcc.balance,

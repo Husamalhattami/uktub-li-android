@@ -28,6 +28,7 @@ import com.example.ui.components.CollectionSuccessDialog
 import com.example.ui.components.PdfBottomNavigation
 import com.example.ui.components.PdfNavigationRail
 import com.example.ui.components.SaleReceiptDialog
+import com.example.ui.components.SupplierPaymentSuccessDialog
 import com.example.ui.screens.*
 import com.example.ui.theme.MyApplicationTheme
 
@@ -48,15 +49,27 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun MainAppContent(viewModel: StoreViewModel) {
+    val isInitialized by viewModel.isInitialized.collectAsStateWithLifecycle()
     val currentScreen by viewModel.currentScreen.collectAsStateWithLifecycle()
     val completedReceipt by viewModel.completedReceipt.collectAsStateWithLifecycle()
     val completedCollectionReceipt by viewModel.completedCollectionReceipt.collectAsStateWithLifecycle()
+    val completedSupplierPaymentReceipt by viewModel.completedSupplierPaymentReceipt.collectAsStateWithLifecycle()
     val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
     val userMessage by viewModel.userMessage.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    if (!isInitialized) {
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = androidx.compose.ui.Alignment.Center
+        ) {
+            androidx.compose.material3.CircularProgressIndicator()
+        }
+        return
+    }
+
     // System Back button handling
-    BackHandler(enabled = currentScreen != AppScreen.HOME) {
+    BackHandler(enabled = currentScreen != AppScreen.HOME && currentScreen != AppScreen.SETUP) {
         viewModel.navigateBack()
     }
 
@@ -115,6 +128,10 @@ fun MainAppContent(viewModel: StoreViewModel) {
                     label = "ScreenTransition"
                 ) { screen ->
                     when (screen) {
+                        AppScreen.SETUP -> SetupScreen(
+                            viewModel = viewModel,
+                            onCancelToHomeIfAllowed = { viewModel.navigateBack() }
+                        )
                         AppScreen.HOME -> HomeScreen(
                             viewModel = viewModel,
                             onNavigate = { viewModel.navigateTo(it) }
@@ -189,6 +206,15 @@ fun MainAppContent(viewModel: StoreViewModel) {
             receipt = receipt,
             settings = storeSettings,
             onDismiss = { viewModel.dismissCollectionReceipt() }
+        )
+    }
+
+    // Supplier Payment Receipt Dialog when supplier payment is completed
+    completedSupplierPaymentReceipt?.let { receipt ->
+        SupplierPaymentSuccessDialog(
+            receipt = receipt,
+            settings = storeSettings,
+            onDismiss = { viewModel.dismissSupplierPaymentReceipt() }
         )
     }
 }

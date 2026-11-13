@@ -35,6 +35,7 @@ import com.example.ui.AppScreen
 import com.example.ui.StoreViewModel
 import com.example.ui.components.CollectionReceiptDialog
 import com.example.ui.components.StoreTopBar
+import com.example.ui.components.SupplierPaymentDialog
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
 
@@ -52,6 +53,7 @@ fun HomeScreen(
     val cashMovements by viewModel.cashMovements.collectAsStateWithLifecycle()
     val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
     val customerParties by viewModel.customerParties.collectAsStateWithLifecycle()
+    val supplierParties by viewModel.supplierParties.collectAsStateWithLifecycle()
     val debts by viewModel.debts.collectAsStateWithLifecycle()
     val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
 
@@ -62,6 +64,7 @@ fun HomeScreen(
 
     var showQuickAddSheet by remember { mutableStateOf(false) }
     var showCollectionDialog by remember { mutableStateOf(false) }
+    var showSupplierPaymentDialog by remember { mutableStateOf(false) }
     var showAddPartyDialog by remember { mutableStateOf<String?>(null) } // "CUSTOMER" or "SUPPLIER"
     var showAddExchangeDialog by remember { mutableStateOf(false) }
     var showAddEmployeeDialog by remember { mutableStateOf(false) }
@@ -79,9 +82,14 @@ fun HomeScreen(
             )
         },
         topBar = {
+            val subtitleText = listOfNotNull(
+                storeSettings?.address?.takeIf { it.isNotBlank() },
+                storeSettings?.phone?.takeIf { it.isNotBlank() }
+            ).joinToString(" • ").ifBlank { "إدارة أسهل .. لمحل أكثر نجاحاً" }
             StoreTopBar(
-                title = storeSettings?.storeName ?: "الجرادي للملابس الجاهزة",
-                subtitle = "إدارة أسهل .. لمحل أكثر نجاحاً",
+                title = storeSettings?.storeName?.ifBlank { "متجري" } ?: "متجري",
+                subtitle = subtitleText,
+                logoPath = storeSettings?.logoPath.orEmpty(),
                 trailingAction = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(
@@ -709,6 +717,19 @@ fun HomeScreen(
                         }
                     )
 
+                    // 0b. تسديد لمورد / سند صرف
+                    QuickSheetActionRow(
+                        title = "تسديد لمورد (سند صرف)",
+                        subtitle = "صرف دفعة لمورد نقداً أو عبر الصرافة مع رقم سند اختياري أو تلقائي",
+                        icon = Icons.Default.LocalShipping,
+                        iconColor = Color(0xFFDC2626),
+                        iconBg = Color(0xFFFEE2E2),
+                        onClick = {
+                            showQuickAddSheet = false
+                            showSupplierPaymentDialog = true
+                        }
+                    )
+
                     // 1. إضافة عميل
                     QuickSheetActionRow(
                         title = "إضافة عميل جديد (فتح حساب)",
@@ -1103,6 +1124,28 @@ fun HomeScreen(
                         notes = notes
                     ) {
                         showCollectionDialog = false
+                    }
+                }
+            )
+        }
+
+        if (showSupplierPaymentDialog) {
+            SupplierPaymentDialog(
+                supplierParties = supplierParties,
+                supplierDebts = debts,
+                exchangeAccounts = exchangeAccounts,
+                onDismiss = { showSupplierPaymentDialog = false },
+                onConfirm = { supplierName, party, amount, voucher, method, account, notes ->
+                    viewModel.recordSupplierPaymentReceipt(
+                        supplierName = supplierName,
+                        party = party,
+                        amount = amount,
+                        voucherNumberInput = voucher,
+                        paymentMethod = method,
+                        exchangeAccount = account,
+                        notes = notes
+                    ) {
+                        showSupplierPaymentDialog = false
                     }
                 }
             )

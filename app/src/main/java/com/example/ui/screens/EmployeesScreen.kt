@@ -34,6 +34,8 @@ import com.example.ui.components.StoreTopBar
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
 import com.example.ui.util.InvoiceHelper
+import com.example.ui.util.StatementHelper
+import com.example.ui.util.StatementMode
 
 @Composable
 fun EmployeesScreen(
@@ -47,6 +49,7 @@ fun EmployeesScreen(
     val sales by viewModel.sales.collectAsStateWithLifecycle()
     val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
     val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
+    val employeeRoles by viewModel.employeeRoles.collectAsStateWithLifecycle()
 
     var showAddEmployeeDialog by remember { mutableStateOf(false) }
     var employeeToEdit by remember { mutableStateOf<Employee?>(null) }
@@ -129,26 +132,18 @@ fun EmployeesScreen(
                 }
             } else {
                 items(employees, key = { it.id }) { employee ->
-                    val txs = employeeTransactions.filter { it.employeeId == employee.id }
-                    val empSales = sales.filter { it.employeeId == employee.id }
-                    val totalSalesAmount = empSales.sumOf { it.totalAmount }
-                    val commissionEarned = totalSalesAmount * (employee.commissionPercent / 100.0)
-
-                    val advances = txs.filter { it.type == "سلفة" }.sumOf { it.amount }
-                    val deductions = txs.filter { it.type == "خصم غياب" }.sumOf { it.amount }
-                    val salaryPaid = txs.filter { it.type == "صرف راتب" }.sumOf { it.amount }
-
-                    val netEarned = employee.baseSalary + commissionEarned
-                    val remainingBalance = (netEarned - deductions - advances - salaryPaid).coerceAtLeast(0.0)
+                    val empSummary = remember(employee, employeeTransactions, sales) {
+                        StatementHelper.buildEmployeeStatement(employee, employeeTransactions, sales)
+                    }
 
                     EmployeeCard(
                         employee = employee,
-                        totalSales = totalSalesAmount,
-                        commissionEarned = commissionEarned,
-                        advances = advances,
-                        deductions = deductions,
-                        salaryPaid = salaryPaid,
-                        remainingBalance = remainingBalance,
+                        totalSales = empSummary.totalSalesAmount,
+                        commissionEarned = empSummary.commissionEarned,
+                        advances = empSummary.advances + empSummary.dailyStipends,
+                        deductions = empSummary.deductions,
+                        salaryPaid = empSummary.salaryPaid,
+                        remainingBalance = empSummary.remainingBalance,
                         onAddAdvance = { actionDialogState = Triple(employee, "سلفة", "سلفة نقدية على الحساب") },
                         onAddDeduction = { actionDialogState = Triple(employee, "خصم غياب", "خصم غياب يوم") },
                         onPaySalary = { actionDialogState = Triple(employee, "صرف راتب", "صرف دفعة من الراتب") },
@@ -322,6 +317,15 @@ fun EmployeesScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                         modifier = Modifier.fillMaxWidth()
                     )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(employeeRoles) { roleOpt ->
+                            FilterChip(
+                                selected = role == roleOpt,
+                                onClick = { role = roleOpt },
+                                label = { Text(roleOpt, fontSize = 11.sp) }
+                            )
+                        }
+                    }
                     OutlinedTextField(
                         value = role,
                         onValueChange = { role = it },
@@ -377,108 +381,293 @@ fun EmployeesScreen(
         )
     }
 
-    // View History Modal
+    // View History & Statement Modal
     viewHistoryEmployee?.let { emp ->
-        val txs = employeeTransactions.filter { it.employeeId == emp.id }
-        val empSales = sales.filter { it.employeeId == emp.id }
-        val totalSalesAmount = empSales.sumOf { it.totalAmount }
+        val txs = remember(emp.id, employeeTransactions) {
+            employeeTransactions.filter { it.employeeId == emp.id }.sortedByDescending { it.timestamp }
+        }
+        val empSummary = remember(emp, employeeTransactions, sales) {
+            StatementHelper.buildEmployeeStatement(emp, employeeTransactions, sales)
+        }
+        var statementMode by remember(emp.id) { mutableStateOf(StatementMode.DETAILED) }
 
         AlertDialog(
             onDismissRequest = { viewHistoryEmployee = null },
             title = {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("كشف حركات: ${emp.name}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        IconButton(
-                            onClick = {
-                                val file = InvoiceHelper.generateEmployeeStatementPdf(
-                                    context = context,
-                                    employee = emp,
-                                    transactions = txs,
-                                    salesCount = empSales.size,
-                                    totalSalesAmount = totalSalesAmount,
-                                    settings = storeSettings
-                                )
-                                InvoiceHelper.printPdfFile(context, file, "كشف_موظف_${emp.name}")
-                            },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(Icons.Default.Print, contentDescription = "طباعة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(18.dp))
-                        }
-
-                        IconButton(
-                            onClick = {
-                                val file = InvoiceHelper.generateEmployeeStatementPdf(
-                                    context = context,
-                                    employee = emp,
-                                    transactions = txs,
-                                    salesCount = empSales.size,
-                                    totalSalesAmount = totalSalesAmount,
-                                    settings = storeSettings
-                                )
-                                InvoiceHelper.sharePdfFile(context, file, "مشاركة كشف موظف")
-                            },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = "مشاركة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(18.dp))
-                        }
-                    }
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "كشف حساب العامل: ${emp.name}",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                    Text(
+                        text = "${emp.role} • مبيعات: ${empSummary.salesCount} (${FormatUtils.formatCurrency(empSummary.totalSalesAmount)})",
+                        fontSize = 12.sp,
+                        color = SlateMuted
+                    )
                 }
             },
             text = {
-                if (txs.isEmpty()) {
-                    Text("لا توجد سلف أو خصومات مسجلة لهذا العامل بعد.")
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 350.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Mode Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(txs) { tx ->
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                modifier = Modifier.fillMaxWidth()
+                        FilterChip(
+                            selected = statementMode == StatementMode.DETAILED,
+                            onClick = { statementMode = StatementMode.DETAILED },
+                            label = { Text("كشف مفصل", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
+                            modifier = Modifier.weight(1f).testTag("btn_emp_mode_detailed")
+                        )
+                        FilterChip(
+                            selected = statementMode == StatementMode.SUMMARY,
+                            onClick = { statementMode = StatementMode.SUMMARY },
+                            label = { Text("تقرير نهائي", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
+                            modifier = Modifier.weight(1f).testTag("btn_emp_mode_summary")
+                        )
+                    }
+
+                    // 3 KPI Boxes: كم له / كم عليه / كم باقي
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = EmeraldLight,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Row(
-                                    modifier = Modifier
-                                        .padding(10.dp)
-                                        .fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column {
-                                        Text(text = tx.type, fontWeight = FontWeight.Bold)
-                                        if (tx.notes.isNotBlank()) {
-                                            Text(text = tx.notes, style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted))
-                                        }
-                                        if (tx.type == "سلفة" || tx.type == "صرف راتب" || tx.type == "مكافأة") {
-                                            Text(
-                                                text = if (tx.paidFromCash) "المصدر: الصندوق النقدي" else "المصدر: ${tx.exchangeAccountName.ifBlank { "حساب صرافة" }}",
-                                                style = MaterialTheme.typography.bodySmall.copy(
-                                                    color = if (tx.paidFromCash) LuxuryGold else MaterialTheme.colorScheme.primary,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            )
-                                        }
-                                        Text(text = FormatUtils.formatDateTime(tx.timestamp), fontSize = 10.sp, color = SlateMuted)
+                                Text("كم له", fontSize = 10.sp, color = EmeraldProfit, fontWeight = FontWeight.Bold)
+                                Text(
+                                    FormatUtils.formatNumber(empSummary.totalEarned),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = EmeraldProfit
+                                )
+                            }
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = RubyLight,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text("كم عليه", fontSize = 10.sp, color = RubyExpense, fontWeight = FontWeight.Bold)
+                                Text(
+                                    FormatUtils.formatNumber(empSummary.totalDeductedAndPaid),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = RubyExpense
+                                )
+                            }
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = PdfHeaderNavy,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    if (empSummary.remainingBalance >= 0) "كم باقي له" else "زائد عليه",
+                                    fontSize = 10.sp,
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    FormatUtils.formatNumber(kotlin.math.abs(empSummary.remainingBalance)),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = LuxuryGoldLight
+                                )
+                            }
+                        }
+                    }
+
+                    // Export & Share Action Buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val file = InvoiceHelper.generateEmployeeStatementPdf(
+                                    context = context,
+                                    summary = empSummary,
+                                    mode = statementMode,
+                                    settings = storeSettings
+                                )
+                                InvoiceHelper.printPdfFile(context, file, "كشف_عامل_${emp.name}")
+                            },
+                            modifier = Modifier.weight(1f).height(42.dp).testTag("btn_emp_print_pdf"),
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = PdfHeaderNavy)
+                        ) {
+                            Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("طباعة PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val file = InvoiceHelper.generateEmployeeStatementPdf(
+                                    context = context,
+                                    summary = empSummary,
+                                    mode = statementMode,
+                                    settings = storeSettings
+                                )
+                                InvoiceHelper.sharePdfFile(context, file, "مشاركة كشف حساب ${emp.name}")
+                            },
+                            modifier = Modifier.weight(1f).height(42.dp).testTag("btn_emp_share_pdf"),
+                            contentPadding = PaddingValues(horizontal = 6.dp)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("مشاركة PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val txt = StatementHelper.formatEmployeeStatementText(empSummary, statementMode, storeSettings)
+                                StatementHelper.shareText(context, txt, "مشاركة كشف ${emp.name}")
+                            },
+                            modifier = Modifier.weight(1f).height(42.dp).testTag("btn_emp_share_whatsapp"),
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldProfit)
+                        ) {
+                            Icon(Icons.Default.Chat, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("مشاركة واتساب", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val txt = StatementHelper.formatEmployeeStatementText(empSummary, statementMode, storeSettings)
+                                StatementHelper.copyToClipboard(context, txt, "كشف حساب ${emp.name}")
+                            },
+                            modifier = Modifier.weight(1f).height(42.dp).testTag("btn_emp_copy_text"),
+                            contentPadding = PaddingValues(horizontal = 6.dp)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("نسخ النص", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    HorizontalDivider(color = SlateBorder)
+
+                    if (statementMode == StatementMode.SUMMARY) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text("الملخص المالي النهائي", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("الراتب الأساسي:", fontSize = 12.sp, color = SlateMuted)
+                                    Text(FormatUtils.formatCurrency(emp.baseSalary), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("عمولة المبيعات (${emp.commissionPercent}%):", fontSize = 12.sp, color = SlateMuted)
+                                    Text(FormatUtils.formatCurrency(empSummary.commissionEarned), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = EmeraldProfit)
+                                }
+                                if (empSummary.bonuses > 0.01) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("المكافآت:", fontSize = 12.sp, color = SlateMuted)
+                                        Text(FormatUtils.formatCurrency(empSummary.bonuses), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = EmeraldProfit)
                                     }
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Text(
-                                            text = FormatUtils.formatCurrency(tx.amount),
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (tx.type == "سلفة" || tx.type == "صرف راتب") RubyExpense else EmeraldProfit
-                                        )
-                                        IconButton(onClick = { editingEmployeeTx = tx }, modifier = Modifier.size(28.dp)) {
-                                            Icon(Icons.Default.Edit, contentDescription = "تعديل", tint = BrandBlue, modifier = Modifier.size(16.dp))
-                                        }
-                                        IconButton(onClick = { viewModel.deleteEmployeeTransaction(tx.id) }, modifier = Modifier.size(28.dp)) {
-                                            Icon(Icons.Default.DeleteOutline, contentDescription = "حذف", tint = RubyExpense, modifier = Modifier.size(16.dp))
+                                }
+                                HorizontalDivider(color = SlateBorder)
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("السلف المسحوبة:", fontSize = 12.sp, color = SlateMuted)
+                                    Text(FormatUtils.formatCurrency(empSummary.advances), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = RubyExpense)
+                                }
+                                if (empSummary.dailyStipends > 0.01) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("الصرفيات اليومية:", fontSize = 12.sp, color = SlateMuted)
+                                        Text(FormatUtils.formatCurrency(empSummary.dailyStipends), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = RubyExpense)
+                                    }
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("خصومات الغياب:", fontSize = 12.sp, color = SlateMuted)
+                                    Text(FormatUtils.formatCurrency(empSummary.deductions), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = RubyExpense)
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("الرواتب المصروفة:", fontSize = 12.sp, color = SlateMuted)
+                                    Text(FormatUtils.formatCurrency(empSummary.salaryPaid), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    } else {
+                        if (txs.isEmpty()) {
+                            Text("لا توجد سلف أو خصومات مسجلة لهذا العامل بعد.", fontSize = 12.sp, color = SlateMuted)
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                txs.forEach { tx ->
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .padding(10.dp)
+                                                .fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(text = tx.type, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                if (tx.notes.isNotBlank()) {
+                                                    Text(text = tx.notes, style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted))
+                                                }
+                                                if (tx.type == "سلفة" || tx.type == "صرف راتب" || tx.type == "مكافأة" || tx.type == "صرفة يومية") {
+                                                    Text(
+                                                        text = if (tx.paidFromCash) "المصدر: الصندوق النقدي" else "المصدر: ${tx.exchangeAccountName.ifBlank { "حساب صرافة" }}",
+                                                        style = MaterialTheme.typography.bodySmall.copy(
+                                                            color = if (tx.paidFromCash) LuxuryGold else MaterialTheme.colorScheme.primary,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    )
+                                                }
+                                                Text(text = FormatUtils.formatDateTime(tx.timestamp), fontSize = 10.sp, color = SlateMuted)
+                                            }
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                Text(
+                                                    text = FormatUtils.formatCurrency(tx.amount),
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    color = if (tx.type == "مكافأة") EmeraldProfit else RubyExpense
+                                                )
+                                                IconButton(onClick = { editingEmployeeTx = tx }, modifier = Modifier.size(28.dp)) {
+                                                    Icon(Icons.Default.Edit, contentDescription = "تعديل", tint = BrandBlue, modifier = Modifier.size(16.dp))
+                                                }
+                                                IconButton(onClick = { viewModel.deleteEmployeeTransaction(tx.id) }, modifier = Modifier.size(28.dp)) {
+                                                    Icon(Icons.Default.DeleteOutline, contentDescription = "حذف", tint = RubyExpense, modifier = Modifier.size(16.dp))
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -640,6 +829,15 @@ fun EmployeesScreen(
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(employeeRoles) { roleOpt ->
+                            FilterChip(
+                                selected = role == roleOpt,
+                                onClick = { role = roleOpt },
+                                label = { Text(roleOpt, fontSize = 11.sp) }
+                            )
+                        }
+                    }
                     OutlinedTextField(
                         value = role,
                         onValueChange = { role = it },

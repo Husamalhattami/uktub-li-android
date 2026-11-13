@@ -1,9 +1,14 @@
 package com.example.ui.screens
 
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -24,12 +29,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.AuditLogRecord
+import com.example.data.model.StoreConfigItem
+import com.example.data.model.StoreConfigTypes
 import com.example.data.model.StoreSettings
 import com.example.ui.StoreViewModel
 import com.example.ui.components.StoreTopBar
 import com.example.ui.theme.*
 import com.example.ui.util.BackupManager
 import com.example.ui.util.FormatUtils
+import com.example.ui.util.LogoHelper
+import com.example.ui.util.StoreLogoBadge
 import kotlinx.coroutines.launch
 
 @Composable
@@ -42,16 +51,38 @@ fun SettingsScreen(
     val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
     val settingsState by viewModel.storeSettings.collectAsStateWithLifecycle()
     val auditLogs by viewModel.auditLogs.collectAsStateWithLifecycle()
+    val allConfigItems by viewModel.allConfigItems.collectAsStateWithLifecycle()
 
-    var storeName by remember(settingsState) { mutableStateOf(settingsState?.storeName ?: "الجرادي للملابس الجاهزة") }
-    var storeNameEn by remember(settingsState) { mutableStateOf(settingsState?.storeNameEn ?: "Al-Jaradi Ready-to-Wear") }
-    var phone by remember(settingsState) { mutableStateOf(settingsState?.phoneNumber ?: "778383570") }
-    var address by remember(settingsState) { mutableStateOf(settingsState?.address ?: "صنعاء - اليمن") }
+    var storeName by remember(settingsState) { mutableStateOf(settingsState?.storeName ?: "") }
+    var storeNameEn by remember(settingsState) { mutableStateOf(settingsState?.storeNameEn ?: "") }
+    var phone by remember(settingsState) { mutableStateOf(settingsState?.phoneNumber ?: "") }
+    var address by remember(settingsState) { mutableStateOf(settingsState?.address ?: "") }
     var currency by remember(settingsState) { mutableStateOf(settingsState?.currencySymbol ?: "ريال") }
     var taxNumber by remember(settingsState) { mutableStateOf(settingsState?.taxNumber ?: "") }
-    var invoiceHeader by remember(settingsState) { mutableStateOf(settingsState?.invoiceHeader ?: "الجرادي للملابس الجاهزة") }
+    var invoiceHeader by remember(settingsState) { mutableStateOf(settingsState?.invoiceHeader ?: "") }
     var invoiceFooter by remember(settingsState) { mutableStateOf(settingsState?.invoiceFooter ?: "البضاعة المباعة ترد وتستبدل خلال 3 أيام بشرط وجود الفاتورة وبحالتها الأصلية") }
     var managerPin by remember(settingsState) { mutableStateOf(settingsState?.managerPin ?: "1234") }
+    var logoPath by remember(settingsState) { mutableStateOf(settingsState?.logoPath ?: "") }
+
+    val logoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            val savedPath = LogoHelper.saveLogoFromUri(context, uri, logoPath)
+            if (savedPath != null) {
+                logoPath = savedPath
+                val current = settingsState ?: StoreSettings()
+                viewModel.saveSettings(current.copy(logoPath = savedPath, isSetupCompleted = true))
+            } else {
+                viewModel.showMessage("تعذر حفظ صورة الشعار")
+            }
+        }
+    }
+
+    var selectedConfigType by remember { mutableStateOf(StoreConfigTypes.PRODUCT_CATEGORY) }
+    var newConfigItemName by remember { mutableStateOf("") }
+    var configItemToEdit by remember { mutableStateOf<StoreConfigItem?>(null) }
+    var configItemToDelete by remember { mutableStateOf<StoreConfigItem?>(null) }
 
     var showRestoreDialog by remember { mutableStateOf(false) }
     var restoreJsonInput by remember { mutableStateOf("") }
@@ -147,6 +178,64 @@ fun SettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text(
+                            text = "شعار وهوية المحل",
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            StoreLogoBadge(
+                                logoPath = logoPath,
+                                size = 64.dp,
+                                cornerRadius = 14.dp,
+                                containerColor = Color(0xFFE2E8F0),
+                                borderColor = Color(0xFFCBD5E1)
+                            )
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                FilledTonalButton(
+                                    onClick = {
+                                        logoPickerLauncher.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("settings_pick_logo_btn"),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(if (logoPath.isBlank()) "اختيار شعار المحل" else "تغيير الشعار")
+                                }
+                                if (logoPath.isNotBlank()) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            LogoHelper.deleteLogoFile(context, logoPath)
+                                            logoPath = ""
+                                            val current = settingsState ?: StoreSettings()
+                                            viewModel.saveSettings(current.copy(logoPath = "", isSetupCompleted = true))
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Text("إزالة الشعار", color = RubyExpense, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(color = Color(0xFFE2E8F0))
+
+                        Text(
                             text = "بيانات المنشأة التجارية",
                             style = MaterialTheme.typography.titleSmall.copy(
                                 fontWeight = FontWeight.Bold,
@@ -235,7 +324,7 @@ fun SettingsScreen(
                             onClick = {
                                 val updated = StoreSettings(
                                     id = 1,
-                                    shopNameAr = storeName.trim().ifBlank { "الجرادي للملابس الجاهزة" },
+                                    shopNameAr = storeName.trim().ifBlank { "متجري" },
                                     shopNameEn = storeNameEn.trim(),
                                     phone = phone.trim(),
                                     address = address.trim(),
@@ -243,7 +332,9 @@ fun SettingsScreen(
                                     taxNumber = taxNumber.trim(),
                                     invoiceHeader = invoiceHeader.trim(),
                                     invoiceFooter = invoiceFooter.trim(),
-                                    managerPin = managerPin.trim().ifBlank { "1234" }
+                                    managerPin = managerPin.trim().ifBlank { "1234" },
+                                    logoPath = logoPath,
+                                    isSetupCompleted = true
                                 )
                                 viewModel.saveSettings(updated)
                             },
@@ -256,6 +347,221 @@ fun SettingsScreen(
                             Icon(imageVector = Icons.Default.Save, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("حفظ التعديلات", fontWeight = FontWeight.Bold)
+                        }
+
+                        OutlinedButton(
+                            onClick = { viewModel.openSetupWizard() },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .testTag("reopen_setup_wizard_btn"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.AutoFixHigh, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("فتح معالج التهيئة الشامل للنظام", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            // 2.5 System Dictionaries Management Card (Categories, Sizes, Expenses, Account Types, Colors, Roles)
+            item {
+                val dictSections = listOf(
+                    StoreConfigTypes.PRODUCT_CATEGORY to "الأقسام",
+                    StoreConfigTypes.PRODUCT_SIZE to "المقاسات",
+                    StoreConfigTypes.EXPENSE_CATEGORY to "المصروفات",
+                    StoreConfigTypes.ACCOUNT_TYPE to "الحسابات المصرفية",
+                    StoreConfigTypes.PRODUCT_COLOR to "الألوان",
+                    StoreConfigTypes.EMPLOYEE_ROLE to "الوظائف"
+                )
+                val currentItems = remember(allConfigItems, selectedConfigType) {
+                    allConfigItems.filter { it.type == selectedConfigType }
+                }
+                val sectionPlaceholder = when (selectedConfigType) {
+                    StoreConfigTypes.PRODUCT_CATEGORY -> "أضف قسماً جديداً (أكوات، دجلات، ثياب...)"
+                    StoreConfigTypes.PRODUCT_SIZE -> "أضف مقاساً (كبير، شبابي، صغير...)"
+                    StoreConfigTypes.EXPENSE_CATEGORY -> "أضف نوع مصروف (كهرباء، إيجار...)"
+                    StoreConfigTypes.ACCOUNT_TYPE -> "أضف نوع حساب (صراف، محفظة، بنك...)"
+                    StoreConfigTypes.PRODUCT_COLOR -> "أضف لوناً (أسود، أبيض، كحلي...)"
+                    else -> "أضف مسمى وظيفي (بائع، كاشير، خياط...)"
+                }
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("system_dictionaries_card"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "إدارة أقسام المحل والمقاسات والمصروفات والحسابات",
+                                    style = MaterialTheme.typography.titleSmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                )
+                                Text(
+                                    text = "إضافة وتعديل وحذف القوائم التي يعتمدها النظام في الشراء والبيع والمصروفات",
+                                    style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted)
+                                )
+                            }
+                            TextButton(
+                                onClick = { viewModel.restoreRecommendedDictionaries(includeSampleCategories = false) }
+                            ) {
+                                Text("افتراضيات", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(dictSections) { (typeKey, label) ->
+                                val isSelected = selectedConfigType == typeKey
+                                val count = allConfigItems.count { it.type == typeKey }
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = {
+                                        selectedConfigType = typeKey
+                                        newConfigItemName = ""
+                                    },
+                                    label = {
+                                        Text(
+                                            "$label ($count)",
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    modifier = Modifier.testTag("dict_tab_$typeKey")
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = newConfigItemName,
+                                onValueChange = { newConfigItemName = it },
+                                placeholder = { Text(sectionPlaceholder, fontSize = 12.sp) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("add_config_item_input"),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            Button(
+                                onClick = {
+                                    val trimmed = newConfigItemName.trim()
+                                    if (trimmed.isNotBlank()) {
+                                        viewModel.addConfigItem(selectedConfigType, trimmed)
+                                        newConfigItemName = ""
+                                    }
+                                },
+                                modifier = Modifier
+                                    .height(52.dp)
+                                    .testTag("add_config_item_btn"),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = PdfGoldDark)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "إضافة", tint = Color.White)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("إضافة", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        if (selectedConfigType == StoreConfigTypes.PRODUCT_CATEGORY) {
+                            val quickCats = listOf("أكوات", "دجلات", "ثياب", "بشت", "جاكيتات", "شمغ")
+                                .filter { q -> currentItems.none { it.name.equals(q, ignoreCase = true) } }
+                            if (quickCats.isNotEmpty()) {
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    items(quickCats) { sug ->
+                                        AssistChip(
+                                            onClick = { viewModel.addConfigItem(StoreConfigTypes.PRODUCT_CATEGORY, sug) },
+                                            label = { Text("+ $sug", fontSize = 11.sp) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (currentItems.isEmpty()) {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFFF8FAFC)
+                            ) {
+                                Text(
+                                    text = "لا توجد عناصر مضافة في هذا القسم بعد — اكتب الاسم أعلاه واضغط إضافة.",
+                                    modifier = Modifier.padding(14.dp),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = SlateMuted
+                                )
+                            }
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                currentItems.forEach { item ->
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color(0xFFF8FAFC),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                text = item.name,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp,
+                                                color = SlateHeader,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            Row {
+                                                IconButton(
+                                                    onClick = { configItemToEdit = item },
+                                                    modifier = Modifier.testTag("edit_config_${item.id}")
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Edit,
+                                                        contentDescription = "تعديل ${item.name}",
+                                                        tint = BrandBlue,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick = { configItemToDelete = item },
+                                                    modifier = Modifier.testTag("delete_config_${item.id}")
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.DeleteOutline,
+                                                        contentDescription = "حذف ${item.name}",
+                                                        tint = RubyExpense,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -575,6 +881,87 @@ fun SettingsScreen(
             },
             dismissButton = {
                 OutlinedButton(onClick = { showWipeTransactionsDialog = false }) { Text("إلغاء") }
+            }
+        )
+    }
+
+    // Edit Dictionary Item Dialog
+    configItemToEdit?.let { item ->
+        var editedName by remember(item.id) { mutableStateOf(item.name) }
+        AlertDialog(
+            onDismissRequest = { configItemToEdit = null },
+            title = { Text("تعديل العنصر", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "سيتم تحديث الاسم في القائمة وكذلك في السجلات المرتبطة به تلقائياً:",
+                        fontSize = 12.sp,
+                        color = SlateMuted
+                    )
+                    OutlinedTextField(
+                        value = editedName,
+                        onValueChange = { editedName = it },
+                        label = { Text("الاسم الجديد") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("edit_config_name_input")
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.updateConfigItem(item, editedName) {
+                            configItemToEdit = null
+                        }
+                    },
+                    modifier = Modifier.testTag("confirm_edit_config_btn")
+                ) {
+                    Text("حفظ التعديل")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { configItemToEdit = null }) { Text("إلغاء") }
+            }
+        )
+    }
+
+    // Delete Dictionary Item Dialog
+    configItemToDelete?.let { item ->
+        AlertDialog(
+            onDismissRequest = { configItemToDelete = null },
+            title = { Text("تأكيد الحذف", fontWeight = FontWeight.Bold, color = RubyExpense) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("هل تريد حذف «${item.name}» من قوائم النظام؟")
+                    Text("لن يتم حذف الفواتير أو المنتجات السابقة، فقط سيُزال من اختيارات الإضافة.", fontSize = 12.sp, color = SlateMuted)
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteConfigItem(item)
+                        configItemToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = RubyExpense),
+                    modifier = Modifier.testTag("confirm_delete_config_btn")
+                ) {
+                    Text("حذف")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { configItemToDelete = null }) { Text("إلغاء") }
             }
         )
     }

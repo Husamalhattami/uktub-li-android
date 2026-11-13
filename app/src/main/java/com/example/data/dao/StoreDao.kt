@@ -322,5 +322,61 @@ interface StoreDao {
 
     @Update
     suspend fun updateStoreSettings(settings: StoreSettings)
+
+    // --- Store Config Dictionaries (Categories, Sizes, Expense Types, Account Types, Colors, Roles) ---
+    @Query("SELECT * FROM store_config_items ORDER BY id ASC")
+    fun getAllConfigItems(): Flow<List<StoreConfigItem>>
+
+    @Query("SELECT * FROM store_config_items WHERE type = :type ORDER BY id ASC")
+    fun getConfigItemsByType(type: String): Flow<List<StoreConfigItem>>
+
+    @Query("SELECT * FROM store_config_items WHERE type = :type ORDER BY id ASC")
+    suspend fun getConfigItemsByTypeDirect(type: String): List<StoreConfigItem>
+
+    @Query("SELECT * FROM store_config_items WHERE type = :type AND LOWER(TRIM(name)) = LOWER(TRIM(:name)) LIMIT 1")
+    suspend fun getConfigItemByTypeAndName(type: String, name: String): StoreConfigItem?
+
+    @Query("SELECT COUNT(*) FROM store_config_items")
+    suspend fun getConfigItemsCount(): Int
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertConfigItem(item: StoreConfigItem): Long
+
+    @Update
+    suspend fun updateConfigItem(item: StoreConfigItem)
+
+    @Query("DELETE FROM store_config_items WHERE id = :id")
+    suspend fun deleteConfigItem(id: Long)
+
+    @Query("DELETE FROM store_config_items")
+    suspend fun deleteAllConfigItems()
+
+    // --- Cascade Rename Helpers ---
+    @Query("UPDATE products SET category = :newName WHERE category = :oldName")
+    suspend fun renameProductCategory(oldName: String, newName: String)
+
+    @Query("UPDATE sales SET category = :newName WHERE category = :oldName")
+    suspend fun renameSaleCategory(oldName: String, newName: String)
+
+    @Query("UPDATE purchases SET category = :newName WHERE category = :oldName")
+    suspend fun renamePurchaseCategory(oldName: String, newName: String)
+
+    @Query("UPDATE products SET size = :newName WHERE size = :oldName")
+    suspend fun renameProductSize(oldName: String, newName: String)
+
+    @Query("UPDATE sales SET size = :newName WHERE size = :oldName")
+    suspend fun renameSaleSize(oldName: String, newName: String)
+
+    @Query("UPDATE purchases SET size = :newName WHERE size = :oldName")
+    suspend fun renamePurchaseSize(oldName: String, newName: String)
+
+    @Query("UPDATE expenses SET category = :newName WHERE category = :oldName")
+    suspend fun renameExpenseCategory(oldName: String, newName: String)
+
+    @Query("UPDATE exchange_accounts SET type = :newName WHERE type = :oldName")
+    suspend fun renameExchangeAccountType(oldName: String, newName: String)
+
+    @Query("UPDATE employees SET role = :newName WHERE role = :oldName")
+    suspend fun renameEmployeeRole(oldName: String, newName: String)
 }
 
