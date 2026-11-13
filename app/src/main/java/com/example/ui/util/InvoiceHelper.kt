@@ -1351,4 +1351,124 @@ object InvoiceHelper {
         pdfDocument.close()
         return file
     }
+
+    fun generateCollectionVoucherPdf(
+        context: Context,
+        receipt: CollectionReceiptResult,
+        settings: StoreSettings?
+    ): File {
+        val pdfDocument = PdfDocument()
+        val pageInfo = PdfDocument.PageInfo.Builder(440, 560, 1).create()
+        val page = pdfDocument.startPage(pageInfo)
+        val canvas: Canvas = page.canvas
+
+        val titlePaint = Paint().apply {
+            isAntiAlias = true
+            color = Color.rgb(15, 30, 54)
+            textSize = 18f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
+        val subPaint = Paint().apply {
+            isAntiAlias = true
+            color = Color.rgb(100, 116, 139)
+            textSize = 11f
+            textAlign = Paint.Align.CENTER
+        }
+        val labelPaint = Paint().apply {
+            isAntiAlias = true
+            color = Color.rgb(71, 85, 105)
+            textSize = 11.5f
+            textAlign = Paint.Align.RIGHT
+        }
+        val valuePaint = Paint().apply {
+            isAntiAlias = true
+            color = Color.rgb(15, 23, 42)
+            textSize = 12f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.LEFT
+        }
+        val linePaint = Paint().apply {
+            color = Color.rgb(226, 232, 240)
+            strokeWidth = 1f
+        }
+
+        val shopName = settings?.shopNameAr?.ifBlank { "الجرادي للملابس الجاهزة" } ?: "الجرادي للملابس الجاهزة"
+        val shopPhone = settings?.phone?.ifBlank { "778383570" } ?: "778383570"
+        val currency = settings?.currency ?: "ريال"
+
+        var y = 36f
+        canvas.drawText(shopName, 220f, y, titlePaint)
+        y += 18f
+        canvas.drawText("هاتف: $shopPhone", 220f, y, subPaint)
+        y += 22f
+        canvas.drawRect(24f, y - 16f, 416f, y + 12f, Paint().apply { color = Color.rgb(236, 253, 245) })
+        val voucherHeaderPaint = Paint().apply {
+            isAntiAlias = true
+            color = Color.rgb(4, 120, 87)
+            textSize = 14f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText("سند قبض وتحصيل زلط  •  #${receipt.voucherNumber}", 220f, y + 3f, voucherHeaderPaint)
+        y += 32f
+
+        canvas.drawLine(24f, y, 416f, y, linePaint)
+        y += 24f
+
+        fun drawRow(label: String, value: String) {
+            canvas.drawText(label, 408f, y, labelPaint)
+            canvas.drawText(value, 32f, y, valuePaint)
+            y += 24f
+        }
+
+        drawRow("رقم السند:", receipt.voucherNumber)
+        drawRow("التاريخ والوقت:", FormatUtils.formatDateTime(receipt.timestamp))
+        drawRow("استلمنا من:", receipt.payerName)
+        drawRow("طريقة التحصيل:", if (receipt.paymentMethod == "نقداً") "نقداً إلى الصندوق" else "صرافة / محفظة (${receipt.exchangeAccountName})")
+        if (receipt.appliedToDebtAmount > 0.0) {
+            drawRow("مسدد من حساب الدين:", FormatUtils.formatCurrency(receipt.appliedToDebtAmount, currency))
+        }
+        if (receipt.directCollectionAmount > 0.0) {
+            drawRow("تحصيل مباشر / فائض:", FormatUtils.formatCurrency(receipt.directCollectionAmount, currency))
+        }
+        if (receipt.remainingCustomerDebt > 0.0) {
+            drawRow("المتبقي على العميل:", FormatUtils.formatCurrency(receipt.remainingCustomerDebt, currency))
+        }
+        if (receipt.notes.isNotBlank()) {
+            drawRow("البيان / الملاحظات:", receipt.notes)
+        }
+
+        y += 8f
+        canvas.drawRect(24f, y - 14f, 416f, y + 26f, Paint().apply { color = Color.rgb(240, 253, 244) })
+        val totalPaint = Paint().apply {
+            isAntiAlias = true
+            color = Color.rgb(22, 101, 52)
+            textSize = 15f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.RIGHT
+        }
+        canvas.drawText("المبلغ المستلم:", 404f, y + 10f, totalPaint)
+        totalPaint.textAlign = Paint.Align.LEFT
+        canvas.drawText(FormatUtils.formatCurrency(receipt.amount, currency), 36f, y + 10f, totalPaint)
+        y += 52f
+
+        canvas.drawLine(24f, y, 416f, y, linePaint)
+        y += 22f
+        canvas.drawText("توقيع المستلم: ________________", 408f, y, labelPaint)
+        y += 26f
+        canvas.drawText("تم إصدار السند آلياً • $shopName", 220f, y, subPaint)
+
+        pdfDocument.finishPage(page)
+
+        val vouchersDir = File(context.cacheDir, "vouchers")
+        if (!vouchersDir.exists()) vouchersDir.mkdirs()
+        val safeName = receipt.voucherNumber.replace(Regex("[^A-Za-z0-9_-]"), "_")
+        val file = File(vouchersDir, "سند_قبض_$safeName.pdf")
+        FileOutputStream(file).use { out ->
+            pdfDocument.writeTo(out)
+        }
+        pdfDocument.close()
+        return file
+    }
 }

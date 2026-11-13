@@ -3,10 +3,13 @@ package com.example.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -82,14 +85,20 @@ fun StoreAuditScreen(
             )
         }
     ) { paddingValues ->
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(MaterialTheme.colorScheme.background),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            contentAlignment = Alignment.TopCenter
         ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 960.dp),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
             // Header Banner
             item {
                 Card(
@@ -538,6 +547,7 @@ fun StoreAuditScreen(
                 Spacer(modifier = Modifier.height(20.dp))
             }
         }
+        }
     }
 
     // Confirmation Alert Dialog
@@ -560,7 +570,9 @@ fun StoreAuditScreen(
             },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text("ملخص الأرصدة الافتتاحية المعتمدة للجرد:", fontWeight = FontWeight.Bold)
@@ -641,7 +653,12 @@ fun StoreAuditScreen(
             onDismissRequest = { productToAdjust = null },
             title = { Text("تعديل كمية الجرد للصنف", fontWeight = FontWeight.Bold) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Text(prod.modelName, fontWeight = FontWeight.Bold)
                     Text("الكمية الحالية بالدفتر: ${prod.quantity} حبه", color = SlateMuted)
                     OutlinedTextField(
@@ -685,7 +702,9 @@ fun StoreAuditScreen(
             title = { Text("إضافة حساب صراف أو محفظة جديدة", fontWeight = FontWeight.Bold) },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     OutlinedTextField(
@@ -695,15 +714,15 @@ fun StoreAuditScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Row(
+                    LazyRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        listOf("صراف", "محفظة", "حساب بنكي").forEach { typeName ->
+                        items(listOf("صراف", "محفظة", "حساب بنكي")) { typeName ->
                             FilterChip(
                                 selected = newAccType == typeName,
                                 onClick = { newAccType = typeName },
-                                label = { Text(typeName) }
+                                label = { Text(typeName, maxLines = 1) }
                             )
                         }
                     }

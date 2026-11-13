@@ -4,9 +4,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -81,12 +83,18 @@ fun TransactionsManagerScreen(
             )
         }
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .background(MaterialTheme.colorScheme.background)
+                .background(MaterialTheme.colorScheme.background),
+            contentAlignment = Alignment.TopCenter
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 960.dp)
+            ) {
             // Tabs
             TabRow(
                 selectedTabIndex = selectedTab,
@@ -255,6 +263,7 @@ fun TransactionsManagerScreen(
                 }
             }
         }
+        }
     }
 
     // --- Delete Sale Confirmation Dialog ---
@@ -264,12 +273,14 @@ fun TransactionsManagerScreen(
             icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = RubyExpense) },
             title = { Text("تأكيد حذف فاتورة البيع #${sale.id}", fontWeight = FontWeight.Bold) },
             text = {
-                Text(
-                    "هل أنت متأكد من حذف هذه الفاتورة؟\n" +
-                            "• ستتم إعادة كمية البضاعة (${sale.quantity} حبه) إلى المخزون.\n" +
-                            "• سيتم إلغاء واسترجاع المبالغ (${FormatUtils.formatCurrency(sale.totalAmount)}) من الصندوق أو حساب الصراف.\n" +
-                            "• سيتم حذف أي دين مرتبط بهذه الفاتورة إن وجد."
-                )
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        "هل أنت متأكد من حذف هذه الفاتورة؟\n" +
+                                "• ستتم إعادة كمية البضاعة (${sale.quantity} حبه) إلى المخزون.\n" +
+                                "• سيتم إلغاء واسترجاع المبالغ (${FormatUtils.formatCurrency(sale.totalAmount)}) من الصندوق أو حساب الصراف.\n" +
+                                "• سيتم حذف أي دين مرتبط بهذه الفاتورة إن وجد."
+                    )
+                }
             },
             confirmButton = {
                 Button(
@@ -304,7 +315,9 @@ fun TransactionsManagerScreen(
             title = { Text("تعديل فاتورة البيع #${sale.id}", fontWeight = FontWeight.Bold) },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text("الصنف: ${sale.productName}", fontWeight = FontWeight.Bold)
@@ -415,12 +428,14 @@ fun TransactionsManagerScreen(
             icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = RubyExpense) },
             title = { Text("تأكيد حذف فاتورة الشراء #${p.id}", fontWeight = FontWeight.Bold) },
             text = {
-                Text(
-                    "هل أنت متأكد من حذف فاتورة شراء (${p.modelName})؟\n" +
-                            "• سيتم خصم الكمية (${p.quantity} حبه) من المخزون.\n" +
-                            "• سيتم إلغاء المبالغ المدفوعة واسترجاعها إلى الصندوق أو الصراف.\n" +
-                            "• سيتم إلغاء أي دين مسجل للمورد لهذه الفاتورة."
-                )
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        "هل أنت متأكد من حذف فاتورة شراء (${p.modelName})؟\n" +
+                                "• سيتم خصم الكمية (${p.quantity} حبه) من المخزون.\n" +
+                                "• سيتم إلغاء المبالغ المدفوعة واسترجاعها إلى الصندوق أو الصراف.\n" +
+                                "• سيتم إلغاء أي دين مسجل للمورد لهذه الفاتورة."
+                    )
+                }
             },
             confirmButton = {
                 Button(
@@ -456,7 +471,9 @@ fun TransactionsManagerScreen(
             title = { Text("تعديل بيانات فاتورة الشراء #${p.id}", fontWeight = FontWeight.Bold) },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text("الصنف: ${p.modelName} | المقاس: ${p.size}", fontWeight = FontWeight.Bold)

@@ -227,14 +227,21 @@ fun ReportsScreen(
             )
         }
     ) { paddingValues ->
-        LazyColumn(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(MaterialTheme.colorScheme.background),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            contentAlignment = Alignment.TopCenter
         ) {
+            val isWideLayout = maxWidth >= 700.dp
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 960.dp),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
             // Period selector
             item {
                 val periods = listOf("اليوم", "أمس", "هذا الأسبوع", "هذا الشهر", "الكل")
@@ -311,53 +318,94 @@ fun ReportsScreen(
                 }
             }
 
-            // Sales breakdown (Cash vs Debt)
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    StatCard(
-                        title = "مبيعات نقدية",
-                        value = FormatUtils.formatCurrency(cashSales),
-                        icon = Icons.Default.Payments,
-                        containerColor = EmeraldLight,
-                        contentColor = EmeraldProfit,
-                        modifier = Modifier.weight(1f)
-                    )
-                    StatCard(
-                        title = "مبيعات بالدين (آجل)",
-                        value = FormatUtils.formatCurrency(debtSales),
-                        icon = Icons.Default.CreditCard,
-                        containerColor = GoldContainer,
-                        contentColor = LuxuryGold,
-                        modifier = Modifier.weight(1f)
-                    )
+            // Sales & Debts Overview Cards (4 in row on wide, 2x2 on narrow)
+            if (isWideLayout) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        StatCard(
+                            title = "مبيعات نقدية",
+                            value = FormatUtils.formatCurrency(cashSales),
+                            icon = Icons.Default.Payments,
+                            containerColor = EmeraldLight,
+                            contentColor = EmeraldProfit,
+                            modifier = Modifier.weight(1f)
+                        )
+                        StatCard(
+                            title = "مبيعات بالدين (آجل)",
+                            value = FormatUtils.formatCurrency(debtSales),
+                            icon = Icons.Default.CreditCard,
+                            containerColor = GoldContainer,
+                            contentColor = LuxuryGold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        StatCard(
+                            title = "ديون الزبائن المستحقة",
+                            value = FormatUtils.formatCurrency(customerDebtsTotal),
+                            icon = Icons.Default.AccountBalanceWallet,
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            contentColor = LuxuryGold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        StatCard(
+                            title = "ديون الموردين المطلوب سدادها",
+                            value = FormatUtils.formatCurrency(supplierDebtsTotal),
+                            icon = Icons.Default.LocalShipping,
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            contentColor = RubyExpense,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
-            }
+            } else {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        StatCard(
+                            title = "مبيعات نقدية",
+                            value = FormatUtils.formatCurrency(cashSales),
+                            icon = Icons.Default.Payments,
+                            containerColor = EmeraldLight,
+                            contentColor = EmeraldProfit,
+                            modifier = Modifier.weight(1f)
+                        )
+                        StatCard(
+                            title = "مبيعات بالدين (آجل)",
+                            value = FormatUtils.formatCurrency(debtSales),
+                            icon = Icons.Default.CreditCard,
+                            containerColor = GoldContainer,
+                            contentColor = LuxuryGold,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
 
-            // Debts Overview
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    StatCard(
-                        title = "ديون الزبائن المستحقة",
-                        value = FormatUtils.formatCurrency(customerDebtsTotal),
-                        icon = Icons.Default.AccountBalanceWallet,
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        contentColor = LuxuryGold,
-                        modifier = Modifier.weight(1f)
-                    )
-                    StatCard(
-                        title = "ديون الموردين المطلوب سدادها",
-                        value = FormatUtils.formatCurrency(supplierDebtsTotal),
-                        icon = Icons.Default.LocalShipping,
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        contentColor = RubyExpense,
-                        modifier = Modifier.weight(1f)
-                    )
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        StatCard(
+                            title = "ديون الزبائن المستحقة",
+                            value = FormatUtils.formatCurrency(customerDebtsTotal),
+                            icon = Icons.Default.AccountBalanceWallet,
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            contentColor = LuxuryGold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        StatCard(
+                            title = "ديون الموردين المطلوب سدادها",
+                            value = FormatUtils.formatCurrency(supplierDebtsTotal),
+                            icon = Icons.Default.LocalShipping,
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            contentColor = RubyExpense,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
 
@@ -462,6 +510,7 @@ fun ReportsScreen(
                     }
                 }
             }
+        }
         }
     }
 }

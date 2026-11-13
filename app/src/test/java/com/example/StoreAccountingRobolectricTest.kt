@@ -363,4 +363,135 @@ class StoreAccountingRobolectricTest {
         val movements = db.storeDao().getAllCashMovements().firstOrNull() ?: emptyList()
         assertEquals(0, movements.size)
     }
+
+    @Test
+    fun testResolveVoucherNumberPreservesManualAndGeneratesSequential() = runBlocking {
+        // Explicit voucher number preserved verbatim
+        assertEquals("V-500", repository.resolveVoucherNumber("  V-500  "))
+
+        // Blank input generates sequential SND-0001
+        val auto1 = repository.resolveVoucherNumber("")
+        assertEquals("SND-0001", auto1)
+
+        // Insert a payment with SND-0001, next blank call must generate SND-0002 without colliding
+        db.storeDao().insertDebtPayment(
+            DebtPayment(
+                debtId = 0L,
+                partyName = "عميل تجربة",
+                amount = 100.0,
+                timestamp = System.currentTimeMillis(),
+                notes = "دفعة أولى",
+                paymentMethod = "نقداً",
+                voucherNumber = auto1
+            )
+        )
+        val auto2 = repository.resolveVoucherNumber("   ")
+        assertEquals("SND-0002", auto2)
+    }
+
+    @Test
+    fun testRecordCollectionReceiptCashAppliesToCustomerDebtAndRemainder() = runBlocking {
+        // Customer owes 300
+        db.storeDao().insertDebt(
+            DebtRecord(
+                type = "CUSTOMER",
+                partyName = "أحمد علي",
+                phone = "777000111",
+                originalAmount = 300.0,
+                paidAmount = 0.0,
+                remainingAmount = 300.0,
+                details = "فاتورة آجل",
+                dueDate = System.currentTimeMillis() + 86400000L,
+                createdAt = System.currentTimeMillis(),
+                isSettled = false
+            )
+        )
+
+        // Collect 450 in cash with blank voucher -> should auto-generate SND-0001, settle 300 debt, record 150 direct credit
+        val receipt = repository.recordCollectionReceipt(
+            payerName = "أحمد علي",
+            party = null,
+            amount = 450.0,
+            voucherNumberInput = "",
+            paymentMethod = "نقداً",
+            exchangeAccount = null,
+            notes = "سداد كامل مع دفعة مقدمة"
+        )
+
+        assertEquals("SND-0001", receipt.voucherNumber)
+        assertEquals(300.0, receipt.appliedToDebtAmount, 0.01)
+        assertEquals(150.0, receipt.directCollectionAmount, 0.01)
+        assertEquals(0.0, receipt.remainingCustomerDebt, 0.01)
+
+        val debts = db.storeDao().getAllDebts().firstOrNull().orEmpty()
+        assertTrue(debts.first().isSettled)
+
+        val cashIn = db.storeDao().getAllCashMovements().firstOrNull().orEmpty()
+            .filter { it.type == "DEBT_COLLECTED" && it.isIncome }
+            .sumOf { it.amount }
+        assertEquals(450.0, cashIn, 0.01)
+    }
+
+    @Test
+    fun testRecordCollectionReceiptExchangeWithCustomVoucher() = runBlocking {
+        val accId = db.storeDao().insertExchangeAccount(
+            ExchangeAccount(name = "صرافة النجم", balance = 500.0)
+        )
+        val account = db.storeDao().getExchangeAccountById(accId)!!
+
+        val receipt = repository.recordCollectionReceipt(
+            payerName = "تحصيل عام",
+            party = null,
+            amount = 250.0,
+            voucherNumberInput = "SND-CUSTOM-9",
+            paymentMethod = "صرافة/محفظة",
+            exchangeAccount = account,
+            notes = "إيداع مباشر"
+        )
+
+        assertEquals("SND-CUSTOM-9", receipt.voucherNumber)
+        assertEquals("صرافة النجم", receipt.exchangeAccountName)
+
+        val updatedAcc = db.storeDao().getExchangeAccountById(accId)!!
+        assertEquals(750.0, updatedAcc.balance, 0.01)
+
+        val transfers = db.storeDao().getAllExchangeTransfers().firstOrNull().orEmpty()
+        assertEquals(1, transfers.size)
+        assertEquals("SND-CUSTOM-9", transfers[0].referenceNumber)
+        assertEquals(250.0, transfers[0].amount, 0.01)
+    }
+
+    @Test
+    fun testClearEverythingCompletelyAndNoSeededDemoData() = runBlocking {
+        // Seed initial data must remain a no-op (app starts clean with zero demo records)
+        repository.seedInitialDataIfEmpty()
+        assertEquals(0, db.storeDao().getAllProducts().firstOrNull().orEmpty().size)
+        assertEquals(0, db.storeDao().getAllExchangeAccounts().firstOrNull().orEmpty().size)
+
+        // Insert sample items and wipe completely
+        db.storeDao().insertProduct(
+            ProductItem(
+                category = "ملابس",
+                modelName = "صنف مؤقت",
+                color = "أبيض",
+                size = "L",
+                quantity = 5,
+                buyPrice = 10.0,
+                sellPrice = 20.0
+            )
+        )
+        db.storeDao().insertExchangeAccount(ExchangeAccount(name = "صراف مؤقت", balance = 100.0))
+        db.storeDao().insertParty(PartyAccount(name = "عميل مؤقت", type = "CUSTOMER"))
+        db.storeDao().insertAuditLog(
+            AuditLogRecord(action = "اختبار", details = "سجل مؤقت", timestamp = System.currentTimeMillis())
+        )
+
+        repository.clearEverythingCompletely()
+
+        assertEquals(0, db.storeDao().getAllProducts().firstOrNull().orEmpty().size)
+        assertEquals(0, db.storeDao().getAllExchangeAccounts().firstOrNull().orEmpty().size)
+        assertEquals(0, db.storeDao().getAllParties().firstOrNull().orEmpty().size)
+        assertEquals(0, db.storeDao().getAllAuditLogs().firstOrNull().orEmpty().size)
+        assertEquals(0, db.storeDao().getAllSales().firstOrNull().orEmpty().size)
+    }
 }

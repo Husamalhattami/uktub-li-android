@@ -1,6 +1,7 @@
 package com.example.ui
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.database.AppDatabase
@@ -42,7 +43,12 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
-            repository.seedInitialDataIfEmpty()
+            val prefs = application.getSharedPreferences("hesabi_prefs", Context.MODE_PRIVATE)
+            if (!prefs.getBoolean("initial_wipe_v8_done", false)) {
+                repository.clearEverythingCompletely()
+                _customCategories.value = emptySet()
+                prefs.edit().putBoolean("initial_wipe_v8_done", true).apply()
+            }
             val existing = repository.getStoreSettingsDirect()
             if (existing == null) {
                 repository.saveStoreSettings(
@@ -88,13 +94,12 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _customCategories = MutableStateFlow<Set<String>>(emptySet())
     val allCategories: StateFlow<List<String>> = combine(products, _customCategories) { prods, custom ->
-        val defaultPresets = listOf("بشت", "كوت", "دجلة", "جاكت", "ثوب", "قميص", "بنطلون", "دشداشة", "بدلة", "شماغ/شال", "أقمشة", "إكسسوارات")
         val fromProds = prods.map { it.category.trim() }.filter { it.isNotBlank() }
-        (listOf("الكل") + defaultPresets + custom + fromProds).distinct().filter { it.isNotBlank() }
+        (listOf("الكل") + custom + fromProds).distinct().filter { it.isNotBlank() }
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
-        listOf("الكل", "بشت", "كوت", "دجلة", "جاكت", "ثوب", "قميص", "بنطلون", "دشداشة", "بدلة", "شماغ/شال", "أقمشة", "إكسسوارات")
+        listOf("الكل")
     )
 
     fun addNewCategory(name: String) {
@@ -164,6 +169,52 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissReceipt() {
         _completedReceipt.value = null
+    }
+
+    // --- Completed Collection Receipt Dialog Event ---
+    private val _completedCollectionReceipt = MutableStateFlow<CollectionReceiptResult?>(null)
+    val completedCollectionReceipt: StateFlow<CollectionReceiptResult?> = _completedCollectionReceipt.asStateFlow()
+
+    fun dismissCollectionReceipt() {
+        _completedCollectionReceipt.value = null
+    }
+
+    fun recordCollectionReceipt(
+        payerName: String,
+        party: PartyAccount?,
+        amount: Double,
+        voucherNumberInput: String,
+        paymentMethod: String,
+        exchangeAccount: ExchangeAccount? = null,
+        notes: String = "",
+        onSuccess: (CollectionReceiptResult) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            if (amount <= 0.0) {
+                _userMessage.value = "يرجى إدخال مبلغ التحصيل"
+                return@launch
+            }
+            if (paymentMethod != "نقداً" && exchangeAccount == null) {
+                _userMessage.value = "يرجى اختيار حساب الصرافة أو المحفظة"
+                return@launch
+            }
+            try {
+                val result = repository.recordCollectionReceipt(
+                    payerName = payerName,
+                    party = party,
+                    amount = amount,
+                    voucherNumberInput = voucherNumberInput,
+                    paymentMethod = paymentMethod,
+                    exchangeAccount = exchangeAccount,
+                    notes = notes
+                )
+                _completedCollectionReceipt.value = result
+                _userMessage.value = "تم التحصيل بنجاح • رقم السند: ${result.voucherNumber}"
+                onSuccess(result)
+            } catch (e: Exception) {
+                _userMessage.value = e.message ?: "تعذر تنفيذ عملية التحصيل"
+            }
+        }
     }
 
     // --- Toast / Feedback Message ---
@@ -763,7 +814,8 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "تم تصفير وحذف جميع حركات البيع والشراء والمصروفات والديون"
             } else {
                 repository.clearEverythingCompletely()
-                _userMessage.value = "تم حذف جميع البيانات والمخزون والبدء من جديد بحساب فارغ"
+                _customCategories.value = emptySet()
+                _userMessage.value = "تم تهيئة التطبيق وإفراغ جميع البيانات والمنتجات والأنواع بالكامل"
             }
             onSuccess()
         }

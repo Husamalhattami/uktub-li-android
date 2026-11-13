@@ -5,9 +5,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -19,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -72,14 +75,20 @@ fun EmployeesScreen(
             )
         }
     ) { paddingValues ->
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(MaterialTheme.colorScheme.background),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            contentAlignment = Alignment.TopCenter
         ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 960.dp),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
             // Header summary
             item {
                 Card(
@@ -150,6 +159,7 @@ fun EmployeesScreen(
                 }
             }
         }
+        }
     }
 
     // Action Dialog (سلفة / خصم غياب / صرف راتب)
@@ -170,7 +180,9 @@ fun EmployeesScreen(
             },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     OutlinedTextField(
@@ -290,7 +302,9 @@ fun EmployeesScreen(
             title = { Text("إضافة عامل جديد للمحل", fontWeight = FontWeight.Bold) },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     OutlinedTextField(
@@ -500,7 +514,9 @@ fun EmployeesScreen(
             },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text("العامل: ${tx.employeeName}", fontWeight = FontWeight.Bold, color = SlateTextPrimary)
@@ -604,7 +620,9 @@ fun EmployeesScreen(
             title = { Text("تعديل بيانات العامل", fontWeight = FontWeight.Bold) },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     OutlinedTextField(
@@ -868,7 +886,7 @@ fun EmployeeCard(
                     shape = RoundedCornerShape(8.dp),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
                 ) {
-                    Text("سلفة", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("سلفة", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
                 OutlinedButton(
                     onClick = onAddDeduction,
@@ -876,7 +894,7 @@ fun EmployeeCard(
                     shape = RoundedCornerShape(8.dp),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
                 ) {
-                    Text("خصم", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("خصم", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
                 Button(
                     onClick = onPaySalary,
@@ -885,7 +903,7 @@ fun EmployeeCard(
                     colors = ButtonDefaults.buttonColors(containerColor = EmeraldProfit),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
                 ) {
-                    Text("صرف راتب", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("صرف راتب", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
                 IconButton(onClick = onViewHistory) {
                     Icon(Icons.Default.History, contentDescription = "سجل الحركات", tint = MaterialTheme.colorScheme.primary)

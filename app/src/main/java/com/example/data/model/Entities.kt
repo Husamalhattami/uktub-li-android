@@ -184,7 +184,21 @@ data class DebtPayment(
     val notes: String = "",
     val shiftId: Long = 0,
     val paymentMethod: String = "نقداً", // "نقداً" or "صرافة/محفظة"
-    val exchangeAccountId: Long = 0
+    val exchangeAccountId: Long = 0,
+    val voucherNumber: String = ""
+)
+
+data class CollectionReceiptResult(
+    val voucherNumber: String,
+    val payerName: String,
+    val amount: Double,
+    val paymentMethod: String,
+    val exchangeAccountName: String = "",
+    val appliedToDebtAmount: Double = 0.0,
+    val directCollectionAmount: Double = 0.0,
+    val remainingCustomerDebt: Double = 0.0,
+    val notes: String = "",
+    val timestamp: Long = System.currentTimeMillis()
 )
 
 @Entity(tableName = "shifts")

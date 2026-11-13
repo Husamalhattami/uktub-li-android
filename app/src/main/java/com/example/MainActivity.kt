@@ -7,6 +7,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.animation.*
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
@@ -17,9 +20,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.AppScreen
 import com.example.ui.StoreViewModel
+import com.example.ui.components.CollectionSuccessDialog
+import com.example.ui.components.PdfBottomNavigation
+import com.example.ui.components.PdfNavigationRail
 import com.example.ui.components.SaleReceiptDialog
 import com.example.ui.screens.*
 import com.example.ui.theme.MyApplicationTheme
@@ -43,6 +50,8 @@ class MainActivity : ComponentActivity() {
 fun MainAppContent(viewModel: StoreViewModel) {
     val currentScreen by viewModel.currentScreen.collectAsStateWithLifecycle()
     val completedReceipt by viewModel.completedReceipt.collectAsStateWithLifecycle()
+    val completedCollectionReceipt by viewModel.completedCollectionReceipt.collectAsStateWithLifecycle()
+    val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
     val userMessage by viewModel.userMessage.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -59,90 +68,109 @@ fun MainAppContent(viewModel: StoreViewModel) {
         }
     }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        bottomBar = {
-            val showBottomBar = currentScreen in listOf(
-                AppScreen.HOME,
-                AppScreen.SALE,
-                AppScreen.INVENTORY,
-                AppScreen.CASH_DRAWER,
-                AppScreen.REPORTS,
-                AppScreen.EXCHANGE_ACCOUNTS,
-                AppScreen.DEBTS
-            )
-            if (showBottomBar) {
-                com.example.ui.components.PdfBottomNavigation(
-                    currentScreen = currentScreen,
-                    onNavigate = { viewModel.navigateTo(it) }
-                )
+    val showMainNav = currentScreen in listOf(
+        AppScreen.HOME,
+        AppScreen.SALE,
+        AppScreen.INVENTORY,
+        AppScreen.CASH_DRAWER,
+        AppScreen.REPORTS,
+        AppScreen.EXCHANGE_ACCOUNTS,
+        AppScreen.DEBTS
+    )
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val useNavigationRail = maxWidth >= 600.dp
+
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            bottomBar = {
+                if (showMainNav && !useNavigationRail) {
+                    PdfBottomNavigation(
+                        currentScreen = currentScreen,
+                        onNavigate = { viewModel.navigateTo(it) }
+                    )
+                }
             }
-        }
-    ) { innerPadding ->
-        AnimatedContent(
-            targetState = currentScreen,
-            modifier = Modifier.padding(innerPadding),
-            transitionSpec = {
-                fadeIn() togetherWith fadeOut()
-            },
-            label = "ScreenTransition"
-        ) { screen ->
-            when (screen) {
-                AppScreen.HOME -> HomeScreen(
-                    viewModel = viewModel,
-                    onNavigate = { viewModel.navigateTo(it) }
-                )
-                AppScreen.SALE -> SaleScreen(
-                    viewModel = viewModel,
-                    onBack = { viewModel.navigateBack() }
-                )
-                AppScreen.PURCHASE -> PurchaseScreen(
-                    viewModel = viewModel,
-                    onBack = { viewModel.navigateBack() }
-                )
-                AppScreen.INVENTORY -> InventoryScreen(
-                    viewModel = viewModel,
-                    onNavigate = { viewModel.navigateTo(it) },
-                    onBack = { viewModel.navigateBack() }
-                )
-                AppScreen.EXPENSES -> ExpensesScreen(
-                    viewModel = viewModel,
-                    onBack = { viewModel.navigateBack() }
-                )
-                AppScreen.EMPLOYEES -> EmployeesScreen(
-                    viewModel = viewModel,
-                    onBack = { viewModel.navigateBack() }
-                )
-                AppScreen.DEBTS -> DebtsScreen(
-                    viewModel = viewModel,
-                    onBack = { viewModel.navigateBack() }
-                )
-                AppScreen.REPORTS -> ReportsScreen(
-                    viewModel = viewModel,
-                    onBack = { viewModel.navigateBack() }
-                )
-                AppScreen.CASH_DRAWER -> CashDrawerScreen(
-                    viewModel = viewModel,
-                    onNavigate = { viewModel.navigateTo(it) },
-                    onBack = { viewModel.navigateBack() }
-                )
-                AppScreen.EXCHANGE_ACCOUNTS -> ExchangeAccountsScreen(
-                    viewModel = viewModel,
-                    onBack = { viewModel.navigateBack() }
-                )
-                AppScreen.TRANSACTIONS_LOG -> TransactionsManagerScreen(
-                    viewModel = viewModel,
-                    onBack = { viewModel.navigateBack() }
-                )
-                AppScreen.STORE_AUDIT -> StoreAuditScreen(
-                    viewModel = viewModel,
-                    onBack = { viewModel.navigateBack() }
-                )
-                AppScreen.SETTINGS, AppScreen.AUDIT_LOGS -> SettingsScreen(
-                    viewModel = viewModel,
-                    onBack = { viewModel.navigateBack() }
-                )
+        ) { innerPadding ->
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .consumeWindowInsets(innerPadding)
+            ) {
+                if (showMainNav && useNavigationRail) {
+                    PdfNavigationRail(
+                        currentScreen = currentScreen,
+                        onNavigate = { viewModel.navigateTo(it) }
+                    )
+                }
+
+                AnimatedContent(
+                    targetState = currentScreen,
+                    modifier = Modifier.weight(1f).fillMaxSize(),
+                    transitionSpec = {
+                        fadeIn() togetherWith fadeOut()
+                    },
+                    label = "ScreenTransition"
+                ) { screen ->
+                    when (screen) {
+                        AppScreen.HOME -> HomeScreen(
+                            viewModel = viewModel,
+                            onNavigate = { viewModel.navigateTo(it) }
+                        )
+                        AppScreen.SALE -> SaleScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.navigateBack() }
+                        )
+                        AppScreen.PURCHASE -> PurchaseScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.navigateBack() }
+                        )
+                        AppScreen.INVENTORY -> InventoryScreen(
+                            viewModel = viewModel,
+                            onNavigate = { viewModel.navigateTo(it) },
+                            onBack = { viewModel.navigateBack() }
+                        )
+                        AppScreen.EXPENSES -> ExpensesScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.navigateBack() }
+                        )
+                        AppScreen.EMPLOYEES -> EmployeesScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.navigateBack() }
+                        )
+                        AppScreen.DEBTS -> DebtsScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.navigateBack() }
+                        )
+                        AppScreen.REPORTS -> ReportsScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.navigateBack() }
+                        )
+                        AppScreen.CASH_DRAWER -> CashDrawerScreen(
+                            viewModel = viewModel,
+                            onNavigate = { viewModel.navigateTo(it) },
+                            onBack = { viewModel.navigateBack() }
+                        )
+                        AppScreen.EXCHANGE_ACCOUNTS -> ExchangeAccountsScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.navigateBack() }
+                        )
+                        AppScreen.TRANSACTIONS_LOG -> TransactionsManagerScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.navigateBack() }
+                        )
+                        AppScreen.STORE_AUDIT -> StoreAuditScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.navigateBack() }
+                        )
+                        AppScreen.SETTINGS, AppScreen.AUDIT_LOGS -> SettingsScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.navigateBack() }
+                        )
+                    }
+                }
             }
         }
     }
@@ -152,6 +180,15 @@ fun MainAppContent(viewModel: StoreViewModel) {
         SaleReceiptDialog(
             receipt = receipt,
             onDismiss = { viewModel.dismissReceipt() }
+        )
+    }
+
+    // Collection Receipt Dialog when money collection is completed
+    completedCollectionReceipt?.let { receipt ->
+        CollectionSuccessDialog(
+            receipt = receipt,
+            settings = storeSettings,
+            onDismiss = { viewModel.dismissCollectionReceipt() }
         )
     }
 }

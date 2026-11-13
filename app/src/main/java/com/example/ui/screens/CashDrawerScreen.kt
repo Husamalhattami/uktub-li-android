@@ -6,9 +6,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -27,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.ExchangeAccount
 import com.example.ui.StoreViewModel
+import com.example.ui.components.CollectionReceiptDialog
 import com.example.ui.components.QuickThousandAdder
 import com.example.ui.components.StoreTopBar
 import com.example.ui.theme.*
@@ -55,12 +58,15 @@ fun CashDrawerScreen(
     val cashMovements by viewModel.cashMovements.collectAsStateWithLifecycle()
     val exchangeTransfers by viewModel.exchangeTransfers.collectAsStateWithLifecycle()
     val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
+    val customerParties by viewModel.customerParties.collectAsStateWithLifecycle()
+    val debts by viewModel.debts.collectAsStateWithLifecycle()
     val context = androidx.compose.ui.platform.LocalContext.current
 
     var showWithdrawalDialog by remember { mutableStateOf(false) }
     var showDepositDialog by remember { mutableStateOf(false) }
     var showTransferDialog by remember { mutableStateOf(false) }
     var showAuditDialog by remember { mutableStateOf(false) }
+    var showCollectionDialog by remember { mutableStateOf(false) }
 
     var selectedPeriod by remember { mutableStateOf("آخر 7 أيام") } // "اليوم", "أمس", "آخر 7 أيام", "هذا الشهر", "الكل"
 
@@ -181,28 +187,32 @@ fun CashDrawerScreen(
             )
         }
     ) { paddingValues ->
-        LazyColumn(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(Color(0xFFF8FAFC)),
-            contentPadding = PaddingValues(14.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            contentAlignment = Alignment.TopCenter
         ) {
+            val isWide = maxWidth >= 600.dp
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .widthIn(max = 960.dp)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(14.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
             // ==========================================
             // 1. The 4 Balance Cards (Page 3 in PDF)
             // ==========================================
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // Row 1: الصندوق | صرافة الكريمي (or first exchange account)
                     val firstAcc = exchangeAccounts.firstOrNull { it.name.contains("كريمي") } ?: exchangeAccounts.firstOrNull()
                     val secondAcc = exchangeAccounts.firstOrNull { it.name.contains("جوالي") || it.type == "محفظة" } ?: exchangeAccounts.getOrNull(1)
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        // الصندوق (Right in RTL)
+                    val cashCard: @Composable (Modifier) -> Unit = { mod ->
                         PdfAccountBalanceCard(
                             name = "الصندوق",
                             amount = cashBalance,
@@ -210,31 +220,21 @@ fun CashDrawerScreen(
                             icon = Icons.Default.Payments,
                             iconColor = Color(0xFF0F766E),
                             iconBg = Color(0xFFCCFBF1),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { showDepositDialog = true }
+                            modifier = mod.clickable { showDepositDialog = true }
                         )
-
-                        // صرافة الكريمي (Left in RTL)
+                    }
+                    val acc1Card: @Composable (Modifier) -> Unit = { mod ->
                         PdfAccountBalanceCard(
-                            name = firstAcc?.name ?: "صرافة الكريمي",
+                            name = firstAcc?.name ?: "صرافة / حساب 1",
                             amount = firstAcc?.balance ?: 0.0,
                             statusText = "حساب صرافة • إدارة",
                             icon = Icons.Default.AccountBalance,
                             iconColor = Color(0xFF1E3A8A),
                             iconBg = Color(0xFFDBEAFE),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { onNavigate(com.example.ui.AppScreen.EXCHANGE_ACCOUNTS) }
+                            modifier = mod.clickable { onNavigate(com.example.ui.AppScreen.EXCHANGE_ACCOUNTS) }
                         )
                     }
-
-                    // Row 2: محفظة جوالي | ديون العملاء
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        // محفظة جوالي
+                    val acc2Card: @Composable (Modifier) -> Unit = { mod ->
                         PdfAccountBalanceCard(
                             name = secondAcc?.name ?: "محفظة إلكترونية",
                             amount = secondAcc?.balance ?: 0.0,
@@ -242,12 +242,10 @@ fun CashDrawerScreen(
                             icon = Icons.Default.PhoneAndroid,
                             iconColor = Color(0xFF0284C7),
                             iconBg = Color(0xFFE0F2FE),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { onNavigate(com.example.ui.AppScreen.EXCHANGE_ACCOUNTS) }
+                            modifier = mod.clickable { onNavigate(com.example.ui.AppScreen.EXCHANGE_ACCOUNTS) }
                         )
-
-                        // ديون العملاء
+                    }
+                    val debtsCard: @Composable (Modifier) -> Unit = { mod ->
                         PdfAccountBalanceCard(
                             name = "ديون العملاء",
                             amount = totalCustomerDebts,
@@ -255,10 +253,35 @@ fun CashDrawerScreen(
                             icon = Icons.Default.Group,
                             iconColor = Color(0xFF4338CA),
                             iconBg = Color(0xFFEEF2FF),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { onNavigate(com.example.ui.AppScreen.DEBTS) }
+                            modifier = mod.clickable { onNavigate(com.example.ui.AppScreen.DEBTS) }
                         )
+                    }
+
+                    if (isWide) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            cashCard(Modifier.weight(1f))
+                            acc1Card(Modifier.weight(1f))
+                            acc2Card(Modifier.weight(1f))
+                            debtsCard(Modifier.weight(1f))
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            cashCard(Modifier.weight(1f))
+                            acc1Card(Modifier.weight(1f))
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            acc2Card(Modifier.weight(1f))
+                            debtsCard(Modifier.weight(1f))
+                        }
                     }
 
                     // Quick Management Chips
@@ -397,19 +420,38 @@ fun CashDrawerScreen(
             // Quick Drawer Management Actions
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Main Transfer Button
-                    Button(
-                        onClick = { showTransferDialog = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(46.dp)
-                            .testTag("btn_transfer_cash_exchange"),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = PdfHeaderNavy)
+                    // Collection & Transfer Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = PdfGoldPrimary, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("ترحيل سيولة: بين الصندوق والصراف", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Button(
+                            onClick = { showCollectionDialog = true },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .testTag("btn_cash_drawer_collect"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = FintechEmerald)
+                        ) {
+                            Icon(Icons.Default.PriceCheck, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("تحصيل زلط (سند قبض)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+
+                        Button(
+                            onClick = { showTransferDialog = true },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .testTag("btn_transfer_cash_exchange"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = PdfHeaderNavy)
+                        ) {
+                            Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = PdfGoldPrimary, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("ترحيل صندوق/صراف", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
 
                     // Secondary Buttons: سحب المالك | إيداع سيولة
@@ -427,7 +469,7 @@ fun CashDrawerScreen(
                         ) {
                             Icon(Icons.Default.ArrowOutward, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("سحب المالك", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("سحب المالك", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                         }
 
                         Button(
@@ -436,11 +478,11 @@ fun CashDrawerScreen(
                                 .weight(1f)
                                 .height(42.dp),
                             shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = FintechEmerald)
+                            colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
                         ) {
                             Icon(Icons.Default.ArrowDownward, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("إيداع سيولة", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("إيداع سيولة", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                         }
                     }
                 }
@@ -642,6 +684,7 @@ fun CashDrawerScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
         }
+        }
     }
 
     // Owner Withdrawal Dialog
@@ -653,7 +696,12 @@ fun CashDrawerScreen(
             onDismissRequest = { showWithdrawalDialog = false },
             title = { Text("توثيق سحب المالك من الصندوق", fontWeight = FontWeight.Bold) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Text("الرصيد المتاح بالصندوق حالياً: ${FormatUtils.formatCurrency(cashBalance)}")
                     OutlinedTextField(
                         value = withdrawAmountStr,
@@ -702,7 +750,12 @@ fun CashDrawerScreen(
             onDismissRequest = { showDepositDialog = false },
             title = { Text("إيداع سيولة جديدة في الصندوق", fontWeight = FontWeight.Bold) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     OutlinedTextField(
                         value = depositAmountStr,
                         onValueChange = { depositAmountStr = it },
@@ -758,7 +811,12 @@ fun CashDrawerScreen(
                 }
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     // Direction Switcher
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -882,6 +940,28 @@ fun CashDrawerScreen(
             dismissButton = {
                 OutlinedButton(onClick = { showTransferDialog = false }) {
                     Text("إلغاء")
+                }
+            }
+        )
+    }
+
+    if (showCollectionDialog) {
+        CollectionReceiptDialog(
+            customerParties = customerParties,
+            customerDebts = debts,
+            exchangeAccounts = exchangeAccounts,
+            onDismiss = { showCollectionDialog = false },
+            onConfirm = { payerName, party, amount, voucher, method, account, notes ->
+                viewModel.recordCollectionReceipt(
+                    payerName = payerName,
+                    party = party,
+                    amount = amount,
+                    voucherNumberInput = voucher,
+                    paymentMethod = method,
+                    exchangeAccount = account,
+                    notes = notes
+                ) {
+                    showCollectionDialog = false
                 }
             }
         )

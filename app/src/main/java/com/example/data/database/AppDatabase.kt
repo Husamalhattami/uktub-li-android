@@ -25,7 +25,7 @@ import com.example.data.model.*
         AuditLogRecord::class,
         StoreSettings::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -42,9 +42,34 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "hesabi_store.db"
-                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).fallbackToDestructiveMigration().build()
+                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).fallbackToDestructiveMigration().build()
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        private val MIGRATION_7_8 = object : androidx.room.migration.Migration(7, 8) {
+            override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE debt_payments ADD COLUMN voucherNumber TEXT NOT NULL DEFAULT ''")
+                val tablesToWipe = listOf(
+                    "products",
+                    "sales",
+                    "purchases",
+                    "expenses",
+                    "employees",
+                    "employee_transactions",
+                    "debts",
+                    "debt_payments",
+                    "shifts",
+                    "cash_movements",
+                    "exchange_accounts",
+                    "exchange_transfers",
+                    "parties",
+                    "audit_logs"
+                )
+                tablesToWipe.forEach { table ->
+                    database.execSQL("DELETE FROM `$table`")
+                }
             }
         }
 

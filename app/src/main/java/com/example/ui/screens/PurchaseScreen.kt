@@ -9,9 +9,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -83,10 +85,12 @@ fun PurchaseScreen(
     val purchaseCartItems = remember { mutableStateListOf<CartPurchaseItem>() }
 
     // Item Creation Form State
-    var selectedCategory by remember { mutableStateOf(selectableCategories.firstOrNull() ?: "ثوب") }
+    var selectedCategory by remember { mutableStateOf(selectableCategories.firstOrNull() ?: "") }
     LaunchedEffect(selectableCategories) {
         if (selectedCategory.isBlank() && selectableCategories.isNotEmpty()) {
             selectedCategory = selectableCategories.first()
+        } else if (selectableCategories.isEmpty()) {
+            selectedCategory = ""
         }
     }
     var showAddCategoryDialog by remember { mutableStateOf(false) }
@@ -158,6 +162,10 @@ fun PurchaseScreen(
     var completedReceipt by remember { mutableStateOf<CompletedPurchaseReceipt?>(null) }
 
     fun addItemToCart() {
+        if (selectedCategory.isBlank()) {
+            viewModel.showMessage("يرجى إضافة أو اختيار نوع الصنف أولاً")
+            return
+        }
         val count = unitCountStr.toDoubleOrNull() ?: 1.0
         val buyPrice = buyPricePerUnitStr.toDoubleOrNull() ?: 0.0
         val sellPrice = sellPricePerUnitStr.toDoubleOrNull() ?: 0.0
@@ -390,14 +398,21 @@ fun PurchaseScreen(
             )
         }
     ) { paddingValues ->
-        LazyColumn(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(Color(0xFFF8FAFC)),
-            contentPadding = PaddingValues(14.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            contentAlignment = Alignment.TopCenter
         ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .widthIn(max = 920.dp)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(14.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
             // ==========================================
             // 1. INVOICE META CARD: Supplier & Invoice Number
             // ==========================================
@@ -554,12 +569,21 @@ fun PurchaseScreen(
                             }
                         }
 
+                        if (selectableCategories.isEmpty()) {
+                            Text(
+                                "لا توجد أنواع مسجلة حالياً — اضغط «نوع جديد +» لإضافة أول نوع صنف",
+                                fontSize = 11.sp,
+                                color = Color(0xFFB45309)
+                            )
+                        }
+
                         // Model / Title Name
+                        val modelLabelHint = if (selectedCategory.isNotBlank()) "$selectedCategory $selectedSize" else "اسم الموديل"
                         OutlinedTextField(
                             value = modelName,
                             onValueChange = { modelName = it },
-                            label = { Text("اسم الموديل / الوصف (اختياري، الافتراضي: $selectedCategory $selectedSize)") },
-                            placeholder = { Text("مثال: $selectedCategory ملكي مطرز، صوف إنجليزي...") },
+                            label = { Text("اسم الموديل / الوصف (اختياري، الافتراضي: $modelLabelHint)") },
+                            placeholder = { Text("مثال: ${selectedCategory.ifBlank { "موديل جديد" }} ملكي مطرز...") },
                             modifier = Modifier.fillMaxWidth().testTag("purchase_model_name_input"),
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp)
@@ -1051,7 +1075,12 @@ fun PurchaseScreen(
                 }
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Text("اكتب اسم نوع الصنف وسيظهر فوراً في قائمة الاختيارات السريعة للشراء والبيع والمخزون:", fontSize = 12.sp, color = Color(0xFF64748B))
                     OutlinedTextField(
                         value = newCategoryInput,
@@ -1129,7 +1158,9 @@ fun PurchaseScreen(
             },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Card(
@@ -1204,5 +1235,6 @@ fun PurchaseScreen(
                 }
             }
         )
+        }
     }
 }

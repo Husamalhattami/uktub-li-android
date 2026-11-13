@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -153,14 +155,20 @@ fun InventoryScreen(
             }
         }
     ) { paddingValues ->
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(Color(0xFFF8FAFC)),
-            contentPadding = PaddingValues(14.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            contentAlignment = Alignment.TopCenter
         ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 960.dp),
+                contentPadding = PaddingValues(14.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
             // ==========================================
             // 1. Search Bar (Page 4 in PDF)
             // ==========================================
@@ -309,6 +317,7 @@ fun InventoryScreen(
                 Spacer(modifier = Modifier.height(30.dp))
             }
         }
+        }
     }
 
     // Edit Product Dialog
@@ -321,7 +330,12 @@ fun InventoryScreen(
             onDismissRequest = { editingProduct = null },
             title = { Text("تعديل بيانات الصنف", fontWeight = FontWeight.Bold) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     OutlinedTextField(
                         value = editModelName,
                         onValueChange = { editModelName = it },
@@ -369,7 +383,9 @@ fun InventoryScreen(
             onDismissRequest = { productToDelete = null },
             title = { Text("حذف الصنف من المخزون", fontWeight = FontWeight.Bold) },
             text = {
-                Text("هل أنت متأكد من حذف (${prod.modelName})؟ سيتم حذفه من قائمة المخزون.")
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text("هل أنت متأكد من حذف (${prod.modelName})؟ سيتم حذفه من قائمة المخزون.")
+                }
             },
             confirmButton = {
                 Button(
@@ -398,7 +414,12 @@ fun InventoryScreen(
                 }
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Text("اكتب اسم نوع الصنف وسيظهر فوراً في قائمة الاختيارات السريعة:", fontSize = 12.sp, color = Color(0xFF64748B))
                     OutlinedTextField(
                         value = newCategoryInput,

@@ -7,10 +7,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -420,14 +425,490 @@ fun SaleScreen(
             )
         }
     ) { paddingValues ->
-        LazyColumn(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .background(Color(0xFFF8FAFC)),
-            contentPadding = PaddingValues(14.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .background(Color(0xFFF8FAFC))
         ) {
+            val isWideLayout = maxWidth >= 720.dp
+
+            if (isWideLayout) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // Left/Start Pane: Search + Categories + Product Grid
+                    Column(
+                        modifier = Modifier
+                            .weight(1.05f)
+                            .fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                placeholder = {
+                                    Text(
+                                        "البحث عن منتج بالاسم أو الباركود ...",
+                                        fontSize = 13.sp,
+                                        color = Color(0xFF94A3B8),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
+                                trailingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF64748B)) },
+                                shape = RoundedCornerShape(14.dp),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = Color.White,
+                                    unfocusedContainerColor = Color.White,
+                                    focusedBorderColor = Color(0xFFCBD5E1),
+                                    unfocusedBorderColor = Color(0xFFE2E8F0)
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(52.dp)
+                            )
+
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = Color(0xFF0F1E36),
+                                modifier = Modifier
+                                    .height(52.dp)
+                                    .clickable {
+                                        viewModel.showMessage("تم تشغيل مسح الباركود للكاميرا")
+                                    }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp)
+                                ) {
+                                    Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                                    Text("مسح باركود", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                }
+                            }
+                        }
+
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item {
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = Color(0xFFEFF6FF),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B82F6)),
+                                    modifier = Modifier.clickable { showAddCategoryDialog = true }
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("نوع جديد +", color = Color(0xFF2563EB), fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+                                    }
+                                }
+                            }
+                            items(categories) { cat ->
+                                val isSelected = selectedCategory == cat
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = if (isSelected) PdfGoldDark else Color.White,
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) PdfGoldDark else Color(0xFFE2E8F0)),
+                                    modifier = Modifier.clickable { selectedCategory = cat }
+                                ) {
+                                    Text(
+                                        text = cat,
+                                        color = if (isSelected) Color.White else Color(0xFF475569),
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        fontSize = 13.sp,
+                                        maxLines = 1,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        if (filteredProducts.isEmpty()) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.White)
+                            ) {
+                                Text(
+                                    text = "لا توجد أصناف مطابقة للبحث.",
+                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF94A3B8)),
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            }
+                        } else {
+                            LazyVerticalGrid(
+                                columns = GridCells.Adaptive(minSize = 155.dp),
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                gridItems(filteredProducts, key = { it.id }) { product ->
+                                    val inCartPieces = cartItems.filter { it.product.id == product.id }.sumOf { it.totalPieces }
+                                    PdfProductShelfCard(
+                                        product = product,
+                                        inCartPieces = inCartPieces,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(165.dp),
+                                        onAddClick = { productToConfigure = product }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Right/End Pane: Invoice Cart + Payment Details
+                    LazyColumn(
+                        modifier = Modifier
+                            .weight(0.95f)
+                            .fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(Icons.Default.ShoppingCart, contentDescription = null, tint = Color(0xFF0F172A), modifier = Modifier.size(20.dp))
+                                    Text(
+                                        text = "سلة الفاتورة (${cartItems.size} أصناف - ${cartItems.sumOf { it.totalPieces }} حبة)",
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF0F172A),
+                                            fontSize = 15.sp
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                if (cartItems.isNotEmpty()) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        modifier = Modifier
+                                            .clickable { cartItems.clear() }
+                                            .padding(4.dp)
+                                    ) {
+                                        Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                                        Text("إفراغ السلة", color = Color(0xFFEF4444), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
+                        if (cartItems.isEmpty()) {
+                            item {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(20.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(Icons.Default.AddShoppingCart, contentDescription = null, tint = Color(0xFFCBD5E1), modifier = Modifier.size(34.dp))
+                                        Text("السلة فارغة حالياً", fontWeight = FontWeight.Bold, color = Color(0xFF64748B), fontSize = 14.sp)
+                                        Text("اختر أي صنف من القائمة الجانبية لإضافته للفاتورة", fontSize = 11.sp, color = Color(0xFF94A3B8))
+                                    }
+                                }
+                            }
+                        } else {
+                            items(cartItems) { item ->
+                                PdfCartItemRow(
+                                    item = item,
+                                    onUnitChange = { newUnit ->
+                                        val newMultiplier = ClothingUnits.getMultiplier(newUnit)
+                                        val otherPieces = cartItems.filter { it != item && it.product.id == item.product.id }.sumOf { it.totalPieces }
+                                        if (otherPieces + (item.quantity * newMultiplier) > item.product.quantity) {
+                                            viewModel.showMessage("الكمية المطلوبة تتجاوز المتوفر بالمخزون (${item.product.quantity} حبة)!")
+                                        } else {
+                                            item.unit = newUnit
+                                            item.unitPrice = item.product.sellPrice * newMultiplier
+                                        }
+                                    },
+                                    onIncrement = {
+                                        val otherPieces = cartItems.filter { it != item && it.product.id == item.product.id }.sumOf { it.totalPieces }
+                                        if (otherPieces + ((item.quantity + 1) * item.multiplier) <= item.product.quantity) {
+                                            item.quantity++
+                                        } else {
+                                            viewModel.showMessage("وصلت للحد الأقصى المتوفر بالمخزون (${item.product.quantity} حبة)!")
+                                        }
+                                    },
+                                    onDecrement = {
+                                        if (item.quantity > 1) item.quantity-- else cartItems.remove(item)
+                                    },
+                                    onEditPrice = { editingCartItemPrice = item },
+                                    onRemove = { cartItems.remove(item) }
+                                )
+                            }
+                        }
+
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(18.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.White),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedTextField(
+                                            value = customerName,
+                                            onValueChange = { customerName = it },
+                                            label = { Text(if (paymentType == "آجل (دين)" || paymentType == "بالدين") "اسم العميل الكامل (إجباري للآجل) *" else "اسم العميل / الزبون (اختياري)") },
+                                            modifier = Modifier.weight(1f),
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        FilledTonalIconButton(
+                                            onClick = { showAddCustomerDialog = true },
+                                            modifier = Modifier.size(52.dp)
+                                        ) {
+                                            Icon(Icons.Default.PersonAdd, contentDescription = "إضافة عميل جديد", tint = PdfHeaderNavy)
+                                        }
+                                    }
+
+                                    if (customerParties.isNotEmpty()) {
+                                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            items(customerParties) { party ->
+                                                val isSelected = customerName.trim().equals(party.name.trim(), ignoreCase = true)
+                                                FilterChip(
+                                                    selected = isSelected,
+                                                    onClick = {
+                                                        customerName = party.name
+                                                        customerPhone = party.phone
+                                                    },
+                                                    label = { Text(party.name, fontSize = 11.sp, maxLines = 1) }
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    if (employees.isNotEmpty()) {
+                                        Text("البائع / الموظف المسؤول:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF475569))
+                                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            items(employees) { emp ->
+                                                val isEmp = selectedEmployee?.id == emp.id
+                                                FilterChip(
+                                                    selected = isEmp,
+                                                    onClick = { selectedEmployee = emp },
+                                                    label = { Text(emp.name, fontSize = 11.sp, maxLines = 1) }
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Text("طريقة الدفع:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF475569))
+                                    LazyRow(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        items(listOf("نقداً", "تحويل عبر الصراف", "آجل (دين)", "نصف كاش ونصف حوالة", "مختلط (كاش + حوالة + آجل)")) { pType ->
+                                            val isPSelected = paymentType == pType
+                                            FilterChip(
+                                                selected = isPSelected,
+                                                onClick = { paymentType = pType },
+                                                label = { Text(pType, fontSize = 11.sp, maxLines = 1, fontWeight = if (isPSelected) FontWeight.Bold else FontWeight.Normal) }
+                                            )
+                                        }
+                                    }
+
+                                    if (paymentType == "مختلط (كاش + حوالة + آجل)") {
+                                        Card(
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(10.dp),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text("توزيع مبالغ الدفع المختلط (كاش + تحويل + آجل):", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF1E293B))
+                                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                    OutlinedTextField(
+                                                        value = cashPartInput,
+                                                        onValueChange = { cashPartInput = it },
+                                                        label = { Text("كاش", fontSize = 10.sp) },
+                                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                                        modifier = Modifier.weight(1f),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    OutlinedTextField(
+                                                        value = transferPartInput,
+                                                        onValueChange = { transferPartInput = it },
+                                                        label = { Text("صرافة", fontSize = 10.sp) },
+                                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                                        modifier = Modifier.weight(1f),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    OutlinedTextField(
+                                                        value = debtPartInput,
+                                                        onValueChange = { debtPartInput = it },
+                                                        label = { Text("آجل", fontSize = 10.sp) },
+                                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                                        modifier = Modifier.weight(1f),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    OutlinedTextField(
+                                        value = customInvoiceNumber,
+                                        onValueChange = { customInvoiceNumber = it },
+                                        label = { Text("رقم الفاتورة الدفترية / الورقية (اختياري)", fontSize = 11.sp) },
+                                        placeholder = { Text("فارغ = ترقيم تلقائي", fontSize = 11.sp) },
+                                        leadingIcon = { Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = PdfGoldDark, modifier = Modifier.size(18.dp)) },
+                                        modifier = Modifier.fillMaxWidth().testTag("custom_invoice_number_input"),
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+
+                                    val needsExchangeWide = paymentType == "تحويل عبر الصراف" ||
+                                            paymentType == "نصف كاش ونصف حوالة" ||
+                                            (paymentType == "مختلط (كاش + حوالة + آجل)" && (transferPartInput.toDoubleOrNull() ?: 0.0) > 0.0)
+
+                                    if (needsExchangeWide) {
+                                        Text("اختر حساب الصراف أو المحفظة المحول إليها:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F766E))
+                                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            items(exchangeAccounts) { acc ->
+                                                val isAcc = selectedExchangeAccount?.id == acc.id
+                                                FilterChip(
+                                                    selected = isAcc,
+                                                    onClick = { selectedExchangeAccount = acc },
+                                                    label = { Text(acc.name, fontSize = 12.sp, maxLines = 1) }
+                                                )
+                                            }
+                                        }
+                                        OutlinedTextField(
+                                            value = transferRef,
+                                            onValueChange = { transferRef = it },
+                                            label = { Text("رقم الحوالة / إشعار الصراف (سند التحويل) *", fontSize = 11.sp) },
+                                            leadingIcon = { Icon(Icons.Default.ConfirmationNumber, contentDescription = null, tint = Color(0xFF0F766E), modifier = Modifier.size(18.dp)) },
+                                            modifier = Modifier.fillMaxWidth().testTag("transfer_ref_input"),
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(10.dp)
+                                        )
+                                    }
+
+                                    HorizontalDivider(color = Color(0xFFF1F5F9))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = Color(0xFFFFFBEB),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFDE68A)),
+                                            modifier = Modifier.clickable { showDiscountDialog = true }
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                            ) {
+                                                Icon(Icons.Default.LocalOffer, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(16.dp))
+                                                Text(
+                                                    text = if (discountValue > 0) "خصم: ${FormatUtils.formatCurrency(discountValue)}" else "إضافة خصم",
+                                                    color = Color(0xFFD97706),
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp
+                                                )
+                                            }
+                                        }
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Text("الإجمالي", fontSize = 12.sp, color = Color(0xFF64748B))
+                                            Text(
+                                                text = FormatUtils.formatCurrency(totalAmount),
+                                                style = MaterialTheme.typography.headlineSmall.copy(
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = Color(0xFF0F172A)
+                                                )
+                                            )
+                                        }
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Button(
+                                            onClick = { completeMultiItemSale(andPrint = true) },
+                                            modifier = Modifier
+                                                .weight(1.2f)
+                                                .height(50.dp)
+                                                .testTag("btn_save_and_print"),
+                                            shape = RoundedCornerShape(14.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = PdfGoldDark)
+                                        ) {
+                                            Icon(Icons.Default.Print, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("حفظ وطباعة", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.White, maxLines = 1)
+                                        }
+                                        OutlinedButton(
+                                            onClick = { completeMultiItemSale(andShare = true) },
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(50.dp)
+                                                .testTag("btn_share_invoice"),
+                                            shape = RoundedCornerShape(14.dp),
+                                            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF0F1E36))
+                                        ) {
+                                            Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF0F1E36), modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("مشاركة الفاتورة", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF0F1E36), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        item { Spacer(modifier = Modifier.height(16.dp)) }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
             // ==========================================
             // 1. Search Bar & Barcode Scan (Page 2)
             // ==========================================
@@ -946,6 +1427,8 @@ fun SaleScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
         }
+            }
+        }
     }
 
     // Discount Dialog
@@ -954,7 +1437,12 @@ fun SaleScreen(
             onDismissRequest = { showDiscountDialog = false },
             title = { Text("إضافة خصم على الفاتورة", fontWeight = FontWeight.Bold) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Text("المبلغ الإجمالي قبل الخصم: ${FormatUtils.formatCurrency(subtotal)}")
                     OutlinedTextField(
                         value = discountInputStr,
@@ -984,6 +1472,8 @@ fun SaleScreen(
                 OutlinedButton(onClick = { showDiscountDialog = false }) { Text("إلغاء") }
             }
         )
+    }
+
     if (showAddCategoryDialog) {
         AlertDialog(
             onDismissRequest = { showAddCategoryDialog = false },
@@ -994,7 +1484,12 @@ fun SaleScreen(
                 }
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Text("اكتب اسم نوع الصنف وسيظهر فوراً في قائمة الاختيارات السريعة:", fontSize = 12.sp, color = Color(0xFF64748B))
                     OutlinedTextField(
                         value = newCategoryInput,
@@ -1086,7 +1581,9 @@ fun SaleScreen(
             },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Card(
@@ -1263,7 +1760,12 @@ fun SaleScreen(
             onDismissRequest = { editingCartItemPrice = null },
             title = { Text("تعديل سعر البيع للصنف", fontWeight = FontWeight.Bold) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Text("الصنف: ${targetItem.product.modelName}", fontWeight = FontWeight.Bold)
                     Text("السعر الافتراضي: ${FormatUtils.formatCurrency(targetItem.product.sellPrice)}", color = Color(0xFF64748B), fontSize = 12.sp)
                     OutlinedTextField(
@@ -1298,7 +1800,6 @@ fun SaleScreen(
         )
     }
 }
-}
 
 // ==========================================
 // Product Shelf Card (Horizontal Scrollable item)
@@ -1308,13 +1809,14 @@ fun SaleScreen(
 fun PdfProductShelfCard(
     product: ProductItem,
     inCartPieces: Int = 0,
+    modifier: Modifier = Modifier
+        .width(155.dp)
+        .height(165.dp),
     onAddClick: () -> Unit
 ) {
     val isOutOfStock = product.quantity <= 0
     Card(
-        modifier = Modifier
-            .width(155.dp)
-            .height(165.dp)
+        modifier = modifier
             .clickable(enabled = !isOutOfStock) { onAddClick() },
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -1676,7 +2178,9 @@ fun AddProductToCartDialog(
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // Stock Info

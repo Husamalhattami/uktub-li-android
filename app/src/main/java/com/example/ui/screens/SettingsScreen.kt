@@ -5,8 +5,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -54,6 +56,8 @@ fun SettingsScreen(
     var showRestoreDialog by remember { mutableStateOf(false) }
     var restoreJsonInput by remember { mutableStateOf("") }
     var isCreatingBackup by remember { mutableStateOf(false) }
+    var showWipeAllDialog by remember { mutableStateOf(false) }
+    var showWipeTransactionsDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -65,14 +69,21 @@ fun SettingsScreen(
             )
         }
     ) { paddingValues ->
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(MaterialTheme.colorScheme.background),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            contentAlignment = Alignment.TopCenter
         ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .widthIn(max = 860.dp)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
             // 1. Header Banner
             item {
                 Card(
@@ -328,6 +339,66 @@ fun SettingsScreen(
                 }
             }
 
+            // 3.5 App Initialization & Wipe Database Card
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFBFB)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFECACA)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = RubyExpense)
+                            Text(
+                                text = "تهيئة التطبيق وإفراغ قواعد البيانات",
+                                style = MaterialTheme.typography.titleSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = RubyExpense
+                                )
+                            )
+                        }
+                        Text(
+                            text = "استخدم هذه الخيارات لإفراغ التطبيق تماماً من المنتجات والأنواع السابقة أو تصفير الحركات والبدء ببيانات جديدة نظيفة.",
+                            style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted)
+                        )
+
+                        Button(
+                            onClick = { showWipeAllDialog = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("wipe_all_data_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = RubyExpense)
+                        ) {
+                            Icon(Icons.Default.DeleteForever, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("تهيئة كاملة: إفراغ جميع المنتجات والأنواع والبيانات", fontWeight = FontWeight.Bold)
+                        }
+
+                        OutlinedButton(
+                            onClick = { showWipeTransactionsDialog = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .testTag("wipe_transactions_only_button"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.CleaningServices, contentDescription = null, tint = RubyExpense)
+                            Spacer(Modifier.width(8.dp))
+                            Text("تصفير الحركات والفواتير فقط (الإبقاء على المنتجات)", color = RubyExpense, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
             // 4. Audit Trail Header
             item {
                 Row(
@@ -370,6 +441,7 @@ fun SettingsScreen(
                 }
             }
         }
+        }
     }
 
     // Restore Dialog
@@ -379,7 +451,12 @@ fun SettingsScreen(
             onDismissRequest = { showRestoreDialog = false },
             title = { Text("استعادة البيانات من نسخة احتياطية", fontWeight = FontWeight.Bold) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Text(
                         text = "الصق محتوى ملف النسخة الاحتياطية (JSON) أدناه:",
                         style = MaterialTheme.typography.bodySmall,
@@ -430,6 +507,74 @@ fun SettingsScreen(
                 OutlinedButton(onClick = { showRestoreDialog = false }) {
                     Text("إلغاء")
                 }
+            }
+        )
+    }
+
+    if (showWipeAllDialog) {
+        AlertDialog(
+            onDismissRequest = { showWipeAllDialog = false },
+            title = { Text("تأكيد تهيئة التطبيق بالكامل", fontWeight = FontWeight.Bold, color = RubyExpense) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("سيتم حذف وإفراغ جميع البيانات المخزنة في قواعد البيانات بشكل نهائي، بما في ذلك:")
+                    Text("• جميع المنتجات والأصناف والأنواع\n• المبيعات والمشتريات والمصروفات\n• الصندوق والورديات والصرافين والمحافظ\n• العملاء والموردين والديون وسندات التحصيل\n• العمال وسجل التدقيق", fontSize = 12.sp, color = SlateMuted)
+                    Text("هل أنت متأكد من تهيئة التطبيق وإفراغ كل شيء؟", fontWeight = FontWeight.Bold)
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.clearData(transactionsOnly = false) {
+                            showWipeAllDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = RubyExpense),
+                    modifier = Modifier.testTag("confirm_wipe_all_button")
+                ) {
+                    Text("نعم، إفراغ الكل")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showWipeAllDialog = false }) { Text("إلغاء") }
+            }
+        )
+    }
+
+    if (showWipeTransactionsDialog) {
+        AlertDialog(
+            onDismissRequest = { showWipeTransactionsDialog = false },
+            title = { Text("تأكيد تصفير الحركات والفواتير", fontWeight = FontWeight.Bold, color = RubyExpense) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("سيتم حذف جميع المبيعات والمشتريات والمصروفات والديون وحركات الصندوق، مع الإبقاء على قائمة المنتجات والأطراف والحسابات.")
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.clearData(transactionsOnly = true) {
+                            showWipeTransactionsDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = RubyExpense),
+                    modifier = Modifier.testTag("confirm_wipe_transactions_button")
+                ) {
+                    Text("تصفير الحركات")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showWipeTransactionsDialog = false }) { Text("إلغاء") }
             }
         )
     }

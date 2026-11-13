@@ -5,8 +5,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -20,18 +23,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.CashDrawerMovement
 import com.example.data.model.Employee
 import com.example.data.model.ExchangeAccount
-import com.example.data.model.PartyAccount
 import com.example.ui.AppScreen
 import com.example.ui.StoreViewModel
+import com.example.ui.components.CollectionReceiptDialog
 import com.example.ui.components.StoreTopBar
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
@@ -49,6 +51,9 @@ fun HomeScreen(
     val totalSupplierDebts by viewModel.totalSupplierDebts.collectAsStateWithLifecycle()
     val cashMovements by viewModel.cashMovements.collectAsStateWithLifecycle()
     val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
+    val customerParties by viewModel.customerParties.collectAsStateWithLifecycle()
+    val debts by viewModel.debts.collectAsStateWithLifecycle()
+    val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
 
     // Accounting Fix: Actual liquidity is cash + exchange/wallet balances only (excluding unsold inventory)
     val actualLiquidity = cashBalance + totalExchangeBalance
@@ -56,6 +61,7 @@ fun HomeScreen(
     val totalAssets = actualLiquidity + inventoryValue + totalCustomerDebts - totalSupplierDebts
 
     var showQuickAddSheet by remember { mutableStateOf(false) }
+    var showCollectionDialog by remember { mutableStateOf(false) }
     var showAddPartyDialog by remember { mutableStateOf<String?>(null) } // "CUSTOMER" or "SUPPLIER"
     var showAddExchangeDialog by remember { mutableStateOf(false) }
     var showAddEmployeeDialog by remember { mutableStateOf(false) }
@@ -112,277 +118,303 @@ fun HomeScreen(
             )
         }
     ) { paddingValues ->
-        LazyColumn(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .background(Color(0xFFF8FAFC)),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .background(Color(0xFFF8FAFC))
         ) {
-            // ==========================================
-            // 1. Hero Liquidity Card (Page 1 in PDF)
-            // ==========================================
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(22.dp),
-                    colors = CardDefaults.cardColors(containerColor = PdfHeaderNavy),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E3A63))
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(
-                                        Color(0xFF0F1E36),
-                                        Color(0xFF162947)
-                                    )
-                                )
-                            )
-                            .padding(18.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+            val isWideLayout = maxWidth >= 600.dp
+
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // ==========================================
+                // 1. Hero Liquidity + Total Assets (Responsive 1-col on phone, 2-col on landscape/tablet)
+                // ==========================================
+                item {
+                    val heroCard: @Composable (Modifier) -> Unit = { cardMod ->
+                        Card(
+                            modifier = cardMod,
+                            shape = RoundedCornerShape(22.dp),
+                            colors = CardDefaults.cardColors(containerColor = PdfHeaderNavy),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E3A63))
                         ) {
-                            // Top Row: السيولة المتاحة فعلياً + Chart Icon
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "السيولة النقدية المتاحة فعلياً",
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            color = Color(0xFFE2E8F0),
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    )
-                                    Text(
-                                        text = "كاش الصندوق + أرصدة الصرافة والمحافظ",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            color = Color(0xFF90CDF4),
-                                            fontSize = 11.sp
-                                        )
-                                    )
-                                }
-                                Icon(
-                                    imageVector = Icons.Default.BarChart,
-                                    contentDescription = null,
-                                    tint = Color(0xFF90CDF4),
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-
-                            // Large Number: 125,750 ريال
-                            Row(
-                                verticalAlignment = Alignment.Bottom,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text(
-                                    text = FormatUtils.formatNumber(actualLiquidity),
-                                    style = MaterialTheme.typography.headlineLarge.copy(
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = Color.White,
-                                        fontSize = 32.sp
-                                    )
-                                )
-                                Text(
-                                    text = storeSettings?.currencySymbol ?: "ريال",
-                                    style = MaterialTheme.typography.titleMedium.copy(
-                                        color = Color(0xFF90CDF4),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp
-                                    ),
-                                    modifier = Modifier.padding(bottom = 4.dp)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(2.dp))
-
-                            // Bottom Two Blocks: رصيد الصندوق | أرصدة الصرافة
-                            Row(
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(Color(0xFF0A1526).copy(alpha = 0.5f))
-                                    .padding(12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                Color(0xFF0F1E36),
+                                                Color(0xFF162947)
+                                            )
+                                        )
+                                    )
+                                    .padding(18.dp)
                             ) {
-                                // Right: رصيد الصندوق
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clickable { onNavigate(AppScreen.CASH_DRAWER) }
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(34.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF0D9488).copy(alpha = 0.2f)),
-                                        contentAlignment = Alignment.Center
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "السيولة النقدية المتاحة فعلياً",
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    color = Color(0xFFE2E8F0),
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                ),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = "كاش الصندوق + أرصدة الصرافة والمحافظ",
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    color = Color(0xFF90CDF4),
+                                                    fontSize = 11.sp
+                                                ),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
                                         Icon(
-                                            imageVector = Icons.Default.Payments,
+                                            imageVector = Icons.Default.BarChart,
                                             contentDescription = null,
-                                            tint = Color(0xFF2DD4BF),
-                                            modifier = Modifier.size(18.dp)
+                                            tint = Color(0xFF90CDF4),
+                                            modifier = Modifier.size(24.dp)
                                         )
                                     }
-                                    Column {
-                                        Text(
-                                            text = "كاش الصندوق",
-                                            style = MaterialTheme.typography.bodySmall.copy(
-                                                color = Color(0xFF94A3B8),
-                                                fontSize = 11.sp
-                                            )
-                                        )
-                                        Text(
-                                            text = FormatUtils.formatCurrency(cashBalance),
-                                            style = MaterialTheme.typography.titleSmall.copy(
-                                                color = Color.White,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 13.sp
-                                            )
-                                        )
-                                    }
-                                }
 
-                                Box(
-                                    modifier = Modifier
-                                        .width(1.dp)
-                                        .height(30.dp)
-                                        .background(Color.White.copy(alpha = 0.15f))
-                                )
-
-                                // Left: أرصدة الصرافة والمحافظ
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(start = 8.dp)
-                                        .clickable { onNavigate(AppScreen.EXCHANGE_ACCOUNTS) }
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(34.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF3B82F6).copy(alpha = 0.2f)),
-                                        contentAlignment = Alignment.Center
+                                    Row(
+                                        verticalAlignment = Alignment.Bottom,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.AccountBalance,
-                                            contentDescription = null,
-                                            tint = Color(0xFF60A5FA),
-                                            modifier = Modifier.size(18.dp)
+                                        Text(
+                                            text = FormatUtils.formatNumber(actualLiquidity),
+                                            style = MaterialTheme.typography.headlineLarge.copy(
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = Color.White,
+                                                fontSize = 30.sp
+                                            ),
+                                            maxLines = 1
+                                        )
+                                        Text(
+                                            text = storeSettings?.currencySymbol ?: "ريال",
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                color = Color(0xFF90CDF4),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 16.sp
+                                            ),
+                                            modifier = Modifier.padding(bottom = 4.dp)
                                         )
                                     }
-                                    Column {
-                                        Text(
-                                            text = "أرصدة الصرافة والمحافظ",
-                                            style = MaterialTheme.typography.bodySmall.copy(
-                                                color = Color(0xFF94A3B8),
-                                                fontSize = 11.sp
-                                            )
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .background(Color(0xFF0A1526).copy(alpha = 0.5f))
+                                            .padding(12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable { onNavigate(AppScreen.CASH_DRAWER) }
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(34.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFF0D9488).copy(alpha = 0.2f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Payments,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF2DD4BF),
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                            Column {
+                                                Text(
+                                                    text = "كاش الصندوق",
+                                                    style = MaterialTheme.typography.bodySmall.copy(
+                                                        color = Color(0xFF94A3B8),
+                                                        fontSize = 11.sp
+                                                    ),
+                                                    maxLines = 1
+                                                )
+                                                Text(
+                                                    text = FormatUtils.formatCurrency(cashBalance),
+                                                    style = MaterialTheme.typography.titleSmall.copy(
+                                                        color = Color.White,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 13.sp
+                                                    ),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+
+                                        Box(
+                                            modifier = Modifier
+                                                .width(1.dp)
+                                                .height(30.dp)
+                                                .background(Color.White.copy(alpha = 0.15f))
                                         )
-                                        Text(
-                                            text = FormatUtils.formatCurrency(totalExchangeBalance),
-                                            style = MaterialTheme.typography.titleSmall.copy(
-                                                color = Color.White,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 13.sp
-                                            )
-                                        )
+
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .padding(start = 8.dp)
+                                                .clickable { onNavigate(AppScreen.EXCHANGE_ACCOUNTS) }
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(34.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFF3B82F6).copy(alpha = 0.2f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.AccountBalance,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF60A5FA),
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                            Column {
+                                                Text(
+                                                    text = "أرصدة الصرافة والمحافظ",
+                                                    style = MaterialTheme.typography.bodySmall.copy(
+                                                        color = Color(0xFF94A3B8),
+                                                        fontSize = 11.sp
+                                                    ),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = FormatUtils.formatCurrency(totalExchangeBalance),
+                                                    style = MaterialTheme.typography.titleSmall.copy(
+                                                        color = Color.White,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 13.sp
+                                                    ),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-            }
 
-            // Total Assets Card (قيمة المخزون + الديون)
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                    val assetsCard: @Composable (Modifier) -> Unit = { cardMod ->
+                        Card(
+                            modifier = cardMod,
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = Color(0xFF0F1E36), modifier = Modifier.size(18.dp))
-                                Text(
-                                    text = "إجمالي الأصول وصافي الثروة",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = Color(0xFF0F1E36)
-                                )
-                            }
-                            Text(
-                                text = FormatUtils.formatCurrency(totalAssets),
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 16.sp,
-                                color = Color(0xFF0F1E36)
-                            )
-                        }
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = Color(0xFF0F1E36), modifier = Modifier.size(18.dp))
+                                        Text(
+                                            text = "إجمالي الأصول وصافي الثروة",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = Color(0xFF0F1E36),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Text(
+                                        text = FormatUtils.formatCurrency(totalAssets),
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 16.sp,
+                                        color = Color(0xFF0F1E36),
+                                        maxLines = 1
+                                    )
+                                }
 
-                        HorizontalDivider(color = Color(0xFFF1F5F9))
+                                HorizontalDivider(color = Color(0xFFF1F5F9))
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            // Inventory Value
-                            Column(modifier = Modifier.clickable { onNavigate(AppScreen.INVENTORY) }) {
-                                Text("قيمة المخزون", fontSize = 10.sp, color = Color(0xFF64748B))
-                                Text(FormatUtils.formatCurrency(inventoryValue), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2563EB))
-                            }
-                            // Customer Debts
-                            Column(modifier = Modifier.clickable { onNavigate(AppScreen.DEBTS) }) {
-                                Text("ديون الزبائن (+)", fontSize = 10.sp, color = Color(0xFF64748B))
-                                Text(FormatUtils.formatCurrency(totalCustomerDebts), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF16A34A))
-                            }
-                            // Supplier Debts
-                            Column(modifier = Modifier.clickable { onNavigate(AppScreen.DEBTS) }) {
-                                Text("ديون الموردين (-)", fontSize = 10.sp, color = Color(0xFF64748B))
-                                Text(FormatUtils.formatCurrency(totalSupplierDebts), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f).clickable { onNavigate(AppScreen.INVENTORY) }) {
+                                        Text("قيمة المخزون", fontSize = 10.sp, color = Color(0xFF64748B), maxLines = 1)
+                                        Text(FormatUtils.formatCurrency(inventoryValue), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2563EB), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                    Column(modifier = Modifier.weight(1f).clickable { onNavigate(AppScreen.DEBTS) }) {
+                                        Text("ديون الزبائن (+)", fontSize = 10.sp, color = Color(0xFF64748B), maxLines = 1)
+                                        Text(FormatUtils.formatCurrency(totalCustomerDebts), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF16A34A), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                    Column(modifier = Modifier.weight(1f).clickable { onNavigate(AppScreen.DEBTS) }) {
+                                        Text("ديون الموردين (-)", fontSize = 10.sp, color = Color(0xFF64748B), maxLines = 1)
+                                        Text(FormatUtils.formatCurrency(totalSupplierDebts), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
                             }
                         }
                     }
-                }
-            }
 
-            // ==========================================
-            // 2. The 4 Fast Action Cards (Page 1 in PDF)
-            // ==========================================
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    // Row 1: شراء بضاعة | بيع جديد
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
+                    if (isWideLayout) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            heroCard(Modifier.weight(1.15f))
+                            assetsCard(Modifier.weight(0.85f))
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            heroCard(Modifier.fillMaxWidth())
+                            assetsCard(Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+
+                // ==========================================
+                // 2. The 4 Fast Action Cards (4-in-row on wide screens, 2x2 on phones)
+                // ==========================================
+                item {
+                    val purchaseCard: @Composable (Modifier) -> Unit = { mod ->
                         PdfActionCard(
                             title = "شراء بضاعة",
                             subtitle = "تسجيل فاتورة شراء",
@@ -391,12 +423,11 @@ fun HomeScreen(
                             iconBg = Color(0xFFCCFBF1),
                             cardBg = PdfTealCard,
                             borderColor = Color(0xFF99F6E4),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("btn_action_purchase"),
+                            modifier = mod.testTag("btn_action_purchase"),
                             onClick = { onNavigate(AppScreen.PURCHASE) }
                         )
-
+                    }
+                    val saleCard: @Composable (Modifier) -> Unit = { mod ->
                         PdfActionCard(
                             title = "بيع جديد",
                             subtitle = "إصدار فاتورة بيع",
@@ -405,32 +436,24 @@ fun HomeScreen(
                             iconBg = Color(0xFFDCFCE7),
                             cardBg = PdfMintCard,
                             borderColor = Color(0xFFBBF7D0),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("btn_action_sale"),
+                            modifier = mod.testTag("btn_action_sale"),
                             onClick = { onNavigate(AppScreen.SALE) }
                         )
                     }
-
-                    // Row 2: تحصيل دين | تسجيل مصروف
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
+                    val collectCard: @Composable (Modifier) -> Unit = { mod ->
                         PdfActionCard(
-                            title = "تحصيل دين",
-                            subtitle = "استلام مبلغ من عميل",
+                            title = "تحصيل زلط",
+                            subtitle = "سند قبض (تلقائي/يدوي)",
                             icon = Icons.Default.PriceCheck,
                             iconColor = Color(0xFF166534),
                             iconBg = Color(0xFFDCFCE7),
                             cardBg = PdfGreenCard,
                             borderColor = Color(0xFFBBF7D0),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("btn_action_debt"),
-                            onClick = { onNavigate(AppScreen.DEBTS) }
+                            modifier = mod.testTag("btn_action_debt"),
+                            onClick = { showCollectionDialog = true }
                         )
-
+                    }
+                    val expenseCard: @Composable (Modifier) -> Unit = { mod ->
                         PdfActionCard(
                             title = "تسجيل مصروف",
                             subtitle = "إضافة مصروف جديد",
@@ -439,14 +462,40 @@ fun HomeScreen(
                             iconBg = Color(0xFFFEE2E2),
                             cardBg = PdfRoseCard,
                             borderColor = Color(0xFFFECACA),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("btn_action_expense"),
+                            modifier = mod.testTag("btn_action_expense"),
                             onClick = { onNavigate(AppScreen.EXPENSES) }
                         )
                     }
+
+                    if (isWideLayout) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            purchaseCard(Modifier.weight(1f))
+                            saleCard(Modifier.weight(1f))
+                            collectCard(Modifier.weight(1f))
+                            expenseCard(Modifier.weight(1f))
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                purchaseCard(Modifier.weight(1f))
+                                saleCard(Modifier.weight(1f))
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                collectCard(Modifier.weight(1f))
+                                expenseCard(Modifier.weight(1f))
+                            }
+                        }
+                    }
                 }
-            }
 
             // ==========================================
             // 2.5 Section: إدارة الحسابات والأطراف (العملاء، الموردين، الصرافين، العمال)
@@ -627,6 +676,7 @@ fun HomeScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
                         .padding(horizontal = 20.dp, vertical = 12.dp)
                         .navigationBarsPadding(),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -645,6 +695,19 @@ fun HomeScreen(
                     )
 
                     Spacer(modifier = Modifier.height(4.dp))
+
+                    // 0. تحصيل زلط / سند قبض
+                    QuickSheetActionRow(
+                        title = "تحصيل زلط (سند قبض)",
+                        subtitle = "استلام زلط من عميل أو تحصيل عام مع رقم سند اختياري أو تلقائي",
+                        icon = Icons.Default.PriceCheck,
+                        iconColor = Color(0xFF15803D),
+                        iconBg = Color(0xFFDCFCE7),
+                        onClick = {
+                            showQuickAddSheet = false
+                            showCollectionDialog = true
+                        }
+                    )
 
                     // 1. إضافة عميل
                     QuickSheetActionRow(
@@ -770,7 +833,12 @@ fun HomeScreen(
                 onDismissRequest = { showAddExchangeDialog = false },
                 title = { Text("إضافة حساب صراف أو محفظة إلكترونية", fontWeight = FontWeight.Bold) },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilterChip(
                                 selected = accType == "صرافة",
@@ -848,7 +916,12 @@ fun HomeScreen(
                 onDismissRequest = { showAddEmployeeDialog = false },
                 title = { Text("إضافة عامل / موظف جديد للمحل", fontWeight = FontWeight.Bold) },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         OutlinedTextField(
                             value = empName,
                             onValueChange = { empName = it },
@@ -916,7 +989,12 @@ fun HomeScreen(
                 onDismissRequest = { showDepositDialog = false },
                 title = { Text("إيداع سيولة جديدة في الصندوق", fontWeight = FontWeight.Bold) },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         OutlinedTextField(
                             value = depositAmountStr,
                             onValueChange = { depositAmountStr = it },
@@ -964,7 +1042,12 @@ fun HomeScreen(
                 onDismissRequest = { showWithdrawDialog = false },
                 title = { Text("سحب شخصي للمالك من الصندوق", fontWeight = FontWeight.Bold) },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         OutlinedTextField(
                             value = withdrawAmountStr,
                             onValueChange = { withdrawAmountStr = it },
@@ -1001,6 +1084,29 @@ fun HomeScreen(
                     OutlinedButton(onClick = { showWithdrawDialog = false }) { Text("إلغاء") }
                 }
             )
+        }
+
+        if (showCollectionDialog) {
+            CollectionReceiptDialog(
+                customerParties = customerParties,
+                customerDebts = debts,
+                exchangeAccounts = exchangeAccounts,
+                onDismiss = { showCollectionDialog = false },
+                onConfirm = { payerName, party, amount, voucher, method, account, notes ->
+                    viewModel.recordCollectionReceipt(
+                        payerName = payerName,
+                        party = party,
+                        amount = amount,
+                        voucherNumberInput = voucher,
+                        paymentMethod = method,
+                        exchangeAccount = account,
+                        notes = notes
+                    ) {
+                        showCollectionDialog = false
+                    }
+                }
+            )
+        }
         }
     }
 }

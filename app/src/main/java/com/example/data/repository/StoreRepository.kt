@@ -60,327 +60,7 @@ class StoreRepository(
     }
 
     suspend fun seedInitialDataIfEmpty() {
-        val existing = dao.getAllProducts().firstOrNull()
-        if (existing.isNullOrEmpty()) {
-            val now = System.currentTimeMillis()
-
-            // 1. Menswear Products
-            val p1 = ProductItem(
-                category = "بشت",
-                modelName = "بشت ملكي صيفي فاخر",
-                color = "3 ألوان: أسود، كحلي، بيج",
-                size = ClothingSizes.BIG,
-                quantity = 24, // 2 درزن
-                buyPrice = 280.0,
-                sellPrice = 450.0,
-                supplierName = "معمل الأصالة للأقمشة",
-                purchaseDate = now - 86400000L * 3,
-                invoiceNumber = "INV-101",
-                barcode = "BSH-001",
-                notes = "تشكيلة درزن ملكي صيفي",
-                unit = ClothingUnits.DOZEN,
-                colorsCount = 3,
-                colorDetails = "أسود، كحلي، بيج"
-            )
-            val p2 = ProductItem(
-                category = "كوت",
-                modelName = "كوت رجالي صوف كلاسيك",
-                color = "لونين: كحلي، رصاصي",
-                size = ClothingSizes.MEDIUM,
-                quantity = 12, // 1 درزن
-                buyPrice = 160.0,
-                sellPrice = 280.0,
-                supplierName = "شركة النخبة للاستيراد",
-                purchaseDate = now - 86400000L * 5,
-                invoiceNumber = "INV-102",
-                barcode = "COT-002",
-                notes = "درزن مشكل ألوان كوت شتوي",
-                unit = ClothingUnits.DOZEN,
-                colorsCount = 2,
-                colorDetails = "كحلي، رصاصي"
-            )
-            val p3 = ProductItem(
-                category = "جاكت",
-                modelName = "جاكيت سبورت كاجوال",
-                color = "3 ألوان: بيج، زيتي، أسود",
-                size = ClothingSizes.YOUTH,
-                quantity = 6, // نص درزن
-                buyPrice = 90.0,
-                sellPrice = 160.0,
-                supplierName = "معرض أزياء الشباب",
-                purchaseDate = now - 86400000L * 2,
-                invoiceNumber = "INV-103",
-                barcode = "JCK-003",
-                notes = "نص درزن شبابي حديث",
-                unit = ClothingUnits.HALF_DOZEN,
-                colorsCount = 3,
-                colorDetails = "بيج، زيتي، أسود"
-            )
-            val p4 = ProductItem(
-                category = "ثوب",
-                modelName = "ثوب كويتي مطرز راقي",
-                color = "لون واحد: أبيض ناصع",
-                size = ClothingSizes.BIG,
-                quantity = 20, // 1 كورجة
-                buyPrice = 65.0,
-                sellPrice = 120.0,
-                supplierName = "وكالة أقمشة الخليج",
-                purchaseDate = now - 86400000L * 4,
-                invoiceNumber = "INV-104",
-                barcode = "THB-004",
-                notes = "كورجة أثواب أبيض ناصع",
-                unit = ClothingUnits.KORJAH,
-                colorsCount = 1,
-                colorDetails = "أبيض ناصع"
-            )
-            val p5 = ProductItem(
-                category = "دشداشة",
-                modelName = "دشداشة شتوية دافئة",
-                color = "لونين: رمادي، سكري",
-                size = ClothingSizes.SMALL,
-                quantity = 3, // قارب على النفاد
-                buyPrice = 75.0,
-                sellPrice = 135.0,
-                supplierName = "معمل الفرسان للملبوسات",
-                purchaseDate = now - 86400000L * 10,
-                invoiceNumber = "INV-105",
-                barcode = "DSH-005",
-                notes = "متبقي 3 حبات فقط - قارب على النفاد",
-                unit = ClothingUnits.PIECE,
-                colorsCount = 2,
-                colorDetails = "رمادي، سكري"
-            )
-
-            dao.insertProduct(p1)
-            dao.insertProduct(p2)
-            dao.insertProduct(p3)
-            dao.insertProduct(p4)
-            dao.insertProduct(p5)
-
-            // 2. Exchange & Wallet Accounts
-            val acc1 = ExchangeAccount(
-                name = "صرافة الكريمي",
-                accountNumber = "12345678",
-                phone = "0501112233",
-                balance = 1450.0,
-                type = "صراف",
-                notes = "الحساب الرئيسي للتحويلات"
-            )
-            val acc2 = ExchangeAccount(
-                name = "محفظة جوالي / كاش",
-                accountNumber = "0559998877",
-                phone = "0559998877",
-                balance = 600.0,
-                type = "محفظة",
-                notes = "دفع الزبائن عبر المحفظة"
-            )
-            dao.insertExchangeAccount(acc1)
-            dao.insertExchangeAccount(acc2)
-
-            // 3. Employees
-            val emp1 = Employee(
-                name = "أبو فهد",
-                phone = "0501234567",
-                role = "بائع صالة رئيسي",
-                baseSalary = 3500.0,
-                salaryType = "شهري",
-                commissionPercent = 2.0
-            )
-            val emp2 = Employee(
-                name = "وسام الكرخي",
-                phone = "0559876543",
-                role = "مساعد مبيعات وصندوق",
-                baseSalary = 2800.0,
-                salaryType = "شهري",
-                commissionPercent = 1.5
-            )
-            val e1Id = dao.insertEmployee(emp1)
-            val e2Id = dao.insertEmployee(emp2)
-
-            // 4. Opening shift
-            val shift = CashDrawerShift(
-                openedAt = now - 3600000L * 4,
-                openingBalance = 1500.0,
-                isOpen = true,
-                cashierName = "صاحب المحل",
-                notes = "افتتاح الوردية الصباحية"
-            )
-            val shiftId = dao.insertShift(shift)
-
-            dao.insertCashMovement(
-                CashDrawerMovement(
-                    shiftId = shiftId,
-                    type = "CAPITAL_DEPOSIT",
-                    amount = 1500.0,
-                    isIncome = true,
-                    title = "رصيد افتتاح الوردية",
-                    details = "بداية اليوم",
-                    timestamp = shift.openedAt
-                )
-            )
-
-            // 5. Demo sale
-            val demoSale = SaleTransaction(
-                productId = 4,
-                productName = "ثوب كويتي مطرز راقي",
-                category = "ثوب",
-                color = "لون واحد: أبيض ناصع",
-                size = ClothingSizes.BIG,
-                quantity = 2,
-                unitBuyPrice = 65.0,
-                unitSellPrice = 120.0,
-                discount = 10.0,
-                totalAmount = 230.0,
-                profit = 100.0,
-                customerName = "عبد الله السالم",
-                customerPhone = "0541239876",
-                paymentType = "نقداً",
-                cashAmount = 230.0,
-                employeeName = "أبو فهد",
-                employeeId = e1Id,
-                timestamp = now - 3600000L * 2,
-                shiftId = shiftId,
-                unit = ClothingUnits.PIECE
-            )
-            val sId = dao.insertSale(demoSale)
-            dao.insertCashMovement(
-                CashDrawerMovement(
-                    shiftId = shiftId,
-                    type = "SALE_CASH",
-                    amount = 230.0,
-                    isIncome = true,
-                    title = "بيع نقدي: ثوب كويتي مطرز راقي (2 حبه)",
-                    details = "الزبون: عبد الله السالم",
-                    timestamp = demoSale.timestamp,
-                    referenceSaleId = sId
-                )
-            )
-
-            // 6. Demo expense
-            val demoExpense = ExpenseRecord(
-                category = "الضيافة والشاي",
-                amount = 45.0,
-                notes = "شاي وضيافة زبائن المعرض",
-                receiptNumber = "EXP-01",
-                timestamp = now - 3600000L,
-                paidFromCash = true,
-                shiftId = shiftId
-            )
-            val expId = dao.insertExpense(demoExpense)
-            dao.insertCashMovement(
-                CashDrawerMovement(
-                    shiftId = shiftId,
-                    type = "EXPENSE_PAID",
-                    amount = 45.0,
-                    isIncome = false,
-                    title = "مصروف: الضيافة والشاي",
-                    details = "شاي وضيافة زبائن المعرض",
-                    timestamp = demoExpense.timestamp,
-                    referenceExpenseId = expId
-                )
-            )
-
-            // 7. Demo customer debt
-            val demoDebt = DebtRecord(
-                type = "CUSTOMER",
-                partyName = "أحمد التميمي",
-                phone = "0561122334",
-                originalAmount = 320.0,
-                paidAmount = 120.0,
-                remainingAmount = 200.0,
-                details = "شراء جاكيت سبورت - دفعة 120 ريال والمتبقي 200 ريال (عليه زلط)",
-                dueDate = now + 86400000L * 5,
-                createdAt = now - 86400000L,
-                isSettled = false
-            )
-            dao.insertDebt(demoDebt)
-
-            // 8. Demo supplier debt (عليا زلط للمورد)
-            val demoSupplierDebt1 = DebtRecord(
-                type = "SUPPLIER",
-                partyName = "معمل الأصالة للأقمشة",
-                phone = "0509988771",
-                originalAmount = 15000.0,
-                paidAmount = 0.0,
-                remainingAmount = 15000.0,
-                details = "متبقي شراء بضاعة بشت ملكي صيفي (عليا زلط للمورد)",
-                dueDate = now + 86400000L * 20,
-                createdAt = now - 86400000L * 3,
-                isSettled = false
-            )
-            dao.insertDebt(demoSupplierDebt1)
-
-            val demoSupplierDebt2 = DebtRecord(
-                type = "SUPPLIER",
-                partyName = "وكالة أقمشة الخليج",
-                phone = "0554433221",
-                originalAmount = 8000.0,
-                paidAmount = 0.0,
-                remainingAmount = 8000.0,
-                details = "متبقي دفعة أثواب كويتية (عليا زلط للمورد)",
-                dueDate = now + 86400000L * 25,
-                createdAt = now - 86400000L * 4,
-                isSettled = false
-            )
-            dao.insertDebt(demoSupplierDebt2)
-
-            // 9. Demo Customer & Supplier Accounts (Parties)
-            dao.insertParty(
-                PartyAccount(
-                    type = "CUSTOMER",
-                    name = "أحمد التميمي",
-                    phone = "0561122334",
-                    address = "صنعاء - شارع حائل",
-                    notes = "زبون دائم - عليه زلط سابقة",
-                    initialBalance = 200.0,
-                    createdAt = now - 86400000L
-                )
-            )
-            dao.insertParty(
-                PartyAccount(
-                    type = "CUSTOMER",
-                    name = "عبد الله السالم",
-                    phone = "0541239876",
-                    address = "شارع حدة",
-                    notes = "زبون مشتريات نقدية مميز",
-                    initialBalance = 0.0,
-                    createdAt = now - 86400000L * 2
-                )
-            )
-            dao.insertParty(
-                PartyAccount(
-                    type = "SUPPLIER",
-                    name = "معمل الأصالة للأقمشة",
-                    phone = "0509988771",
-                    address = "سوق الأقمشة المركزي",
-                    notes = "مورد بشوت ملكية - عليا زلط له 15,000 ريال",
-                    initialBalance = 15000.0,
-                    createdAt = now - 86400000L * 5
-                )
-            )
-            dao.insertParty(
-                PartyAccount(
-                    type = "SUPPLIER",
-                    name = "وكالة أقمشة الخليج",
-                    phone = "0554433221",
-                    address = "المنطقة الصناعية",
-                    notes = "مورد أثواب كويتية - عليا زلط له 8,000 ريال",
-                    initialBalance = 8000.0,
-                    createdAt = now - 86400000L * 6
-                )
-            )
-            dao.insertParty(
-                PartyAccount(
-                    type = "SUPPLIER",
-                    name = "شركة النخبة للاستيراد",
-                    phone = "0505544332",
-                    address = "الشارع الرئيسي",
-                    notes = "مورد أكوات صوف وجواكت - الحساب خالص",
-                    initialBalance = 0.0,
-                    createdAt = now - 86400000L * 10
-                )
-            )
-        }
+        // التطبيق يبدأ فارغاً بالكامل بدون أي منتجات أو أصناف أو حركات افتراضية
     }
 
     // --- Product CRUD ---
@@ -1829,6 +1509,26 @@ class StoreRepository(
         return id
     }
 
+    suspend fun resolveVoucherNumber(input: String, prefix: String = "SND"): String {
+        val trimmed = input.trim()
+        if (trimmed.isNotBlank()) return trimmed
+
+        val existingPayments = dao.getAllDebtPayments().firstOrNull().orEmpty()
+        val existingTransfers = dao.getAllExchangeTransfers().firstOrNull().orEmpty()
+        val existingNumbers = buildSet {
+            existingPayments.forEach { if (it.voucherNumber.isNotBlank()) add(it.voucherNumber.trim()) }
+            existingTransfers.forEach { if (it.referenceNumber.isNotBlank()) add(it.referenceNumber.trim()) }
+        }
+        val regex = Regex("^${Regex.escape(prefix)}-(\\d+)$")
+        val maxSuffix = existingNumbers.mapNotNull { regex.matchEntire(it)?.groupValues?.getOrNull(1)?.toIntOrNull() }.maxOrNull() ?: 0
+        var candidateNum = maxOf(maxSuffix + 1, existingPayments.size + 1)
+        while (true) {
+            val candidate = "$prefix-${candidateNum.toString().padStart(4, '0')}"
+            if (candidate !in existingNumbers) return candidate
+            candidateNum++
+        }
+    }
+
     // --- Debts & Collections ---
     suspend fun recordDebtPayment(
         debt: DebtRecord,
@@ -1841,6 +1541,7 @@ class StoreRepository(
         val activeShiftObj = dao.getActiveShift().firstOrNull()
         val shiftId = activeShiftObj?.id ?: 0L
         val now = System.currentTimeMillis()
+        val finalVoucher = resolveVoucherNumber(referenceNumber, "SND")
 
         val newPaid = debt.paidAmount + paymentAmount
         val newRemaining = (debt.originalAmount - newPaid).coerceAtLeast(0.0)
@@ -1854,7 +1555,10 @@ class StoreRepository(
             )
         )
 
-        val paymentNotes = if (referenceNumber.isNotBlank()) "رقم الحوالة: $referenceNumber | $notes" else notes
+        val paymentNotes = buildString {
+            append("سند: #$finalVoucher")
+            if (notes.isNotBlank()) append(" | $notes")
+        }
         val payment = DebtPayment(
             debtId = debt.id,
             partyName = debt.partyName,
@@ -1863,7 +1567,8 @@ class StoreRepository(
             notes = paymentNotes,
             shiftId = shiftId,
             paymentMethod = paymentMethod,
-            exchangeAccountId = exchangeAccount?.id ?: 0L
+            exchangeAccountId = exchangeAccount?.id ?: 0L,
+            voucherNumber = finalVoucher
         )
         val paymentId = dao.insertDebtPayment(payment)
 
@@ -1875,7 +1580,7 @@ class StoreRepository(
                         type = "DEBT_COLLECTED",
                         amount = paymentAmount,
                         isIncome = true,
-                        title = "تحصيل دين من الزبون: ${debt.partyName}",
+                        title = "تحصيل زلط (سند #$finalVoucher): ${debt.partyName}",
                         details = "المتبقي بعد الدفع: ${newRemaining.toLong()} ريال",
                         timestamp = now
                     )
@@ -1889,8 +1594,8 @@ class StoreRepository(
                         type = "تحصيل دين",
                         amount = paymentAmount,
                         isCredit = true,
-                        title = "تحصيل دين عبر الصراف: ${debt.partyName}",
-                        referenceNumber = referenceNumber,
+                        title = "تحصيل دين عبر الصراف (سند #$finalVoucher): ${debt.partyName}",
+                        referenceNumber = finalVoucher,
                         notes = paymentNotes,
                         timestamp = now
                     )
@@ -1905,7 +1610,7 @@ class StoreRepository(
                         type = "SUPPLIER_PAID",
                         amount = paymentAmount,
                         isIncome = false,
-                        title = "تسديد دين للمورد: ${debt.partyName}",
+                        title = "تسديد دين للمورد (سند #$finalVoucher): ${debt.partyName}",
                         details = "المتبقي للمورد: ${newRemaining.toLong()} ريال",
                         timestamp = now
                     )
@@ -1919,8 +1624,8 @@ class StoreRepository(
                         type = "تسديد دين مورد",
                         amount = paymentAmount,
                         isCredit = false,
-                        title = "تسديد دين للمورد عبر الصراف: ${debt.partyName}",
-                        referenceNumber = referenceNumber,
+                        title = "تسديد دين للمورد عبر الصراف (سند #$finalVoucher): ${debt.partyName}",
+                        referenceNumber = finalVoucher,
                         notes = paymentNotes,
                         timestamp = now
                     )
@@ -1988,6 +1693,7 @@ class StoreRepository(
             !it.isSettled
         }.sortedBy { it.createdAt }
 
+        val finalVoucher = resolveVoucherNumber(referenceNumber, "SND")
         var remainingToApply = totalPayment
         for (debt in partyDebts) {
             if (remainingToApply <= 0.001) break
@@ -1998,11 +1704,137 @@ class StoreRepository(
                 notes = notes,
                 paymentMethod = paymentMethod,
                 exchangeAccount = exchangeAccount,
-                referenceNumber = referenceNumber
+                referenceNumber = finalVoucher
             )
             remainingToApply -= paymentForThisDebt
         }
         return true
+    }
+
+    suspend fun recordCollectionReceipt(
+        payerName: String,
+        party: PartyAccount?,
+        amount: Double,
+        voucherNumberInput: String,
+        paymentMethod: String, // "نقداً" or "صرافة/محفظة"
+        exchangeAccount: ExchangeAccount? = null,
+        notes: String = ""
+    ): CollectionReceiptResult {
+        require(amount > 0.0) { "يرجى إدخال مبلغ التحصيل" }
+        require(paymentMethod == "نقداً" || exchangeAccount != null) { "اختر حساب الصرافة أو المحفظة" }
+
+        return runInTransaction {
+            val now = System.currentTimeMillis()
+            val shiftId = dao.getActiveShift().firstOrNull()?.id ?: 0L
+            val finalVoucher = resolveVoucherNumber(voucherNumberInput, "SND")
+            val rawPayer = (party?.name ?: payerName).trim()
+            val finalPayer = rawPayer.ifBlank { "تحصيل نقدي عام" }
+
+            var appliedToDebt = 0.0
+            var remainingToCollect = amount
+
+            if (rawPayer.isNotBlank()) {
+                val allDebtsList = dao.getAllDebts().firstOrNull().orEmpty()
+                val matchingDebts = allDebtsList.filter {
+                    it.type == "CUSTOMER" &&
+                    !it.isSettled &&
+                    it.partyName.trim().equals(rawPayer, ignoreCase = true)
+                }.sortedBy { it.createdAt }
+
+                for (debt in matchingDebts) {
+                    if (remainingToCollect <= 0.001) break
+                    val applyNow = minOf(remainingToCollect, debt.remainingAmount)
+                    if (applyNow > 0.001) {
+                        recordDebtPayment(
+                            debt = debt,
+                            paymentAmount = applyNow,
+                            notes = notes.ifBlank { "تحصيل زلط / سند قبض" },
+                            paymentMethod = paymentMethod,
+                            exchangeAccount = exchangeAccount,
+                            referenceNumber = finalVoucher
+                        )
+                        appliedToDebt += applyNow
+                        remainingToCollect -= applyNow
+                    }
+                }
+            }
+
+            if (remainingToCollect > 0.001) {
+                val receiptNote = buildString {
+                    append("سند: #$finalVoucher")
+                    if (notes.isNotBlank()) append(" | $notes")
+                }
+                dao.insertDebtPayment(
+                    DebtPayment(
+                        debtId = 0L,
+                        partyName = finalPayer,
+                        amount = remainingToCollect,
+                        timestamp = now,
+                        notes = receiptNote,
+                        shiftId = shiftId,
+                        paymentMethod = paymentMethod,
+                        exchangeAccountId = exchangeAccount?.id ?: 0L,
+                        voucherNumber = finalVoucher
+                    )
+                )
+
+                if (paymentMethod == "نقداً") {
+                    dao.insertCashMovement(
+                        CashDrawerMovement(
+                            shiftId = shiftId,
+                            type = "DEBT_COLLECTED",
+                            amount = remainingToCollect,
+                            isIncome = true,
+                            title = "تحصيل زلط (سند #$finalVoucher): $finalPayer",
+                            details = notes.ifBlank { "سند قبض مباشر للصندوق" },
+                            timestamp = now
+                        )
+                    )
+                } else if (exchangeAccount != null) {
+                    dao.updateExchangeBalance(exchangeAccount.id, remainingToCollect)
+                    dao.insertExchangeTransfer(
+                        ExchangeTransfer(
+                            accountId = exchangeAccount.id,
+                            accountName = exchangeAccount.name,
+                            type = "سند قبض",
+                            amount = remainingToCollect,
+                            isCredit = true,
+                            title = "تحصيل زلط عبر الصراف (سند #$finalVoucher): $finalPayer",
+                            referenceNumber = finalVoucher,
+                            notes = notes.ifBlank { "سند قبض مباشر" },
+                            timestamp = now
+                        )
+                    )
+                }
+            }
+
+            val updatedDebtsList = dao.getAllDebts().firstOrNull().orEmpty()
+            val remainingCustomerDebt = if (rawPayer.isNotBlank()) {
+                updatedDebtsList.filter {
+                    it.type == "CUSTOMER" &&
+                    !it.isSettled &&
+                    it.partyName.trim().equals(rawPayer, ignoreCase = true)
+                }.sumOf { it.remainingAmount }
+            } else 0.0
+
+            logAudit(
+                action = "تحصيل زلط (سند قبض)",
+                details = "سند رقم #$finalVoucher | الجهة: $finalPayer | المبلغ: ${FormatUtils.formatCurrency(amount)} | طريقة القبض: $paymentMethod"
+            )
+
+            CollectionReceiptResult(
+                voucherNumber = finalVoucher,
+                payerName = finalPayer,
+                amount = amount,
+                paymentMethod = paymentMethod,
+                exchangeAccountName = exchangeAccount?.name ?: "",
+                appliedToDebtAmount = appliedToDebt,
+                directCollectionAmount = remainingToCollect.coerceAtLeast(0.0),
+                remainingCustomerDebt = remainingCustomerDebt,
+                notes = notes,
+                timestamp = now
+            )
+        }
     }
 
     // --- Exchange Accounts & Wallets Management ---
@@ -2184,6 +2016,7 @@ class StoreRepository(
         dao.deleteAllEmployees()
         dao.deleteAllExchangeAccounts()
         dao.deleteAllParties()
+        dao.deleteAllAuditLogs()
     }
 
     suspend fun executeStoreFullAudit(

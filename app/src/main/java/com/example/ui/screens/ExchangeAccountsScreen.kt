@@ -4,10 +4,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -19,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -72,14 +76,20 @@ fun ExchangeAccountsScreen(
             )
         }
     ) { paddingValues ->
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(MaterialTheme.colorScheme.background),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            contentAlignment = Alignment.TopCenter
         ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 960.dp),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
             // Header KPI Banner
             item {
                 Surface(
@@ -128,10 +138,11 @@ fun ExchangeAccountsScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(
+                                modifier = Modifier.weight(1f),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
@@ -142,12 +153,15 @@ fun ExchangeAccountsScreen(
                                         .background(FintechEmeraldLight)
                                 )
                                 Text(
-                                    text = "رصيد الكاش بالصندوق: ${FormatUtils.formatCurrency(cashBalance)}",
-                                    style = MaterialTheme.typography.bodySmall.copy(color = Color.White, fontWeight = FontWeight.SemiBold)
+                                    text = "رصيد الكاش: ${FormatUtils.formatCurrency(cashBalance)}",
+                                    style = MaterialTheme.typography.bodySmall.copy(color = Color.White, fontWeight = FontWeight.SemiBold),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
 
                             Row(
+                                modifier = Modifier.weight(1f),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
@@ -159,7 +173,9 @@ fun ExchangeAccountsScreen(
                                 )
                                 Text(
                                     text = "الإجمالي العام: ${FormatUtils.formatCurrency(totalExchangeBalance + cashBalance)}",
-                                    style = MaterialTheme.typography.bodySmall.copy(color = Color.White.copy(alpha = 0.9f))
+                                    style = MaterialTheme.typography.bodySmall.copy(color = Color.White.copy(alpha = 0.9f)),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -240,6 +256,7 @@ fun ExchangeAccountsScreen(
                 }
             }
         }
+        }
     }
 
     // Add / Edit Account Dialog
@@ -263,20 +280,22 @@ fun ExchangeAccountsScreen(
             },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text("اختر اسماً شائعاً أو اكتب الاسم:", style = MaterialTheme.typography.labelSmall.copy(color = SlateTextSecondary))
-                    Row(
+                    LazyRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        commonPresets.take(3).forEach { preset ->
+                        items(commonPresets) { preset ->
                             val isSelected = name == preset
                             FilterChip(
                                 selected = isSelected,
                                 onClick = { name = preset },
-                                label = { Text(preset, fontSize = 11.sp) },
+                                label = { Text(preset, fontSize = 11.sp, maxLines = 1) },
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = FintechIndigoBg,
                                     selectedLabelColor = FintechIndigo
@@ -387,7 +406,9 @@ fun ExchangeAccountsScreen(
             },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
@@ -486,7 +507,9 @@ fun ExchangeAccountsScreen(
             icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = FintechRose) },
             title = { Text("تأكيد حذف حساب الصراف", fontWeight = FontWeight.Bold, color = SlateTextPrimary) },
             text = {
-                Text("هل أنت متأكد من حذف حساب (${acc.name})؟ رصيده الحالي هو ${FormatUtils.formatCurrency(acc.balance)}. سيتم حذف بيانات الحساب.")
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text("هل أنت متأكد من حذف حساب (${acc.name})؟ رصيده الحالي هو ${FormatUtils.formatCurrency(acc.balance)}. سيتم حذف بيانات الحساب.")
+                }
             },
             confirmButton = {
                 Button(
