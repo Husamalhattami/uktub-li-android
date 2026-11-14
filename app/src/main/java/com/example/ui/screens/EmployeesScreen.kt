@@ -29,8 +29,13 @@ import com.example.data.model.Employee
 import com.example.data.model.EmployeeTransaction
 import com.example.data.model.ExchangeAccount
 import com.example.ui.StoreViewModel
-import com.example.ui.components.QuickThousandAdder
+import com.example.ui.components.DialogInfoBanner
+import com.example.ui.components.DialogSectionHeader
+import com.example.ui.components.DialogSegmentedChoice
+import com.example.ui.components.StoreOperationDialog
 import com.example.ui.components.StoreTopBar
+import com.example.ui.components.TransactionDatePickerField
+import com.example.ui.components.storeDialogTextFieldColors
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
 import com.example.ui.util.InvoiceHelper
@@ -164,124 +169,143 @@ fun EmployeesScreen(
         var paidFromCash by remember { mutableStateOf(true) }
         var selectedExchangeAccount by remember { mutableStateOf<ExchangeAccount?>(null) }
         var transferRef by remember { mutableStateOf("") }
+        var txTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-        AlertDialog(
+        val actionColor = when (actionType) {
+            "سلفة", "خصم غياب" -> FintechRose
+            "مكافأة" -> FintechEmerald
+            else -> PdfHeaderNavy
+        }
+
+        StoreOperationDialog(
             onDismissRequest = { actionDialogState = null },
-            title = {
-                Text(
-                    text = "تسجيل $actionType للعامل: ${employee.name}",
-                    fontWeight = FontWeight.Bold
-                )
+            title = "تسجيل $actionType للعامل",
+            subtitle = "${employee.name} • ${employee.role}",
+            icon = when (actionType) {
+                "صرف راتب" -> Icons.Default.Payments
+                "مكافأة" -> Icons.Default.CardGiftcard
+                "خصم غياب" -> Icons.Default.EventBusy
+                else -> Icons.Default.RequestQuote
             },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+            accentColor = actionColor,
+            confirmText = "حفظ العملية",
+            confirmIcon = Icons.Default.Save,
+            confirmColor = actionColor,
+            confirmTestTag = "confirm_emp_tx_button",
+            onConfirm = {
+                val amount = amountStr.toDoubleOrNull() ?: 0.0
+                viewModel.recordEmployeeTransaction(
+                    employeeId = employee.id,
+                    employeeName = employee.name,
+                    type = actionType,
+                    amount = amount,
+                    notes = notes,
+                    paidFromCashDrawer = if (actionType == "خصم غياب") false else paidFromCash,
+                    exchangeAccount = if (actionType == "خصم غياب") null else selectedExchangeAccount,
+                    referenceNumber = if (actionType == "خصم غياب" || paidFromCash) "" else transferRef,
+                    timestamp = txTimestamp,
+                    onSuccess = { actionDialogState = null }
+                )
+            }
+        ) {
+            OutlinedTextField(
+                value = amountStr,
+                onValueChange = { amountStr = it },
+                label = { Text("المبلغ (ريال) *") },
+                leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null, tint = actionColor) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = storeDialogTextFieldColors(actionColor),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("employee_tx_amount_input")
+            )
+
+            OutlinedTextField(
+                value = notes,
+                onValueChange = { notes = it },
+                label = { Text("البيان / ملاحظات") },
+                leadingIcon = { Icon(Icons.Default.Notes, contentDescription = null, tint = SlateTextSecondary) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            TransactionDatePickerField(
+                selectedTimestamp = txTimestamp,
+                onDateSelected = { txTimestamp = it },
+                label = "تاريخ العملية / الصرفة",
+                testTag = "emp_tx_date_picker"
+            )
+
+            if (actionType != "خصم غياب") {
+                DialogSectionHeader(title = "مصدر الدفع", icon = Icons.Default.AccountBalanceWallet, accentColor = PdfHeaderNavy)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    OutlinedTextField(
-                        value = amountStr,
-                        onValueChange = { amountStr = it },
-                        label = { Text("المبلغ (ريال)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("employee_tx_amount_input")
+                    DialogSegmentedChoice(
+                        selected = paidFromCash,
+                        label = "الصندوق النقدي",
+                        icon = Icons.Default.Payments,
+                        selectedColor = FintechEmerald,
+                        onClick = {
+                            paidFromCash = true
+                            selectedExchangeAccount = null
+                        },
+                        modifier = Modifier.weight(1f)
                     )
-
-                    QuickThousandAdder(
-                        currentValue = amountStr,
-                        onValueChange = { amountStr = it }
+                    DialogSegmentedChoice(
+                        selected = !paidFromCash,
+                        label = "صراف / محفظة",
+                        icon = Icons.Default.AccountBalance,
+                        selectedColor = FintechIndigo,
+                        onClick = { paidFromCash = false },
+                        modifier = Modifier.weight(1f)
                     )
-
-                    OutlinedTextField(
-                        value = notes,
-                        onValueChange = { notes = it },
-                        label = { Text("البيان / ملاحظات") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    if (actionType != "خصم غياب") {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(if (paidFromCash) "مصدر الدفع: الصندوق النقدي" else "مصدر الدفع: الصراف / المحفظة")
-                            Switch(
-                                checked = paidFromCash,
-                                onCheckedChange = {
-                                    paidFromCash = it
-                                    if (it) selectedExchangeAccount = null
-                                }
-                            )
-                        }
-                        if (!paidFromCash) {
-                            Text(
-                                text = "اختر الحساب الذي سيُخصم منه المبلغ:",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                            if (exchangeAccounts.isEmpty()) {
-                                Text(
-                                    text = "لا توجد حسابات صرافة. أضف حساباً من شاشة الصرافين والمحافظ أولاً.",
-                                    color = RubyExpense,
-                                    fontSize = 12.sp
-                                )
-                            } else {
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    exchangeAccounts.forEach { account ->
-                                        FilterChip(
-                                            selected = selectedExchangeAccount?.id == account.id,
-                                            onClick = { selectedExchangeAccount = account },
-                                            label = {
-                                                Text("${account.name} — الرصيد: ${FormatUtils.formatCurrency(account.balance)}")
-                                            },
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                    }
-                                }
-
-                                OutlinedTextField(
-                                    value = transferRef,
-                                    onValueChange = { transferRef = it },
-                                    label = { Text("رقم الحوالة / سند الصراف (اختياري)") },
-                                    placeholder = { Text("مثال: 94821034") },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(10.dp)
+                }
+                if (!paidFromCash) {
+                    DialogSectionHeader(title = "الحساب الذي سيُخصم منه المبلغ", icon = Icons.Default.AccountBalance, accentColor = FintechIndigo)
+                    if (exchangeAccounts.isEmpty()) {
+                        Text(
+                            text = "لا توجد حسابات صرافة. أضف حساباً من شاشة الصرافين والمحافظ أولاً.",
+                            color = RubyExpense,
+                            fontSize = 12.sp
+                        )
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            exchangeAccounts.forEach { account ->
+                                FilterChip(
+                                    selected = selectedExchangeAccount?.id == account.id,
+                                    onClick = { selectedExchangeAccount = account },
+                                    label = {
+                                        Text("${account.name} — الرصيد: ${FormatUtils.formatCurrency(account.balance)}")
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = FintechIndigo,
+                                        selectedLabelColor = Color.White
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                             }
                         }
+
+                        OutlinedTextField(
+                            value = transferRef,
+                            onValueChange = { transferRef = it },
+                            label = { Text("رقم الحوالة / سند الصراف (اختياري)") },
+                            placeholder = { Text("مثال: 94821034") },
+                            leadingIcon = { Icon(Icons.Default.ConfirmationNumber, contentDescription = null, tint = PdfHeaderNavy) },
+                            colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true
+                        )
                     }
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val amount = amountStr.toDoubleOrNull() ?: 0.0
-                        viewModel.recordEmployeeTransaction(
-                            employeeId = employee.id,
-                            employeeName = employee.name,
-                            type = actionType,
-                            amount = amount,
-                            notes = notes,
-                            paidFromCashDrawer = if (actionType == "خصم غياب") false else paidFromCash,
-                            exchangeAccount = if (actionType == "خصم غياب") null else selectedExchangeAccount,
-                            referenceNumber = if (actionType == "خصم غياب" || paidFromCash) "" else transferRef,
-                            onSuccess = { actionDialogState = null }
-                        )
-                    },
-                    modifier = Modifier.testTag("confirm_emp_tx_button")
-                ) {
-                    Text("حفظ العملية")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { actionDialogState = null }) {
-                    Text("إلغاء")
-                }
             }
-        )
+        }
     }
 
     // Add Employee Dialog
@@ -292,93 +316,101 @@ fun EmployeesScreen(
         var salaryStr by remember { mutableStateOf("3500") }
         var commissionStr by remember { mutableStateOf("2.0") }
 
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { showAddEmployeeDialog = false },
-            title = { Text("إضافة عامل جديد للمحل", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        label = { Text("اسم العامل الكامل") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("new_employee_name")
-                    )
-                    OutlinedTextField(
-                        value = phone,
-                        onValueChange = { phone = it },
-                        label = { Text("رقم الهاتف") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(employeeRoles) { roleOpt ->
-                            FilterChip(
-                                selected = role == roleOpt,
-                                onClick = { role = roleOpt },
-                                label = { Text(roleOpt, fontSize = 11.sp) }
-                            )
-                        }
-                    }
-                    OutlinedTextField(
-                        value = role,
-                        onValueChange = { role = it },
-                        label = { Text("المسمى الوظيفي (مثال: بائع، خياط، كاشير)") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = salaryStr,
-                        onValueChange = { salaryStr = it },
-                        label = { Text("الراتب الشهري الأساسي (ريال)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    QuickThousandAdder(
-                        currentValue = salaryStr,
-                        onValueChange = { salaryStr = it }
-                    )
-                    OutlinedTextField(
-                        value = commissionStr,
-                        onValueChange = { commissionStr = it },
-                        label = { Text("نسبة العمولة من المبيعات (%)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val baseSalary = salaryStr.toDoubleOrNull() ?: 0.0
-                        val comm = commissionStr.toDoubleOrNull() ?: 0.0
-                        viewModel.saveEmployee(
-                            Employee(
-                                name = name,
-                                phone = phone,
-                                role = role,
-                                baseSalary = baseSalary,
-                                commissionPercent = comm
-                            ),
-                            onSuccess = { showAddEmployeeDialog = false }
+            title = "إضافة عامل جديد للمحل",
+            subtitle = "تسجيل الراتب الأساسي ونسبة العمولة",
+            icon = Icons.Default.PersonAdd,
+            accentColor = BrandBlue,
+            confirmText = "حفظ العامل",
+            confirmIcon = Icons.Default.Save,
+            confirmColor = PdfHeaderNavy,
+            confirmTestTag = "submit_new_employee_button",
+            onConfirm = {
+                val baseSalary = salaryStr.toDoubleOrNull() ?: 0.0
+                val comm = commissionStr.toDoubleOrNull() ?: 0.0
+                viewModel.saveEmployee(
+                    Employee(
+                        name = name,
+                        phone = phone,
+                        role = role,
+                        baseSalary = baseSalary,
+                        commissionPercent = comm
+                    ),
+                    onSuccess = { showAddEmployeeDialog = false }
+                )
+            }
+        ) {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("اسم العامل الكامل *") },
+                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = PdfHeaderNavy) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("new_employee_name")
+            )
+            OutlinedTextField(
+                value = phone,
+                onValueChange = { phone = it },
+                label = { Text("رقم الهاتف") },
+                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = SlateTextSecondary) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            DialogSectionHeader(title = "المسمى الوظيفي", icon = Icons.Default.Badge, accentColor = BrandBlue)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(employeeRoles) { roleOpt ->
+                    FilterChip(
+                        selected = role == roleOpt,
+                        onClick = { role = roleOpt },
+                        label = { Text(roleOpt, fontSize = 11.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = PdfHeaderNavy,
+                            selectedLabelColor = Color.White
                         )
-                    },
-                    modifier = Modifier.testTag("submit_new_employee_button")
-                ) {
-                    Text("حفظ العامل")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { showAddEmployeeDialog = false }) {
-                    Text("إلغاء")
+                    )
                 }
             }
-        )
+            OutlinedTextField(
+                value = role,
+                onValueChange = { role = it },
+                label = { Text("المسمى الوظيفي (مثال: بائع، خياط، كاشير)") },
+                leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null, tint = BrandBlue) },
+                colors = storeDialogTextFieldColors(BrandBlue),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = salaryStr,
+                onValueChange = { salaryStr = it },
+                label = { Text("الراتب الشهري الأساسي (ريال)") },
+                leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null, tint = FintechEmerald) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = storeDialogTextFieldColors(FintechEmerald),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = commissionStr,
+                onValueChange = { commissionStr = it },
+                label = { Text("نسبة العمولة من المبيعات (%)") },
+                leadingIcon = { Icon(Icons.Default.Percent, contentDescription = null, tint = PdfGoldDark) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                colors = storeDialogTextFieldColors(PdfGoldDark),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 
     // View History & Statement Modal
@@ -391,53 +423,52 @@ fun EmployeesScreen(
         }
         var statementMode by remember(emp.id) { mutableStateOf(StatementMode.DETAILED) }
 
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { viewHistoryEmployee = null },
-            title = {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = "كشف حساب العامل: ${emp.name}",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
-                    )
-                    Text(
-                        text = "${emp.role} • مبيعات: ${empSummary.salesCount} (${FormatUtils.formatCurrency(empSummary.totalSalesAmount)})",
-                        fontSize = 12.sp,
-                        color = SlateMuted
-                    )
-                }
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+            title = "كشف حساب العامل: ${emp.name}",
+            subtitle = "${emp.role} • مبيعات: ${empSummary.salesCount} (${FormatUtils.formatCurrency(empSummary.totalSalesAmount)})",
+            icon = Icons.Default.AssignmentInd,
+            accentColor = PdfGoldPrimary,
+            maxWidth = 560.dp,
+            footer = {
+                Button(
+                    onClick = { viewHistoryEmployee = null },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = PdfHeaderNavy),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 ) {
-                    // Mode Toggle
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilterChip(
-                            selected = statementMode == StatementMode.DETAILED,
-                            onClick = { statementMode = StatementMode.DETAILED },
-                            label = { Text("كشف مفصل", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
-                            modifier = Modifier.weight(1f).testTag("btn_emp_mode_detailed")
-                        )
-                        FilterChip(
-                            selected = statementMode == StatementMode.SUMMARY,
-                            onClick = { statementMode = StatementMode.SUMMARY },
-                            label = { Text("تقرير نهائي", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
-                            modifier = Modifier.weight(1f).testTag("btn_emp_mode_summary")
-                        )
-                    }
+                    Text("إغلاق", fontWeight = FontWeight.Bold)
+                }
+            }
+        ) {
+            // Mode Toggle
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                DialogSegmentedChoice(
+                    selected = statementMode == StatementMode.DETAILED,
+                    label = "كشف مفصل",
+                    icon = Icons.Default.FormatListBulleted,
+                    selectedColor = PdfHeaderNavy,
+                    onClick = { statementMode = StatementMode.DETAILED },
+                    modifier = Modifier.weight(1f).testTag("btn_emp_mode_detailed")
+                )
+                DialogSegmentedChoice(
+                    selected = statementMode == StatementMode.SUMMARY,
+                    label = "تقرير نهائي",
+                    icon = Icons.Default.Summarize,
+                    selectedColor = PdfGoldDark,
+                    onClick = { statementMode = StatementMode.SUMMARY },
+                    modifier = Modifier.weight(1f).testTag("btn_emp_mode_summary")
+                )
+            }
 
-                    // 3 KPI Boxes: كم له / كم عليه / كم باقي
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
+            // 3 KPI Boxes: كم له / كم عليه / كم باقي
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = EmeraldLight,
@@ -674,14 +705,7 @@ fun EmployeesScreen(
                             }
                         }
                     }
-                }
-            },
-            confirmButton = {
-                Button(onClick = { viewHistoryEmployee = null }) {
-                    Text("إغلاق")
-                }
-            }
-        )
+        }
     }
 
     // Edit Employee Transaction Dialog
@@ -692,108 +716,112 @@ fun EmployeesScreen(
         var selectedExchangeAccount by remember {
             mutableStateOf(exchangeAccounts.firstOrNull { it.id == tx.exchangeAccountId } ?: exchangeAccounts.firstOrNull())
         }
+        var editTimestamp by remember(tx.id) { mutableLongStateOf(tx.timestamp) }
 
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { editingEmployeeTx = null },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Edit, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(20.dp))
-                    Text("تعديل حركة العامل (${tx.type})", fontWeight = FontWeight.Bold)
-                }
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text("العامل: ${tx.employeeName}", fontWeight = FontWeight.Bold, color = SlateTextPrimary)
-
-                    OutlinedTextField(
-                        value = amountStr,
-                        onValueChange = { amountStr = it },
-                        label = { Text("المبلغ (ريال) *") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
+            title = "تعديل حركة العامل (${tx.type})",
+            subtitle = tx.employeeName,
+            icon = Icons.Default.Edit,
+            accentColor = BrandBlue,
+            confirmText = "حفظ التعديل",
+            confirmIcon = Icons.Default.Check,
+            confirmColor = PdfHeaderNavy,
+            onConfirm = {
+                val amount = amountStr.toDoubleOrNull() ?: tx.amount
+                if (amount <= 0) {
+                    viewModel.showMessage("يرجى إدخال مبلغ صحيح أكبر من الصفر!")
+                } else {
+                    val isCash = if (tx.type == "خصم غياب") false else paidFromCash
+                    viewModel.updateEmployeeTransaction(
+                        tx.copy(
+                            amount = amount,
+                            notes = notes,
+                            paidFromCash = isCash,
+                            exchangeAccountId = if (isCash || tx.type == "خصم غياب") 0L else (selectedExchangeAccount?.id ?: 0L),
+                            exchangeAccountName = if (isCash || tx.type == "خصم غياب") "" else (selectedExchangeAccount?.name ?: ""),
+                            timestamp = editTimestamp
+                        ),
+                        onSuccess = { editingEmployeeTx = null }
                     )
-
-                    QuickThousandAdder(
-                        currentValue = amountStr,
-                        onValueChange = { amountStr = it }
-                    )
-
-                    OutlinedTextField(
-                        value = notes,
-                        onValueChange = { notes = it },
-                        label = { Text("البيان / ملاحظات") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-
-                    if (tx.type != "خصم غياب") {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(if (paidFromCash) "مصدر الدفع: الصندوق النقدي" else "مصدر الدفع: الصراف / المحفظة")
-                            Switch(
-                                checked = paidFromCash,
-                                onCheckedChange = {
-                                    paidFromCash = it
-                                    if (it) selectedExchangeAccount = null
-                                }
-                            )
-                        }
-
-                        if (!paidFromCash) {
-                            Text("اختر حساب الصراف أو المحفظة:", style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted))
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                items(exchangeAccounts) { acc ->
-                                    val isSel = selectedExchangeAccount?.id == acc.id
-                                    FilterChip(
-                                        selected = isSel,
-                                        onClick = { selectedExchangeAccount = acc },
-                                        label = { Text(acc.name, fontSize = 11.sp) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val amount = amountStr.toDoubleOrNull() ?: tx.amount
-                        if (amount <= 0) {
-                            viewModel.showMessage("يرجى إدخال مبلغ صحيح أكبر من الصفر!")
-                            return@Button
-                        }
-                        val isCash = if (tx.type == "خصم غياب") false else paidFromCash
-                        viewModel.updateEmployeeTransaction(
-                            tx.copy(
-                                amount = amount,
-                                notes = notes,
-                                paidFromCash = isCash,
-                                exchangeAccountId = if (isCash || tx.type == "خصم غياب") 0L else (selectedExchangeAccount?.id ?: 0L),
-                                exchangeAccountName = if (isCash || tx.type == "خصم غياب") "" else (selectedExchangeAccount?.name ?: "")
-                            ),
-                            onSuccess = { editingEmployeeTx = null }
-                        )
-                    }
-                ) {
-                    Text("حفظ التعديل")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { editingEmployeeTx = null }) {
-                    Text("إلغاء")
                 }
             }
-        )
+        ) {
+            OutlinedTextField(
+                value = amountStr,
+                onValueChange = { amountStr = it },
+                label = { Text("المبلغ (ريال) *") },
+                leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null, tint = BrandBlue) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = storeDialogTextFieldColors(BrandBlue),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
+            )
+
+            OutlinedTextField(
+                value = notes,
+                onValueChange = { notes = it },
+                label = { Text("البيان / ملاحظات") },
+                leadingIcon = { Icon(Icons.Default.Notes, contentDescription = null, tint = SlateTextSecondary) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            TransactionDatePickerField(
+                selectedTimestamp = editTimestamp,
+                onDateSelected = { editTimestamp = it },
+                label = "تاريخ الحركة",
+                testTag = "edit_emp_tx_date_picker"
+            )
+
+            if (tx.type != "خصم غياب") {
+                DialogSectionHeader(title = "مصدر الدفع", icon = Icons.Default.AccountBalanceWallet, accentColor = PdfHeaderNavy)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    DialogSegmentedChoice(
+                        selected = paidFromCash,
+                        label = "الصندوق النقدي",
+                        icon = Icons.Default.Payments,
+                        selectedColor = FintechEmerald,
+                        onClick = {
+                            paidFromCash = true
+                            selectedExchangeAccount = null
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    DialogSegmentedChoice(
+                        selected = !paidFromCash,
+                        label = "صراف / محفظة",
+                        icon = Icons.Default.AccountBalance,
+                        selectedColor = FintechIndigo,
+                        onClick = { paidFromCash = false },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                if (!paidFromCash && exchangeAccounts.isNotEmpty()) {
+                    DialogSectionHeader(title = "اختر حساب الصراف أو المحفظة", icon = Icons.Default.AccountBalance, accentColor = FintechIndigo)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(exchangeAccounts) { acc ->
+                            val isSel = selectedExchangeAccount?.id == acc.id
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedExchangeAccount = acc },
+                                label = { Text(acc.name, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = FintechIndigo,
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Edit Employee Dialog
@@ -804,119 +832,131 @@ fun EmployeesScreen(
         var salaryStr by remember { mutableStateOf(emp.baseSalary.toLong().toString()) }
         var commissionStr by remember { mutableStateOf(emp.commissionPercent.toString()) }
 
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { employeeToEdit = null },
-            title = { Text("تعديل بيانات العامل", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        label = { Text("اسم العامل الكامل") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = phone,
-                        onValueChange = { phone = it },
-                        label = { Text("رقم الهاتف") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(employeeRoles) { roleOpt ->
-                            FilterChip(
-                                selected = role == roleOpt,
-                                onClick = { role = roleOpt },
-                                label = { Text(roleOpt, fontSize = 11.sp) }
-                            )
-                        }
-                    }
-                    OutlinedTextField(
-                        value = role,
-                        onValueChange = { role = it },
-                        label = { Text("المسمى الوظيفي (بائع، كاشير...)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = salaryStr,
-                        onValueChange = { salaryStr = it },
-                        label = { Text("الراتب الأساسي (ريال)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = commissionStr,
-                        onValueChange = { commissionStr = it },
-                        label = { Text("نسبة العمولة (%)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val base = salaryStr.toDoubleOrNull() ?: emp.baseSalary
-                        val comm = commissionStr.toDoubleOrNull() ?: emp.commissionPercent
-                        viewModel.saveEmployee(
-                            emp.copy(
-                                name = name,
-                                phone = phone,
-                                role = role,
-                                baseSalary = base,
-                                commissionPercent = comm
-                            ),
-                            onSuccess = { employeeToEdit = null }
+            title = "تعديل بيانات العامل",
+            subtitle = emp.name,
+            icon = Icons.Default.Edit,
+            accentColor = BrandBlue,
+            confirmText = "حفظ التعديلات",
+            confirmIcon = Icons.Default.Save,
+            confirmColor = PdfHeaderNavy,
+            onConfirm = {
+                val base = salaryStr.toDoubleOrNull() ?: emp.baseSalary
+                val comm = commissionStr.toDoubleOrNull() ?: emp.commissionPercent
+                viewModel.saveEmployee(
+                    emp.copy(
+                        name = name,
+                        phone = phone,
+                        role = role,
+                        baseSalary = base,
+                        commissionPercent = comm
+                    ),
+                    onSuccess = { employeeToEdit = null }
+                )
+            }
+        ) {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("اسم العامل الكامل") },
+                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = PdfHeaderNavy) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+            OutlinedTextField(
+                value = phone,
+                onValueChange = { phone = it },
+                label = { Text("رقم الهاتف") },
+                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = SlateTextSecondary) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+            DialogSectionHeader(title = "المسمى الوظيفي", icon = Icons.Default.Badge, accentColor = BrandBlue)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(employeeRoles) { roleOpt ->
+                    FilterChip(
+                        selected = role == roleOpt,
+                        onClick = { role = roleOpt },
+                        label = { Text(roleOpt, fontSize = 11.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = PdfHeaderNavy,
+                            selectedLabelColor = Color.White
                         )
-                    }
-                ) {
-                    Text("حفظ التعديلات")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { employeeToEdit = null }) {
-                    Text("إلغاء")
+                    )
                 }
             }
-        )
+            OutlinedTextField(
+                value = role,
+                onValueChange = { role = it },
+                label = { Text("المسمى الوظيفي (بائع، كاشير...)") },
+                leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null, tint = BrandBlue) },
+                colors = storeDialogTextFieldColors(BrandBlue),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+            OutlinedTextField(
+                value = salaryStr,
+                onValueChange = { salaryStr = it },
+                label = { Text("الراتب الأساسي (ريال)") },
+                leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null, tint = FintechEmerald) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = storeDialogTextFieldColors(FintechEmerald),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+            OutlinedTextField(
+                value = commissionStr,
+                onValueChange = { commissionStr = it },
+                label = { Text("نسبة العمولة (%)") },
+                leadingIcon = { Icon(Icons.Default.Percent, contentDescription = null, tint = PdfGoldDark) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                colors = storeDialogTextFieldColors(PdfGoldDark),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+        }
     }
 
     // Delete Employee Confirmation Dialog
     employeeToDelete?.let { emp ->
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { employeeToDelete = null },
-            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = RubyExpense) },
-            title = { Text("تأكيد حذف العامل", fontWeight = FontWeight.Bold) },
-            text = {
-                Text("هل أنت متأكد من حذف العامل (${emp.name}) من قائمة عمال المحل؟")
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.deleteEmployee(emp.id)
-                        employeeToDelete = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = RubyExpense)
-                ) {
-                    Text("تأكيد الحذف")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { employeeToDelete = null }) {
-                    Text("إلغاء")
-                }
+            title = "تأكيد حذف العامل",
+            subtitle = emp.name,
+            icon = Icons.Default.Warning,
+            accentColor = RubyExpense,
+            confirmText = "تأكيد الحذف",
+            confirmIcon = Icons.Default.DeleteOutline,
+            confirmColor = RubyExpense,
+            onConfirm = {
+                viewModel.deleteEmployee(emp.id)
+                employeeToDelete = null
             }
-        )
+        ) {
+            DialogInfoBanner(
+                title = "المسمى الوظيفي:",
+                value = emp.role,
+                containerColor = Color(0xFFFFF1F2),
+                contentColor = RubyExpense,
+                borderColor = Color(0xFFFECDD3),
+                icon = Icons.Default.PersonOff
+            )
+            Text(
+                text = "هل أنت متأكد من حذف العامل (${emp.name}) من قائمة عمال المحل؟",
+                fontSize = 13.sp,
+                color = SlateTextPrimary,
+                lineHeight = 20.sp
+            )
+        }
     }
 }
 

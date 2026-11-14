@@ -34,6 +34,10 @@ import com.example.R
 import com.example.data.model.ProductItem
 import com.example.ui.AppScreen
 import com.example.ui.StoreViewModel
+import com.example.ui.components.DialogInfoBanner
+import com.example.ui.components.StoreOperationDialog
+import com.example.ui.components.TransactionDatePickerField
+import com.example.ui.components.storeDialogTextFieldColors
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
 
@@ -321,133 +325,127 @@ fun InventoryScreen(
         var editModelName by remember { mutableStateOf(prod.modelName) }
         var editQtyStr by remember { mutableStateOf(prod.quantity.toString()) }
         var editSellPriceStr by remember { mutableStateOf(prod.sellPrice.toInt().toString()) }
+        var editPurchaseDate by remember(prod.id) { mutableLongStateOf(prod.purchaseDate) }
 
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { editingProduct = null },
-            title = { Text("تعديل بيانات الصنف", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+            title = "تعديل بيانات الصنف",
+            subtitle = prod.category.ifBlank { "مخزون المتجر" },
+            icon = Icons.Default.Edit,
+            accentColor = PdfGoldPrimary,
+            confirmText = "حفظ التعديلات",
+            confirmIcon = Icons.Default.Check,
+            confirmColor = PdfHeaderNavy,
+            onConfirm = {
+                val q = editQtyStr.toIntOrNull() ?: prod.quantity
+                val p = editSellPriceStr.toDoubleOrNull() ?: prod.sellPrice
+                viewModel.saveProduct(
+                    prod.copy(
+                        modelName = editModelName,
+                        quantity = q,
+                        sellPrice = p,
+                        purchaseDate = editPurchaseDate
+                    )
                 ) {
-                    OutlinedTextField(
-                        value = editModelName,
-                        onValueChange = { editModelName = it },
-                        label = { Text("اسم الصنف / الموديل") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = editQtyStr,
-                        onValueChange = { editQtyStr = it },
-                        label = { Text("الكمية المتوفرة بالمخزن") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = editSellPriceStr,
-                        onValueChange = { editSellPriceStr = it },
-                        label = { Text("سعر البيع (ريال)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    editingProduct = null
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val q = editQtyStr.toIntOrNull() ?: prod.quantity
-                        val p = editSellPriceStr.toDoubleOrNull() ?: prod.sellPrice
-                        viewModel.saveProduct(prod.copy(modelName = editModelName, quantity = q, sellPrice = p)) {
-                            editingProduct = null
-                        }
-                    }
-                ) {
-                    Text("حفظ التعديلات")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { editingProduct = null }) { Text("إلغاء") }
             }
-        )
+        ) {
+            OutlinedTextField(
+                value = editModelName,
+                onValueChange = { editModelName = it },
+                label = { Text("اسم الصنف / الموديل") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy)
+            )
+            OutlinedTextField(
+                value = editQtyStr,
+                onValueChange = { editQtyStr = it },
+                label = { Text("الكمية المتوفرة بالمخزن") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy)
+            )
+            OutlinedTextField(
+                value = editSellPriceStr,
+                onValueChange = { editSellPriceStr = it },
+                label = { Text("سعر البيع (ريال)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy)
+            )
+            TransactionDatePickerField(
+                selectedTimestamp = editPurchaseDate,
+                onDateSelected = { editPurchaseDate = it },
+                label = "تاريخ التوريد",
+                testTag = "edit_product_date_picker"
+            )
+        }
     }
 
     // Delete Product Dialog
     productToDelete?.let { prod ->
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { productToDelete = null },
-            title = { Text("حذف الصنف من المخزون", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    Text("هل أنت متأكد من حذف (${prod.modelName})؟ سيتم حذفه من قائمة المخزون.")
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.deleteProduct(prod.id)
-                        productToDelete = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = FintechRose)
-                ) {
-                    Text("نعم، احذف")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { productToDelete = null }) { Text("إلغاء") }
+            title = "حذف الصنف من المخزون",
+            subtitle = prod.modelName,
+            icon = Icons.Default.DeleteForever,
+            accentColor = FintechRose,
+            confirmText = "نعم، احذف",
+            confirmIcon = Icons.Default.Delete,
+            confirmColor = FintechRose,
+            onConfirm = {
+                viewModel.deleteProduct(prod.id)
+                productToDelete = null
             }
-        )
+        ) {
+            DialogInfoBanner(
+                title = "تنبيه حذف صنف",
+                value = "هل أنت متأكد من حذف (${prod.modelName})؟ سيتم حذفه من قائمة المخزون.",
+                containerColor = Color(0xFFFEF2F2),
+                contentColor = FintechRose,
+                borderColor = Color(0xFFFECACA),
+                icon = Icons.Default.WarningAmber
+            )
+        }
     }
 
     if (showAddCategoryDialog) {
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { showAddCategoryDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Category, contentDescription = null, tint = PdfHeaderNavy)
-                    Text("إضافة نوع صنف جديد", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            title = "إضافة نوع صنف جديد",
+            subtitle = "سيظهر فوراً في قائمة الاختيارات السريعة",
+            icon = Icons.Default.Category,
+            accentColor = PdfGoldPrimary,
+            confirmText = "إضافة واختيار",
+            confirmIcon = Icons.Default.AddCircleOutline,
+            confirmColor = PdfHeaderNavy,
+            confirmEnabled = newCategoryInput.trim().isNotBlank(),
+            confirmTestTag = "confirm_add_inventory_category_btn",
+            onConfirm = {
+                val trimmed = newCategoryInput.trim()
+                if (trimmed.isNotBlank()) {
+                    viewModel.addNewCategory(trimmed)
+                    selectedCategory = trimmed
+                    newCategoryInput = ""
+                    showAddCategoryDialog = false
                 }
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text("اكتب اسم نوع الصنف وسيظهر فوراً في قائمة الاختيارات السريعة:", fontSize = 12.sp, color = Color(0xFF64748B))
-                    OutlinedTextField(
-                        value = newCategoryInput,
-                        onValueChange = { newCategoryInput = it },
-                        label = { Text("اسم نوع الصنف (مثلاً: أرواب، سراويل، شيلان...)") },
-                        modifier = Modifier.fillMaxWidth().testTag("inventory_new_category_input"),
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val trimmed = newCategoryInput.trim()
-                        if (trimmed.isNotBlank()) {
-                            viewModel.addNewCategory(trimmed)
-                            selectedCategory = trimmed
-                            newCategoryInput = ""
-                            showAddCategoryDialog = false
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = PdfHeaderNavy),
-                    modifier = Modifier.testTag("confirm_add_inventory_category_btn")
-                ) {
-                    Text("إضافة واختيار")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { showAddCategoryDialog = false }) { Text("إلغاء") }
             }
-        )
+        ) {
+            Text("اكتب اسم نوع الصنف وسيظهر فوراً في قائمة الاختيارات السريعة:", fontSize = 12.sp, color = SlateTextSecondary)
+            OutlinedTextField(
+                value = newCategoryInput,
+                onValueChange = { newCategoryInput = it },
+                label = { Text("اسم نوع الصنف (مثلاً: أرواب، سراويل، شيلان...)") },
+                modifier = Modifier.fillMaxWidth().testTag("inventory_new_category_input"),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy)
+            )
+        }
     }
 }
 

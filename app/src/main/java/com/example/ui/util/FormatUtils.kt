@@ -3,8 +3,10 @@ package com.example.ui.util
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 object ClothingUnits {
     const val PIECE = "حبه"
@@ -84,5 +86,58 @@ object FormatUtils {
         val monthFormat = SimpleDateFormat("yyyy/MM", Locale.getDefault())
         val now = System.currentTimeMillis()
         return monthFormat.format(Date(now)) == monthFormat.format(Date(timestamp))
+    }
+
+    fun isPastDate(timestamp: Long): Boolean {
+        val todayStart = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        return timestamp < todayStart
+    }
+
+    fun isFutureDate(timestamp: Long): Boolean {
+        val tomorrowStart = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            add(Calendar.DAY_OF_YEAR, 1)
+        }.timeInMillis
+        return timestamp >= tomorrowStart
+    }
+
+    fun localTimestampToUtcPickerMillis(localTimestamp: Long): Long {
+        val localCal = Calendar.getInstance().apply {
+            timeInMillis = localTimestamp
+        }
+        val utcCal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+            clear()
+            set(Calendar.YEAR, localCal.get(Calendar.YEAR))
+            set(Calendar.MONTH, localCal.get(Calendar.MONTH))
+            set(Calendar.DAY_OF_MONTH, localCal.get(Calendar.DAY_OF_MONTH))
+        }
+        return utcCal.timeInMillis
+    }
+
+    fun mergeDateWithTimeOfDay(pickedUtcMillis: Long, baseTimeMillis: Long = System.currentTimeMillis()): Long {
+        val utcCal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+            timeInMillis = pickedUtcMillis
+        }
+        val baseCal = Calendar.getInstance().apply {
+            timeInMillis = baseTimeMillis
+        }
+        val resultCal = Calendar.getInstance().apply {
+            set(Calendar.YEAR, utcCal.get(Calendar.YEAR))
+            set(Calendar.MONTH, utcCal.get(Calendar.MONTH))
+            set(Calendar.DAY_OF_MONTH, utcCal.get(Calendar.DAY_OF_MONTH))
+            set(Calendar.HOUR_OF_DAY, baseCal.get(Calendar.HOUR_OF_DAY))
+            set(Calendar.MINUTE, baseCal.get(Calendar.MINUTE))
+            set(Calendar.SECOND, baseCal.get(Calendar.SECOND))
+            set(Calendar.MILLISECOND, baseCal.get(Calendar.MILLISECOND))
+        }
+        return resultCal.timeInMillis
     }
 }

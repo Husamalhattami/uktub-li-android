@@ -29,8 +29,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.ExchangeAccount
 import com.example.data.model.ExchangeTransfer
 import com.example.ui.StoreViewModel
-import com.example.ui.components.QuickThousandAdder
+import com.example.ui.components.DialogInfoBanner
+import com.example.ui.components.DialogSectionHeader
+import com.example.ui.components.DialogSegmentedChoice
+import com.example.ui.components.StoreOperationDialog
 import com.example.ui.components.StoreTopBar
+import com.example.ui.components.TransactionDatePickerField
+import com.example.ui.components.storeDialogTextFieldColors
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
 
@@ -271,140 +276,129 @@ fun ExchangeAccountsScreen(
 
         val commonPresets = listOf("الكريمي إكسبرس", "النجم للصرافة", "العمقي للصرافة", "محفظة جوالي", "محفظة كاش", "ون كاش", "محفظة فلوسك")
 
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { showAddEditDialog = null },
-            title = {
-                Text(
-                    text = if (currentAcc.id == 0L) "إضافة حساب صراف أو محفظة" else "تعديل بيانات الحساب",
-                    fontWeight = FontWeight.Bold,
-                    color = SlateTextPrimary
+            title = if (currentAcc.id == 0L) "إضافة حساب صراف أو محفظة" else "تعديل بيانات الحساب",
+            subtitle = "إدارة الحسابات البنكية والمحافظ الإلكترونية",
+            icon = Icons.Default.AccountBalance,
+            accentColor = FintechIndigo,
+            confirmText = "حفظ الحساب",
+            confirmIcon = Icons.Default.Save,
+            confirmColor = PdfHeaderNavy,
+            confirmTestTag = "confirm_save_exchange_account_button",
+            onConfirm = {
+                val initBal = initialBalanceStr.toDoubleOrNull() ?: 0.0
+                viewModel.saveExchangeAccount(
+                    account = currentAcc.copy(
+                        name = name,
+                        type = accType,
+                        accountNumber = accNumber,
+                        phone = phone,
+                        balance = if (currentAcc.id == 0L) initBal else currentAcc.balance,
+                        notes = notes
+                    ),
+                    onSuccess = { showAddEditDialog = null }
                 )
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text("اختر اسماً شائعاً أو اكتب الاسم:", style = MaterialTheme.typography.labelSmall.copy(color = SlateTextSecondary))
-                    LazyRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        items(commonPresets) { preset ->
-                            val isSelected = name == preset
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = { name = preset },
-                                label = { Text(preset, fontSize = 11.sp, maxLines = 1) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = FintechIndigoBg,
-                                    selectedLabelColor = FintechIndigo
-                                )
-                            )
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        label = { Text("اسم الصراف / المحفظة *") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("exchange_account_name_input"),
-                        shape = RoundedCornerShape(10.dp),
-                        singleLine = true
-                    )
-
-                    Text("نوع الحساب:", style = MaterialTheme.typography.labelSmall.copy(color = SlateTextSecondary))
-                    LazyRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        items(accountTypes) { typeOpt ->
-                            FilterChip(
-                                selected = accType == typeOpt,
-                                onClick = { accType = typeOpt },
-                                label = { Text(typeOpt, fontSize = 11.sp, maxLines = 1) }
-                            )
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = accNumber,
-                        onValueChange = { accNumber = it },
-                        label = { Text("رقم الحساب أو الآيبان") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp),
-                        singleLine = true
-                    )
-
-                    OutlinedTextField(
-                        value = phone,
-                        onValueChange = { phone = it },
-                        label = { Text("رقم هاتف الصراف أو المحفظة") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp),
-                        singleLine = true
-                    )
-
-                    if (currentAcc.id == 0L) {
-                        OutlinedTextField(
-                            value = initialBalanceStr,
-                            onValueChange = { initialBalanceStr = it },
-                            label = { Text("الرصيد الافتتاحي المتوفر حالياً (ريال)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp),
-                            singleLine = true
+            }
+        ) {
+            DialogSectionHeader(title = "أسماء شائعة سريعة", icon = Icons.Default.Star, accentColor = PdfGoldPrimary)
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(commonPresets) { preset ->
+                    val isSelected = name == preset
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { name = preset },
+                        label = { Text(preset, fontSize = 11.sp, maxLines = 1) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = PdfHeaderNavy,
+                            selectedLabelColor = Color.White
                         )
-                        QuickThousandAdder(
-                            currentValue = initialBalanceStr,
-                            onValueChange = { initialBalanceStr = it }
-                        )
-                    }
-
-                    OutlinedTextField(
-                        value = notes,
-                        onValueChange = { notes = it },
-                        label = { Text("ملاحظات (فرع، اسم الوكيل، الخ)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
                     )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val initBal = initialBalanceStr.toDoubleOrNull() ?: 0.0
-                        viewModel.saveExchangeAccount(
-                            account = currentAcc.copy(
-                                name = name,
-                                type = accType,
-                                accountNumber = accNumber,
-                                phone = phone,
-                                balance = if (currentAcc.id == 0L) initBal else currentAcc.balance,
-                                notes = notes
-                            ),
-                            onSuccess = { showAddEditDialog = null }
-                        )
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = BrandNavy),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.testTag("confirm_save_exchange_account_button")
-                ) {
-                    Text("حفظ الحساب", color = Color.White)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { showAddEditDialog = null }, shape = RoundedCornerShape(10.dp)) {
-                    Text("إلغاء")
                 }
             }
-        )
+
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("اسم الصراف / المحفظة *") },
+                leadingIcon = { Icon(Icons.Default.AccountBalance, contentDescription = null, tint = PdfHeaderNavy) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("exchange_account_name_input"),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
+            )
+
+            DialogSectionHeader(title = "نوع الحساب", icon = Icons.Default.Category, accentColor = FintechIndigo)
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(accountTypes) { typeOpt ->
+                    FilterChip(
+                        selected = accType == typeOpt,
+                        onClick = { accType = typeOpt },
+                        label = { Text(typeOpt, fontSize = 11.sp, maxLines = 1) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = FintechIndigo,
+                            selectedLabelColor = Color.White
+                        )
+                    )
+                }
+            }
+
+            OutlinedTextField(
+                value = accNumber,
+                onValueChange = { accNumber = it },
+                label = { Text("رقم الحساب أو الآيبان") },
+                leadingIcon = { Icon(Icons.Default.Numbers, contentDescription = null, tint = SlateTextSecondary) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
+            )
+
+            OutlinedTextField(
+                value = phone,
+                onValueChange = { phone = it },
+                label = { Text("رقم هاتف الصراف أو المحفظة") },
+                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = SlateTextSecondary) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
+            )
+
+            if (currentAcc.id == 0L) {
+                OutlinedTextField(
+                    value = initialBalanceStr,
+                    onValueChange = { initialBalanceStr = it },
+                    label = { Text("الرصيد الافتتاحي المتوفر حالياً (ريال)") },
+                    leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null, tint = FintechEmerald) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    colors = storeDialogTextFieldColors(FintechEmerald),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true
+                )
+            }
+
+            OutlinedTextField(
+                value = notes,
+                onValueChange = { notes = it },
+                label = { Text("ملاحظات (فرع، اسم الوكيل، الخ)") },
+                leadingIcon = { Icon(Icons.Default.Notes, contentDescription = null, tint = SlateTextSecondary) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            )
+        }
     }
 
     // Transfer Dialog (Between Cash and Exchange or Between Accounts)
@@ -412,141 +406,127 @@ fun ExchangeAccountsScreen(
         var amountStr by remember { mutableStateOf("") }
         var fromCashToExchange by remember { mutableStateOf(true) }
         var transferNotes by remember { mutableStateOf("") }
+        var transferTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { showTransferDialog = null },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = FintechIndigo)
-                    Text("مناقلة رصيد: ${acc.name}", fontWeight = FontWeight.Bold, color = SlateTextPrimary)
-                }
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = "اختر اتجاه المناقلة:",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, color = SlateTextSecondary)
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (fromCashToExchange) FintechIndigo else SlateBg,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, if (fromCashToExchange) FintechIndigo else SlateBorder),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { fromCashToExchange = true }
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("إيداع بالصراف", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (fromCashToExchange) Color.White else SlateTextPrimary)
-                                Text("(من الصندوق إلى الصراف)", fontSize = 9.sp, color = if (fromCashToExchange) Color.White.copy(alpha = 0.8f) else SlateTextMuted)
-                            }
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (!fromCashToExchange) FintechEmerald else SlateBg,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, if (!fromCashToExchange) FintechEmerald else SlateBorder),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { fromCashToExchange = false }
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("سحب إلى الصندوق", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (!fromCashToExchange) Color.White else SlateTextPrimary)
-                                Text("(من الصراف إلى الصندوق)", fontSize = 9.sp, color = if (!fromCashToExchange) Color.White.copy(alpha = 0.8f) else SlateTextMuted)
-                            }
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = amountStr,
-                        onValueChange = { amountStr = it },
-                        label = { Text("المبلغ المحول (ريال) *") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("transfer_amount_input"),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-
-                    QuickThousandAdder(
-                        currentValue = amountStr,
-                        onValueChange = { amountStr = it }
-                    )
-
-                    OutlinedTextField(
-                        value = transferNotes,
-                        onValueChange = { transferNotes = it },
-                        label = { Text("ملاحظات (رقم الحوالة، اسم المرسل...)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val amt = amountStr.toDoubleOrNull() ?: 0.0
-                        viewModel.transferBetweenCashAndExchange(
-                            accountId = acc.id,
-                            amount = amt,
-                            fromCashToExchange = fromCashToExchange,
-                            notes = transferNotes,
-                            onSuccess = { showTransferDialog = null }
-                        )
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = BrandNavy),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.testTag("confirm_transfer_button")
-                ) {
-                    Text("تنفيذ المناقلة", color = Color.White)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { showTransferDialog = null }, shape = RoundedCornerShape(10.dp)) {
-                    Text("إلغاء")
-                }
+            title = "مناقلة رصيد: ${acc.name}",
+            subtitle = "الرصيد الحالي بالحساب: ${FormatUtils.formatCurrency(acc.balance)}",
+            icon = Icons.Default.SwapHoriz,
+            accentColor = FintechIndigo,
+            confirmText = "تنفيذ المناقلة",
+            confirmIcon = Icons.Default.SwapHoriz,
+            confirmColor = PdfHeaderNavy,
+            confirmTestTag = "confirm_transfer_button",
+            onConfirm = {
+                val amt = amountStr.toDoubleOrNull() ?: 0.0
+                viewModel.transferBetweenCashAndExchange(
+                    accountId = acc.id,
+                    amount = amt,
+                    fromCashToExchange = fromCashToExchange,
+                    notes = transferNotes,
+                    timestamp = transferTimestamp,
+                    onSuccess = { showTransferDialog = null }
+                )
             }
-        )
+        ) {
+            DialogSectionHeader(title = "اختر اتجاه المناقلة", icon = Icons.Default.SwapHoriz, accentColor = FintechIndigo)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                DialogSegmentedChoice(
+                    selected = fromCashToExchange,
+                    label = "إيداع بالصراف",
+                    icon = Icons.Default.NorthEast,
+                    selectedColor = FintechIndigo,
+                    onClick = { fromCashToExchange = true },
+                    modifier = Modifier.weight(1f)
+                )
+                DialogSegmentedChoice(
+                    selected = !fromCashToExchange,
+                    label = "سحب للصندوق",
+                    icon = Icons.Default.SouthWest,
+                    selectedColor = FintechEmerald,
+                    onClick = { fromCashToExchange = false },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            DialogInfoBanner(
+                title = if (fromCashToExchange) "المتاح بالصندوق النقدي:" else "المتاح في ${acc.name}:",
+                value = FormatUtils.formatCurrency(if (fromCashToExchange) cashBalance else acc.balance),
+                containerColor = Color(0xFFEFF6FF),
+                contentColor = Color(0xFF1E3A8A),
+                borderColor = Color(0xFFBFDBFE),
+                icon = Icons.Default.AccountBalanceWallet
+            )
+
+            OutlinedTextField(
+                value = amountStr,
+                onValueChange = { amountStr = it },
+                label = { Text("المبلغ المحول (ريال) *") },
+                leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null, tint = FintechIndigo) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = storeDialogTextFieldColors(FintechIndigo),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("transfer_amount_input"),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
+            )
+
+            OutlinedTextField(
+                value = transferNotes,
+                onValueChange = { transferNotes = it },
+                label = { Text("ملاحظات (رقم الحوالة، اسم المرسل...)") },
+                leadingIcon = { Icon(Icons.Default.Notes, contentDescription = null, tint = SlateTextSecondary) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            TransactionDatePickerField(
+                selectedTimestamp = transferTimestamp,
+                onDateSelected = { transferTimestamp = it },
+                label = "تاريخ التحويل / المناقلة",
+                testTag = "exchange_transfer_date_picker"
+            )
+        }
     }
 
     // Delete Account Confirmation Dialog
     accountToDelete?.let { acc ->
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { accountToDelete = null },
-            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = FintechRose) },
-            title = { Text("تأكيد حذف حساب الصراف", fontWeight = FontWeight.Bold, color = SlateTextPrimary) },
-            text = {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    Text("هل أنت متأكد من حذف حساب (${acc.name})؟ رصيده الحالي هو ${FormatUtils.formatCurrency(acc.balance)}. سيتم حذف بيانات الحساب.")
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.deleteExchangeAccount(acc.id)
-                        accountToDelete = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = FintechRose),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.testTag("confirm_delete_account_button")
-                ) {
-                    Text("تأكيد الحذف", color = Color.White)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { accountToDelete = null }, shape = RoundedCornerShape(10.dp)) {
-                    Text("إلغاء")
-                }
+            title = "تأكيد حذف حساب الصراف",
+            subtitle = acc.name,
+            icon = Icons.Default.Warning,
+            accentColor = FintechRose,
+            confirmText = "تأكيد الحذف",
+            confirmIcon = Icons.Default.DeleteOutline,
+            confirmColor = FintechRose,
+            confirmTestTag = "confirm_delete_account_button",
+            onConfirm = {
+                viewModel.deleteExchangeAccount(acc.id)
+                accountToDelete = null
             }
-        )
+        ) {
+            DialogInfoBanner(
+                title = "الرصيد المسجل في الحساب:",
+                value = FormatUtils.formatCurrency(acc.balance),
+                containerColor = Color(0xFFFFF1F2),
+                contentColor = FintechRose,
+                borderColor = Color(0xFFFECDD3),
+                icon = Icons.Default.Warning
+            )
+            Text(
+                text = "هل أنت متأكد من حذف حساب (${acc.name})؟ سيتم إزالة بيانات الحساب من قائمة الحسابات.",
+                fontSize = 13.sp,
+                color = SlateTextPrimary,
+                lineHeight = 20.sp
+            )
+        }
     }
 }
 

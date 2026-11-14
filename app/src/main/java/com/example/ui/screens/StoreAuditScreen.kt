@@ -27,8 +27,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.ExchangeAccount
 import com.example.data.model.ProductItem
 import com.example.ui.StoreViewModel
-import com.example.ui.components.QuickThousandAdder
+import com.example.ui.components.DialogInfoBanner
+import com.example.ui.components.DialogSectionHeader
+import com.example.ui.components.StoreOperationDialog
 import com.example.ui.components.StoreTopBar
+import com.example.ui.components.storeDialogTextFieldColors
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
 
@@ -232,11 +235,6 @@ fun StoreAuditScreen(
                             shape = RoundedCornerShape(12.dp)
                         )
 
-                        QuickThousandAdder(
-                            currentValue = actualCashDrawerStr,
-                            onValueChange = { actualCashDrawerStr = it }
-                        )
-
                         Text(
                             text = "هذا المبلغ سيعتمد كرصيد بداية رسمي للصندوق النقدي.",
                             style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted, fontSize = 11.sp)
@@ -342,11 +340,6 @@ fun StoreAuditScreen(
                                                 .fillMaxWidth()
                                                 .testTag("audit_acc_balance_${acc.id}"),
                                             shape = RoundedCornerShape(10.dp)
-                                        )
-
-                                        QuickThousandAdder(
-                                            currentValue = currentVal,
-                                            onValueChange = { exchangeBalancesState[acc.id] = it }
                                         )
                                     }
                                 }
@@ -552,142 +545,128 @@ fun StoreAuditScreen(
 
     // Confirmation Alert Dialog
     if (showConfirmDialog) {
-        AlertDialog(
+        val isWordValid = !resetTransactionsFromZero || (confirmWordInput.trim() == "تصفير" || confirmWordInput.trim() == "حذف")
+        val accent = if (resetTransactionsFromZero) RubyExpense else EmeraldProfit
+        StoreOperationDialog(
             onDismissRequest = { showConfirmDialog = false },
-            icon = {
-                Icon(
-                    imageVector = if (resetTransactionsFromZero) Icons.Default.RestartAlt else Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    tint = if (resetTransactionsFromZero) RubyExpense else EmeraldProfit,
-                    modifier = Modifier.size(36.dp)
+            title = if (resetTransactionsFromZero) "تأكيد اعتماد الجرد وبدء النظام من الصفر" else "تأكيد تسوية الأرصدة",
+            subtitle = "مراجعة الأرصدة الافتتاحية المعتمدة",
+            icon = if (resetTransactionsFromZero) Icons.Default.RestartAlt else Icons.Default.CheckCircle,
+            accentColor = accent,
+            confirmText = if (resetTransactionsFromZero) "نعم، اعتمد وابدأ من الصفر" else "نعم، اعتمد الأرصدة",
+            confirmIcon = Icons.Default.Check,
+            confirmColor = accent,
+            confirmEnabled = isWordValid,
+            confirmTestTag = "confirm_finalize_audit_button",
+            dismissText = "إلغاء وتعديل",
+            onConfirm = {
+                val exchangeMap = exchangeAccounts.associate { acc ->
+                    acc.id to (exchangeBalancesState[acc.id]?.toDoubleOrNull() ?: 0.0)
+                }
+                viewModel.executeStoreFullAudit(
+                    actualDrawerCash = actualCash,
+                    exchangeBalances = exchangeMap,
+                    resetTransactions = resetTransactionsFromZero,
+                    notes = auditNotes,
+                    onSuccess = {
+                        showConfirmDialog = false
+                        onBack()
+                    }
                 )
-            },
-            title = {
-                Text(
-                    text = if (resetTransactionsFromZero) "تأكيد اعتماد الجرد وبدء النظام من الصفر" else "تأكيد تسوية الأرصدة",
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
+            }
+        ) {
+            DialogInfoBanner(
+                title = "إجمالي السيولة النقدية المعتمدة",
+                value = FormatUtils.formatCurrency(totalStoreCapital),
+                containerColor = Color(0xFFF0FDF4),
+                contentColor = EmeraldProfit,
+                borderColor = Color(0xFFBBF7D0),
+                icon = Icons.Default.AccountBalanceWallet
+            )
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
+            ) {
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text("ملخص الأرصدة الافتتاحية المعتمدة للجرد:", fontWeight = FontWeight.Bold)
-                    Text("• كاش الصندوق (الدرج): ${FormatUtils.formatCurrency(actualCash)}")
+                    Text("ملخص الأرصدة الافتتاحية المعتمدة للجرد:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text("• كاش الصندوق (الدرج): ${FormatUtils.formatCurrency(actualCash)}", fontSize = 12.sp)
                     exchangeAccounts.forEach { acc ->
                         val b = exchangeBalancesState[acc.id]?.toDoubleOrNull() ?: 0.0
-                        Text("• حساب ${acc.name}: ${FormatUtils.formatCurrency(b)}")
+                        Text("• حساب ${acc.name}: ${FormatUtils.formatCurrency(b)}", fontSize = 12.sp)
                     }
-                    Text("• إجمالي السيولة النقدية: ${FormatUtils.formatCurrency(totalStoreCapital)}", fontWeight = FontWeight.Bold, color = EmeraldProfit)
-
-                    if (resetTransactionsFromZero) {
-                        Surface(
-                            color = RubyLight,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.padding(top = 8.dp)
-                        ) {
-                            Text(
-                                text = "تنبيه هام: سيتم مسح فواتير البيع والشراء والمصروفات والديون السابقة للبدء بسجل نظيف تماماً من الصفر.",
-                                color = RubyExpense,
-                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                                modifier = Modifier.padding(8.dp)
-                            )
-                        }
-
-                        Text(
-                            text = "للتأكيد النهائي، يرجى كتابة كلمة «تصفير» في المربع أدناه:",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = RubyExpense)
-                        )
-
-                        OutlinedTextField(
-                            value = confirmWordInput,
-                            onValueChange = { confirmWordInput = it },
-                            placeholder = { Text("اكتب تصفير") },
-                            singleLine = true,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("audit_confirm_word_input")
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                val isWordValid = !resetTransactionsFromZero || (confirmWordInput.trim() == "تصفير" || confirmWordInput.trim() == "حذف")
-                Button(
-                    onClick = {
-                        val exchangeMap = exchangeAccounts.associate { acc ->
-                            acc.id to (exchangeBalancesState[acc.id]?.toDoubleOrNull() ?: 0.0)
-                        }
-                        viewModel.executeStoreFullAudit(
-                            actualDrawerCash = actualCash,
-                            exchangeBalances = exchangeMap,
-                            resetTransactions = resetTransactionsFromZero,
-                            notes = auditNotes,
-                            onSuccess = {
-                                showConfirmDialog = false
-                                onBack()
-                            }
-                        )
-                    },
-                    enabled = isWordValid,
-                    colors = ButtonDefaults.buttonColors(containerColor = if (resetTransactionsFromZero) RubyExpense else EmeraldProfit),
-                    modifier = Modifier.testTag("confirm_finalize_audit_button")
-                ) {
-                    Text(if (resetTransactionsFromZero) "نعم، اعتمد وابدأ من الصفر" else "نعم، اعتمد الأرصدة")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { showConfirmDialog = false }) {
-                    Text("إلغاء وتعديل")
                 }
             }
-        )
+
+            if (resetTransactionsFromZero) {
+                DialogInfoBanner(
+                    title = "تنبيه تصفير الحركات",
+                    value = "سيتم مسح فواتير البيع والشراء والمصروفات والديون السابقة للبدء بسجل نظيف تماماً من الصفر.",
+                    containerColor = RubyLight,
+                    contentColor = RubyExpense,
+                    borderColor = Color(0xFFFECACA),
+                    icon = Icons.Default.WarningAmber
+                )
+
+                Text(
+                    text = "للتأكيد النهائي، يرجى كتابة كلمة «تصفير» في المربع أدناه:",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = RubyExpense)
+                )
+
+                OutlinedTextField(
+                    value = confirmWordInput,
+                    onValueChange = { confirmWordInput = it },
+                    placeholder = { Text("اكتب تصفير") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = storeDialogTextFieldColors(RubyExpense),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("audit_confirm_word_input")
+                )
+            }
+        }
     }
 
     // Adjust Product Stock Dialog
     productToAdjust?.let { prod ->
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { productToAdjust = null },
-            title = { Text("تعديل كمية الجرد للصنف", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(prod.modelName, fontWeight = FontWeight.Bold)
-                    Text("الكمية الحالية بالدفتر: ${prod.quantity} حبه", color = SlateMuted)
-                    OutlinedTextField(
-                        value = newQtyStr,
-                        onValueChange = { newQtyStr = it },
-                        label = { Text("الكمية الفعلية بعد العد (حبه)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val qty = newQtyStr.toIntOrNull() ?: prod.quantity
-                        viewModel.saveProduct(prod.copy(quantity = qty)) {
-                            productToAdjust = null
-                        }
-                    }
-                ) {
-                    Text("تحديث الكمية")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { productToAdjust = null }) {
-                    Text("إلغاء")
+            title = "تعديل كمية الجرد للصنف",
+            subtitle = prod.modelName,
+            icon = Icons.Default.Inventory,
+            accentColor = PdfGoldPrimary,
+            confirmText = "تحديث الكمية",
+            confirmIcon = Icons.Default.Check,
+            confirmColor = PdfHeaderNavy,
+            onConfirm = {
+                val qty = newQtyStr.toIntOrNull() ?: prod.quantity
+                viewModel.saveProduct(prod.copy(quantity = qty)) {
+                    productToAdjust = null
                 }
             }
-        )
+        ) {
+            DialogInfoBanner(
+                title = "الكمية الحالية بالدفتر",
+                value = "${prod.quantity} حبة",
+                containerColor = Color(0xFFF8FAFC),
+                contentColor = PdfHeaderNavy,
+                borderColor = Color(0xFFE2E8F0),
+                icon = Icons.Default.Inventory2
+            )
+            OutlinedTextField(
+                value = newQtyStr,
+                onValueChange = { newQtyStr = it },
+                label = { Text("الكمية الفعلية بعد العد (حبة)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy)
+            )
+        }
     }
 
     // Add Exchange Account Dialog
@@ -698,76 +677,71 @@ fun StoreAuditScreen(
         var newAccNumber by remember { mutableStateOf("") }
         var newAccBalanceStr by remember { mutableStateOf("0") }
 
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { showAddAccountDialog = false },
-            title = { Text("إضافة حساب صراف أو محفظة جديدة", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+            title = "إضافة حساب صراف أو محفظة جديدة",
+            subtitle = "تهيئة أرصدة الحسابات أثناء الجرد",
+            icon = Icons.Default.AccountBalance,
+            accentColor = Color(0xFF0D9488),
+            confirmText = "حفظ الحساب",
+            confirmIcon = Icons.Default.Save,
+            confirmColor = Color(0xFF0D9488),
+            onConfirm = {
+                val bal = newAccBalanceStr.toDoubleOrNull() ?: 0.0
+                viewModel.saveExchangeAccount(
+                    ExchangeAccount(
+                        name = newAccName,
+                        type = newAccType,
+                        accountNumber = newAccNumber,
+                        balance = bal
+                    )
                 ) {
-                    OutlinedTextField(
-                        value = newAccName,
-                        onValueChange = { newAccName = it },
-                        label = { Text("اسم الصراف أو المحفظة (الكريمي، النجم، جوالي...)") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    LazyRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(dynamicAccountTypes) { typeName ->
-                            FilterChip(
-                                selected = newAccType == typeName,
-                                onClick = { newAccType = typeName },
-                                label = { Text(typeName, maxLines = 1) }
-                            )
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = newAccNumber,
-                        onValueChange = { newAccNumber = it },
-                        label = { Text("رقم الحساب / الهاتف (اختياري)") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = newAccBalanceStr,
-                        onValueChange = { newAccBalanceStr = it },
-                        label = { Text("الرصيد الفعلي الحالي (ريال)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val bal = newAccBalanceStr.toDoubleOrNull() ?: 0.0
-                        viewModel.saveExchangeAccount(
-                            ExchangeAccount(
-                                name = newAccName,
-                                type = newAccType,
-                                accountNumber = newAccNumber,
-                                balance = bal
-                            )
-                        ) {
-                            showAddAccountDialog = false
-                        }
-                    }
-                ) {
-                    Text("حفظ الحساب")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { showAddAccountDialog = false }) {
-                    Text("إلغاء")
+                    showAddAccountDialog = false
                 }
             }
-        )
+        ) {
+            OutlinedTextField(
+                value = newAccName,
+                onValueChange = { newAccName = it },
+                label = { Text("اسم الصراف أو المحفظة (الكريمي، النجم، جوالي...)") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = storeDialogTextFieldColors(Color(0xFF0D9488))
+            )
+
+            DialogSectionHeader(title = "نوع الحساب", icon = Icons.Default.Category, accentColor = Color(0xFF0D9488))
+
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(dynamicAccountTypes) { typeName ->
+                    FilterChip(
+                        selected = newAccType == typeName,
+                        onClick = { newAccType = typeName },
+                        label = { Text(typeName, maxLines = 1) }
+                    )
+                }
+            }
+
+            OutlinedTextField(
+                value = newAccNumber,
+                onValueChange = { newAccNumber = it },
+                label = { Text("رقم الحساب / الهاتف (اختياري)") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = storeDialogTextFieldColors(Color(0xFF0D9488))
+            )
+
+            OutlinedTextField(
+                value = newAccBalanceStr,
+                onValueChange = { newAccBalanceStr = it },
+                label = { Text("الرصيد الفعلي الحالي (ريال)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = storeDialogTextFieldColors(Color(0xFF0D9488))
+            )
+        }
     }
 }

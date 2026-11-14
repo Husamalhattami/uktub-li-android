@@ -307,6 +307,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         paymentMethod: String,
         exchangeAccount: ExchangeAccount? = null,
         notes: String = "",
+        timestamp: Long = System.currentTimeMillis(),
         onSuccess: (CollectionReceiptResult) -> Unit = {}
     ) {
         viewModelScope.launch {
@@ -326,7 +327,8 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                     voucherNumberInput = voucherNumberInput,
                     paymentMethod = paymentMethod,
                     exchangeAccount = exchangeAccount,
-                    notes = notes
+                    notes = notes,
+                    timestamp = timestamp
                 )
                 _completedCollectionReceipt.value = result
                 _userMessage.value = "تم التحصيل بنجاح • رقم السند: ${result.voucherNumber}"
@@ -353,6 +355,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         paymentMethod: String,
         exchangeAccount: ExchangeAccount? = null,
         notes: String = "",
+        timestamp: Long = System.currentTimeMillis(),
         onSuccess: (SupplierPaymentReceiptResult) -> Unit = {}
     ) {
         viewModelScope.launch {
@@ -372,7 +375,8 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                     voucherNumberInput = voucherNumberInput,
                     paymentMethod = paymentMethod,
                     exchangeAccount = exchangeAccount,
-                    notes = notes
+                    notes = notes,
+                    timestamp = timestamp
                 )
                 _completedSupplierPaymentReceipt.value = result
                 _userMessage.value = "تم تسديد المورد بنجاح • رقم السند: ${result.voucherNumber}"
@@ -452,6 +456,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         transferPart: Double = 0.0,
         exchangeAccount: ExchangeAccount? = null,
         transferRef: String = "",
+        timestamp: Long = System.currentTimeMillis(),
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -469,7 +474,8 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                     cashPart = cashPart,
                     transferPart = transferPart,
                     exchangeAccount = exchangeAccount,
-                    transferRef = transferRef
+                    transferRef = transferRef,
+                    timestamp = timestamp
                 )
 
                 _completedReceipt.value = CompletedSaleReceipt(
@@ -498,6 +504,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         transferRef: String = "",
         employee: Employee? = null,
         customInvoiceNumber: String = "",
+        timestamp: Long = System.currentTimeMillis(),
         onSuccess: (invoiceNumber: String) -> Unit
     ) {
         viewModelScope.launch {
@@ -514,7 +521,8 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                     exchangeAccount = exchangeAccount,
                     transferRef = transferRef,
                     employee = employee,
-                    customInvoiceNumber = customInvoiceNumber
+                    customInvoiceNumber = customInvoiceNumber,
+                    timestamp = timestamp
                 )
                 _userMessage.value = "تم حفظ فاتورة البيع ($invoiceNumber) بنجاح!"
                 onSuccess(invoiceNumber)
@@ -535,6 +543,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         exchangeAccount: ExchangeAccount? = null,
         transferRef: String = "",
         notes: String = "",
+        timestamp: Long = System.currentTimeMillis(),
         onSuccess: (invoiceNumber: String) -> Unit
     ) {
         viewModelScope.launch {
@@ -549,7 +558,8 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                     debtPart = debtPart,
                     exchangeAccount = exchangeAccount,
                     transferRef = transferRef,
-                    notes = notes
+                    notes = notes,
+                    timestamp = timestamp
                 )
                 _userMessage.value = "تم حفظ وتأكيد فاتورة الشراء ($finalInvoiceNum) بنجاح!"
                 onSuccess(finalInvoiceNum)
@@ -601,6 +611,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         cashPaid: Double = 0.0,
         transferPaid: Double = 0.0,
         exchangeAccount: ExchangeAccount? = null,
+        timestamp: Long = System.currentTimeMillis(),
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -624,7 +635,8 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                     colorDetails = colorDetails,
                     cashPaidPart = cashPaid,
                     transferPaidPart = transferPaid,
-                    exchangeAccount = exchangeAccount
+                    exchangeAccount = exchangeAccount,
+                    timestamp = timestamp
                 )
                 _userMessage.value = "تم تسجيل شراء البضاعة وإضافتها إلى المخزون!"
                 onSuccess()
@@ -675,6 +687,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         paidFromCash: Boolean,
         exchangeAccount: ExchangeAccount? = null,
         employee: Employee? = null,
+        timestamp: Long = System.currentTimeMillis(),
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -689,7 +702,8 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 receiptNumber = receiptNumber,
                 paidFromCash = paidFromCash,
                 exchangeAccount = exchangeAccount,
-                employee = employee
+                employee = employee,
+                timestamp = timestamp
             )
             _userMessage.value = if (employee != null) "تم تسجيل صرفة يومية للعامل (${employee.name}) بنجاح" else "تم تسجيل المصروف بنجاح"
             onSuccess()
@@ -739,6 +753,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         paidFromCashDrawer: Boolean,
         exchangeAccount: ExchangeAccount? = null,
         referenceNumber: String = "",
+        timestamp: Long = System.currentTimeMillis(),
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -758,7 +773,8 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 notes = notes,
                 paidFromCashDrawer = paidFromCashDrawer,
                 exchangeAccount = exchangeAccount,
-                referenceNumber = referenceNumber
+                referenceNumber = referenceNumber,
+                timestamp = timestamp
             )
             _userMessage.value = "تم تسجيل $type للعامل $employeeName بنجاح"
             onSuccess()
@@ -805,6 +821,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         fromCashToExchange: Boolean,
         notes: String,
         referenceNumber: String = "",
+        timestamp: Long = System.currentTimeMillis(),
         onSuccess: () -> Unit = {}
     ) {
         viewModelScope.launch {
@@ -812,7 +829,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "يرجى تحديد مبلغ التحويل"
                 return@launch
             }
-            repository.transferBetweenCashAndExchange(accountId, amount, fromCashToExchange, notes, referenceNumber)
+            repository.transferBetweenCashAndExchange(accountId, amount, fromCashToExchange, notes, referenceNumber, timestamp)
             val actionName = if (fromCashToExchange) "إيداع كاش لحساب الصراف" else "سحب كاش من الصراف للصندوق"
             _userMessage.value = "تم تنفيذ $actionName بنجاح!"
             onSuccess()
@@ -826,6 +843,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         paymentMethod: String = "نقداً",
         exchangeAccount: ExchangeAccount? = null,
         referenceNumber: String = "",
+        timestamp: Long = System.currentTimeMillis(),
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -837,7 +855,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "مبلغ الدفعة أكبر من المبلغ المتبقي (${FormatUtils.formatCurrency(debt.remainingAmount)})"
                 return@launch
             }
-            repository.recordDebtPayment(debt, amount, notes, paymentMethod, exchangeAccount, referenceNumber)
+            repository.recordDebtPayment(debt, amount, notes, paymentMethod, exchangeAccount, referenceNumber, timestamp)
             _userMessage.value = "تم تسجيل الدفعة بنجاح وتحديث الصندوق/الصراف والدين"
             onSuccess()
         }
@@ -878,6 +896,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         party: PartyAccount,
         initialDebt: Double = 0.0,
         debtNotes: String = "",
+        initialDebtTimestamp: Long = System.currentTimeMillis(),
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -885,7 +904,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "يرجى إدخال الاسم"
                 return@launch
             }
-            repository.saveParty(party, initialDebt, debtNotes)
+            repository.saveParty(party, initialDebt, debtNotes, initialDebtTimestamp)
             val typeTitle = if (party.type == "CUSTOMER") "العميل" else "المورد"
             _userMessage.value = "تم حفظ وفتح حساب $typeTitle بنجاح"
             onSuccess()
@@ -907,6 +926,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         paymentMethod: String = "نقداً",
         exchangeAccount: ExchangeAccount? = null,
         referenceNumber: String = "",
+        timestamp: Long = System.currentTimeMillis(),
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -921,7 +941,8 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 notes = notes,
                 paymentMethod = paymentMethod,
                 exchangeAccount = exchangeAccount,
-                referenceNumber = referenceNumber
+                referenceNumber = referenceNumber,
+                timestamp = timestamp
             )
             if (result) {
                 val actionType = if (partyType == "CUSTOMER") "قبض زلط من العميل" else "سداد دفعة للمورد"
@@ -949,25 +970,25 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun recordOwnerWithdrawal(amount: Double, reason: String, onSuccess: () -> Unit) {
+    fun recordOwnerWithdrawal(amount: Double, reason: String, timestamp: Long = System.currentTimeMillis(), onSuccess: () -> Unit) {
         viewModelScope.launch {
             if (amount <= 0) {
                 _userMessage.value = "يرجى تحديد مبلغ السحب"
                 return@launch
             }
-            repository.recordOwnerWithdrawal(amount, reason)
+            repository.recordOwnerWithdrawal(amount, reason, timestamp)
             _userMessage.value = "تم توثيق سحب صاحب المحل من الصندوق"
             onSuccess()
         }
     }
 
-    fun recordManualDeposit(amount: Double, reason: String, onSuccess: () -> Unit) {
+    fun recordManualDeposit(amount: Double, reason: String, timestamp: Long = System.currentTimeMillis(), onSuccess: () -> Unit) {
         viewModelScope.launch {
             if (amount <= 0) {
                 _userMessage.value = "يرجى تحديد مبلغ الإيداع"
                 return@launch
             }
-            repository.recordManualDeposit(amount, reason)
+            repository.recordManualDeposit(amount, reason, timestamp)
             _userMessage.value = "تم تسجيل الإيداع النقدي في الصندوق"
             onSuccess()
         }

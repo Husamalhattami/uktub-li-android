@@ -30,8 +30,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.ExchangeAccount
 import com.example.data.model.ExpenseRecord
 import com.example.ui.StoreViewModel
-import com.example.ui.components.QuickThousandAdder
+import com.example.ui.components.DialogSectionHeader
+import com.example.ui.components.DialogSegmentedChoice
+import com.example.ui.components.StoreOperationDialog
 import com.example.ui.components.StoreTopBar
+import com.example.ui.components.TransactionDatePickerField
+import com.example.ui.components.storeDialogTextFieldColors
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
 
@@ -277,163 +281,79 @@ fun ExpensesScreen(
         var receiptNo by remember { mutableStateOf("") }
         var paymentSource by remember { mutableStateOf("كاش") }
         var selectedExchangeAcc by remember { mutableStateOf<ExchangeAccount?>(exchangeAccounts.firstOrNull()) }
+        var expenseTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { showAddDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(FintechRoseBg),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = FintechRose, modifier = Modifier.size(18.dp))
-                    }
-                    Text("تسجيل مصروف جديد", fontWeight = FontWeight.Bold, color = SlateTextPrimary, fontSize = 18.sp)
+            title = "تسجيل مصروف جديد",
+            subtitle = "قيد صرفيات المحل والمصروفات اليومية",
+            icon = Icons.Default.ReceiptLong,
+            accentColor = FintechRose,
+            confirmText = "حفظ المصروف",
+            confirmIcon = Icons.Default.Save,
+            confirmColor = FintechRose,
+            confirmTestTag = "confirm_expense_button",
+            onConfirm = {
+                val amount = amountStr.toDoubleOrNull() ?: 0.0
+                val isCash = paymentSource == "كاش"
+                val empToPass = if (selectedCat == "صرفة يومية لعامل") selectedEmployee else null
+                if (selectedCat == "صرفة يومية لعامل" && empToPass == null) {
+                    viewModel.showMessage("يرجى اختيار العامل لتسجيل الصرفة اليومية!")
+                } else if (amount <= 0) {
+                    viewModel.showMessage("يرجى إدخال مبلغ صحيح أكبر من صفر!")
+                } else {
+                    viewModel.recordExpense(
+                        category = selectedCat,
+                        amount = amount,
+                        notes = notes,
+                        receiptNumber = receiptNo,
+                        paidFromCash = isCash,
+                        exchangeAccount = if (!isCash) selectedExchangeAcc else null,
+                        employee = empToPass,
+                        timestamp = expenseTimestamp,
+                        onSuccess = { showAddDialog = false }
+                    )
                 }
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+            }
+        ) {
+            DialogSectionHeader(title = "نوع المصروف", icon = Icons.Default.Category, accentColor = FintechRose)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(dynamicExpenseCategories) { cat ->
+                    val isSelected = selectedCat == cat
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { selectedCat = cat },
+                        label = { Text(cat, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = if (cat == "صرفة يومية لعامل") BrandBlue else PdfHeaderNavy,
+                            selectedLabelColor = Color.White
+                        )
+                    )
+                }
+            }
+
+            // Employee selector when daily stipend is chosen
+            if (selectedCat == "صرفة يومية لعامل") {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFEFF6FF),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text = "نوع المصروف:",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, color = SlateTextSecondary)
-                    )
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(dynamicExpenseCategories) { cat ->
-                            val isSelected = selectedCat == cat
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = { selectedCat = cat },
-                                label = { Text(cat, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = if (cat == "صرفة يومية لعامل") BrandBlue else BrandNavy,
-                                    selectedLabelColor = Color.White
-                                )
-                            )
-                        }
-                    }
-
-                    // Employee selector when daily stipend is chosen
-                    if (selectedCat == "صرفة يومية لعامل") {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color(0xFFEFF6FF),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBFDBFE)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("اختر العامل المستلم للصرفة اليومية:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E40AF))
-                                if (employees.isEmpty()) {
-                                    Text("لا يوجد عمال مسجلون حالياً! يرجى إضافة العامل في قسم العمال أولاً.", fontSize = 11.sp, color = Color(0xFFDC2626))
-                                } else {
-                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        items(employees) { emp ->
-                                            val isSel = selectedEmployee?.id == emp.id
-                                            FilterChip(
-                                                selected = isSel,
-                                                onClick = { selectedEmployee = emp },
-                                                label = { Text(emp.name, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
-                                                colors = FilterChipDefaults.filterChipColors(
-                                                    selectedContainerColor = Color(0xFF1E40AF),
-                                                    selectedLabelColor = Color.White
-                                                )
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = amountStr,
-                        onValueChange = { amountStr = it },
-                        label = { Text("المبلغ بالريال *") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("expense_amount_input"),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    QuickThousandAdder(
-                        currentValue = amountStr,
-                        onValueChange = { amountStr = it }
-                    )
-
-                    OutlinedTextField(
-                        value = notes,
-                        onValueChange = { notes = it },
-                        label = { Text("ملاحظات (السبب أو التفاصيل)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    OutlinedTextField(
-                        value = receiptNo,
-                        onValueChange = { receiptNo = it },
-                        label = { Text("رقم السند أو الفاتورة (اختياري)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    Text(
-                        text = "مصدر دفع المصروف:",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, color = SlateTextSecondary)
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        val isCash = paymentSource == "كاش"
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (isCash) FintechEmerald else SlateBg,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, if (isCash) FintechEmerald else SlateBorder),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { paymentSource = "كاش" }
-                        ) {
-                            Box(modifier = Modifier.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
-                                Text("كاش من الصندوق", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (isCash) Color.White else SlateTextPrimary)
-                            }
-                        }
-
-                        val isExchange = paymentSource == "صراف"
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (isExchange) FintechIndigo else SlateBg,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, if (isExchange) FintechIndigo else SlateBorder),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { paymentSource = "صراف" }
-                        ) {
-                            Box(modifier = Modifier.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
-                                Text("من حساب صراف/محفظة", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (isExchange) Color.White else SlateTextPrimary)
-                            }
-                        }
-                    }
-
-                    if (paymentSource == "صراف") {
-                        if (exchangeAccounts.isEmpty()) {
-                            Text("لا توجد حسابات صرافة مضافة بعد.", color = FintechRose, fontSize = 11.sp)
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("اختر العامل المستلم للصرفة اليومية:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E40AF))
+                        if (employees.isEmpty()) {
+                            Text("لا يوجد عمال مسجلون حالياً! يرجى إضافة العامل في قسم العمال أولاً.", fontSize = 11.sp, color = Color(0xFFDC2626))
                         } else {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                items(exchangeAccounts) { acc ->
-                                    val isSelected = selectedExchangeAcc?.id == acc.id
+                                items(employees) { emp ->
+                                    val isSel = selectedEmployee?.id == emp.id
                                     FilterChip(
-                                        selected = isSelected,
-                                        onClick = { selectedExchangeAcc = acc },
-                                        label = { Text("${acc.name} (${FormatUtils.formatCurrency(acc.balance)})", fontSize = 11.sp) },
+                                        selected = isSel,
+                                        onClick = { selectedEmployee = emp },
+                                        label = { Text(emp.name, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
                                         colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = FintechIndigo,
+                                            selectedContainerColor = Color(0xFF1E40AF),
                                             selectedLabelColor = Color.White
                                         )
                                     )
@@ -442,46 +362,94 @@ fun ExpensesScreen(
                         }
                     }
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val amount = amountStr.toDoubleOrNull() ?: 0.0
-                        val isCash = paymentSource == "كاش"
-                        val empToPass = if (selectedCat == "صرفة يومية لعامل") selectedEmployee else null
-                        if (selectedCat == "صرفة يومية لعامل" && empToPass == null) {
-                            viewModel.showMessage("يرجى اختيار العامل لتسجيل الصرفة اليومية!")
-                            return@Button
-                        }
-                        if (amount <= 0) {
-                            viewModel.showMessage("يرجى إدخال مبلغ صحيح أكبر من صفر!")
-                            return@Button
-                        }
+            }
 
-                        viewModel.recordExpense(
-                            category = selectedCat,
-                            amount = amount,
-                            notes = notes,
-                            receiptNumber = receiptNo,
-                            paidFromCash = isCash,
-                            exchangeAccount = if (!isCash) selectedExchangeAcc else null,
-                            employee = empToPass,
-                            onSuccess = { showAddDialog = false }
-                        )
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = FintechRose),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.testTag("confirm_expense_button")
-                ) {
-                    Text("حفظ المصروف", fontWeight = FontWeight.Bold, color = Color.White)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { showAddDialog = false }, shape = RoundedCornerShape(10.dp)) {
-                    Text("إلغاء")
+            OutlinedTextField(
+                value = amountStr,
+                onValueChange = { amountStr = it },
+                label = { Text("المبلغ بالريال *") },
+                leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null, tint = FintechRose) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = storeDialogTextFieldColors(FintechRose),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("expense_amount_input"),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
+            )
+
+            OutlinedTextField(
+                value = notes,
+                onValueChange = { notes = it },
+                label = { Text("ملاحظات (السبب أو التفاصيل)") },
+                leadingIcon = { Icon(Icons.Default.Notes, contentDescription = null, tint = SlateTextSecondary) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            OutlinedTextField(
+                value = receiptNo,
+                onValueChange = { receiptNo = it },
+                label = { Text("رقم السند أو الفاتورة (اختياري)") },
+                leadingIcon = { Icon(Icons.Default.ConfirmationNumber, contentDescription = null, tint = PdfHeaderNavy) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
+            )
+
+            TransactionDatePickerField(
+                selectedTimestamp = expenseTimestamp,
+                onDateSelected = { expenseTimestamp = it },
+                label = "تاريخ المصروف / الصرفة",
+                testTag = "add_expense_date_picker"
+            )
+
+            DialogSectionHeader(title = "مصدر دفع المصروف", icon = Icons.Default.AccountBalanceWallet, accentColor = PdfHeaderNavy)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                DialogSegmentedChoice(
+                    selected = paymentSource == "كاش",
+                    label = "كاش من الصندوق",
+                    icon = Icons.Default.Payments,
+                    selectedColor = FintechEmerald,
+                    onClick = { paymentSource = "كاش" },
+                    modifier = Modifier.weight(1f)
+                )
+                DialogSegmentedChoice(
+                    selected = paymentSource == "صراف",
+                    label = "حساب صراف/محفظة",
+                    icon = Icons.Default.AccountBalance,
+                    selectedColor = FintechIndigo,
+                    onClick = { paymentSource = "صراف" },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            if (paymentSource == "صراف") {
+                if (exchangeAccounts.isEmpty()) {
+                    Text("لا توجد حسابات صرافة مضافة بعد.", color = FintechRose, fontSize = 11.sp)
+                } else {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(exchangeAccounts) { acc ->
+                            val isSelected = selectedExchangeAcc?.id == acc.id
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { selectedExchangeAcc = acc },
+                                label = { Text("${acc.name} (${FormatUtils.formatCurrency(acc.balance)})", fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = FintechIndigo,
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
                 }
             }
-        )
+        }
     }
 
     // Edit Expense Dialog
@@ -494,138 +462,137 @@ fun ExpensesScreen(
         var selectedExchangeAcc by remember {
             mutableStateOf(exchangeAccounts.firstOrNull { it.id == exp.exchangeAccountId } ?: exchangeAccounts.firstOrNull())
         }
+        var editTimestamp by remember(exp.id) { mutableLongStateOf(exp.timestamp) }
 
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { expenseToEdit = null },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Edit, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(20.dp))
-                    Text("تعديل بيانات المصروف / الصرفة", fontWeight = FontWeight.Bold, color = SlateTextPrimary)
-                }
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text("نوع المصروف:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = SlateTextSecondary))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(presetCategories) { c ->
-                            val isSel = cat == c
-                            FilterChip(
-                                selected = isSel,
-                                onClick = { cat = c },
-                                label = { Text(c, fontSize = 11.sp) }
-                            )
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = amountStr,
-                        onValueChange = { amountStr = it },
-                        label = { Text("المبلغ (ريال) *") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
+            title = "تعديل بيانات المصروف / الصرفة",
+            subtitle = "تحديث المبلغ أو التاريخ أو جهة الدفع",
+            icon = Icons.Default.Edit,
+            accentColor = BrandBlue,
+            confirmText = "حفظ التعديل",
+            confirmIcon = Icons.Default.Check,
+            confirmColor = PdfHeaderNavy,
+            onConfirm = {
+                val newAmount = amountStr.toDoubleOrNull() ?: exp.amount
+                if (newAmount <= 0) {
+                    viewModel.showMessage("يرجى إدخال مبلغ صحيح أكبر من الصفر!")
+                } else {
+                    val isCash = paymentSource == "كاش"
+                    viewModel.updateExpense(
+                        exp.copy(
+                            category = cat,
+                            amount = newAmount,
+                            notes = notes,
+                            receiptNumber = receiptNo,
+                            paidFromCash = isCash,
+                            exchangeAccountId = if (isCash) 0L else (selectedExchangeAcc?.id ?: 0L),
+                            exchangeAccountName = if (isCash) "" else (selectedExchangeAcc?.name ?: ""),
+                            timestamp = editTimestamp
+                        ),
+                        onSuccess = { expenseToEdit = null }
                     )
-
-                    QuickThousandAdder(
-                        currentValue = amountStr,
-                        onValueChange = { amountStr = it }
-                    )
-
-                    // Payment source
-                    Text("مصدر الدفع:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = SlateTextSecondary))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        val isCash = paymentSource == "كاش"
-                        FilterChip(
-                            selected = isCash,
-                            onClick = { paymentSource = "كاش" },
-                            label = { Text("كاش من الصندوق") },
-                            leadingIcon = { Icon(Icons.Default.AttachMoney, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = !isCash,
-                            onClick = { paymentSource = "صراف" },
-                            label = { Text("من حساب صراف/محفظة") },
-                            leadingIcon = { Icon(Icons.Default.AccountBalance, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    if (paymentSource == "صراف") {
-                        if (exchangeAccounts.isNotEmpty()) {
-                            Text("اختر حساب الصراف أو المحفظة:", style = MaterialTheme.typography.labelSmall.copy(color = SlateTextMuted))
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                items(exchangeAccounts) { acc ->
-                                    val isSel = selectedExchangeAcc?.id == acc.id
-                                    FilterChip(
-                                        selected = isSel,
-                                        onClick = { selectedExchangeAcc = acc },
-                                        label = { Text(acc.name, fontSize = 11.sp) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = receiptNo,
-                        onValueChange = { receiptNo = it },
-                        label = { Text("رقم الوصل / الحوالة (اختياري)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-
-                    OutlinedTextField(
-                        value = notes,
-                        onValueChange = { notes = it },
-                        label = { Text("ملاحظات") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val newAmount = amountStr.toDoubleOrNull() ?: exp.amount
-                        if (newAmount <= 0) {
-                            viewModel.showMessage("يرجى إدخال مبلغ صحيح أكبر من الصفر!")
-                            return@Button
-                        }
-                        val isCash = paymentSource == "كاش"
-                        viewModel.updateExpense(
-                            exp.copy(
-                                category = cat,
-                                amount = newAmount,
-                                notes = notes,
-                                receiptNumber = receiptNo,
-                                paidFromCash = isCash,
-                                exchangeAccountId = if (isCash) 0L else (selectedExchangeAcc?.id ?: 0L),
-                                exchangeAccountName = if (isCash) "" else (selectedExchangeAcc?.name ?: "")
-                            ),
-                            onSuccess = { expenseToEdit = null }
-                        )
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = BrandNavy),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text("حفظ التعديل", color = Color.White)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { expenseToEdit = null }, shape = RoundedCornerShape(10.dp)) {
-                    Text("إلغاء")
                 }
             }
-        )
+        ) {
+            DialogSectionHeader(title = "نوع المصروف", icon = Icons.Default.Category, accentColor = BrandBlue)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(presetCategories) { c ->
+                    val isSel = cat == c
+                    FilterChip(
+                        selected = isSel,
+                        onClick = { cat = c },
+                        label = { Text(c, fontSize = 11.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = PdfHeaderNavy,
+                            selectedLabelColor = Color.White
+                        )
+                    )
+                }
+            }
+
+            OutlinedTextField(
+                value = amountStr,
+                onValueChange = { amountStr = it },
+                label = { Text("المبلغ (ريال) *") },
+                leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null, tint = BrandBlue) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = storeDialogTextFieldColors(BrandBlue),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
+            )
+
+            DialogSectionHeader(title = "مصدر الدفع", icon = Icons.Default.AccountBalanceWallet, accentColor = PdfHeaderNavy)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val isCash = paymentSource == "كاش"
+                DialogSegmentedChoice(
+                    selected = isCash,
+                    label = "كاش من الصندوق",
+                    icon = Icons.Default.AttachMoney,
+                    selectedColor = FintechEmerald,
+                    onClick = { paymentSource = "كاش" },
+                    modifier = Modifier.weight(1f)
+                )
+                DialogSegmentedChoice(
+                    selected = !isCash,
+                    label = "حساب صراف/محفظة",
+                    icon = Icons.Default.AccountBalance,
+                    selectedColor = FintechIndigo,
+                    onClick = { paymentSource = "صراف" },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            if (paymentSource == "صراف" && exchangeAccounts.isNotEmpty()) {
+                DialogSectionHeader(title = "اختر حساب الصراف أو المحفظة", icon = Icons.Default.AccountBalance, accentColor = FintechIndigo)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(exchangeAccounts) { acc ->
+                        val isSel = selectedExchangeAcc?.id == acc.id
+                        FilterChip(
+                            selected = isSel,
+                            onClick = { selectedExchangeAcc = acc },
+                            label = { Text(acc.name, fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = FintechIndigo,
+                                selectedLabelColor = Color.White
+                            )
+                        )
+                    }
+                }
+            }
+
+            OutlinedTextField(
+                value = receiptNo,
+                onValueChange = { receiptNo = it },
+                label = { Text("رقم الوصل / الحوالة (اختياري)") },
+                leadingIcon = { Icon(Icons.Default.ConfirmationNumber, contentDescription = null, tint = PdfHeaderNavy) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
+            )
+
+            OutlinedTextField(
+                value = notes,
+                onValueChange = { notes = it },
+                label = { Text("ملاحظات") },
+                leadingIcon = { Icon(Icons.Default.Notes, contentDescription = null, tint = SlateTextSecondary) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            TransactionDatePickerField(
+                selectedTimestamp = editTimestamp,
+                onDateSelected = { editTimestamp = it },
+                label = "تاريخ المصروف / الصرفة",
+                testTag = "edit_expense_date_picker"
+            )
+        }
     }
 }
 

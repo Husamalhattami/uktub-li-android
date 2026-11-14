@@ -26,8 +26,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.PurchaseRecord
 import com.example.data.model.SaleTransaction
 import com.example.ui.StoreViewModel
-import com.example.ui.components.QuickThousandAdder
+import com.example.ui.components.DialogInfoBanner
+import com.example.ui.components.DialogSectionHeader
+import com.example.ui.components.StoreOperationDialog
 import com.example.ui.components.StoreTopBar
+import com.example.ui.components.TransactionDatePickerField
+import com.example.ui.components.storeDialogTextFieldColors
 import com.example.ui.theme.*
 import androidx.compose.ui.platform.LocalContext
 import com.example.ui.util.FormatUtils
@@ -277,38 +281,39 @@ fun TransactionsManagerScreen(
 
     // --- Delete Sale Confirmation Dialog ---
     saleToDelete?.let { sale ->
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { saleToDelete = null },
-            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = RubyExpense) },
-            title = { Text("تأكيد حذف فاتورة البيع #${sale.id}", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    Text(
-                        "هل أنت متأكد من حذف هذه الفاتورة؟\n" +
-                                "• ستتم إعادة كمية البضاعة (${sale.quantity} حبه) إلى المخزون.\n" +
-                                "• سيتم إلغاء واسترجاع المبالغ (${FormatUtils.formatCurrency(sale.totalAmount)}) من الصندوق أو حساب الصراف.\n" +
-                                "• سيتم حذف أي دين مرتبط بهذه الفاتورة إن وجد."
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.deleteSale(sale.id)
-                        saleToDelete = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = RubyExpense),
-                    modifier = Modifier.testTag("confirm_delete_sale_button")
-                ) {
-                    Text("تأكيد الحذف واسترجاع البضاعة")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { saleToDelete = null }) {
-                    Text("إلغاء")
-                }
+            title = "تأكيد حذف فاتورة البيع #${sale.id}",
+            subtitle = "${sale.productName} (${sale.quantity} حبة)",
+            icon = Icons.Default.Warning,
+            accentColor = RubyExpense,
+            confirmText = "حذف واسترجاع البضاعة",
+            confirmIcon = Icons.Default.DeleteOutline,
+            confirmColor = RubyExpense,
+            confirmTestTag = "confirm_delete_sale_button",
+            onConfirm = {
+                viewModel.deleteSale(sale.id)
+                saleToDelete = null
             }
-        )
+        ) {
+            DialogInfoBanner(
+                title = "قيمة الفاتورة المسترجعة:",
+                value = FormatUtils.formatCurrency(sale.totalAmount),
+                containerColor = Color(0xFFFFF1F2),
+                contentColor = RubyExpense,
+                borderColor = Color(0xFFFECDD3),
+                icon = Icons.Default.ReceiptLong
+            )
+            Text(
+                text = "هل أنت متأكد من حذف هذه الفاتورة؟\n" +
+                    "• ستتم إعادة كمية البضاعة (${sale.quantity} حبه) إلى المخزون.\n" +
+                    "• سيتم إلغاء واسترجاع المبالغ (${FormatUtils.formatCurrency(sale.totalAmount)}) من الصندوق أو حساب الصراف.\n" +
+                    "• سيتم حذف أي دين مرتبط بهذه الفاتورة إن وجد.",
+                fontSize = 13.sp,
+                color = SlateTextPrimary,
+                lineHeight = 20.sp
+            )
+        }
     }
 
     // --- Edit Sale Dialog ---
@@ -318,152 +323,163 @@ fun TransactionsManagerScreen(
         var quantityStr by remember { mutableStateOf(sale.quantity.toString()) }
         var unitPriceStr by remember { mutableStateOf(sale.unitSellPrice.toLong().toString()) }
         var discountStr by remember { mutableStateOf(sale.discount.toLong().toString()) }
+        var editTimestamp by remember(sale.id) { mutableLongStateOf(sale.timestamp) }
 
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { saleToEdit = null },
-            title = { Text("تعديل فاتورة البيع #${sale.id}", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text("الصنف: ${sale.productName}", fontWeight = FontWeight.Bold)
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = quantityStr,
-                            onValueChange = { quantityStr = it },
-                            label = { Text("الكمية (حبه)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = unitPriceStr,
-                            onValueChange = { unitPriceStr = it },
-                            label = { Text("سعر الحبة") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    OutlinedTextField(
-                        value = discountStr,
-                        onValueChange = { discountStr = it },
-                        label = { Text("الخصم (ريال)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = customerName,
-                        onValueChange = { customerName = it },
-                        label = { Text("اسم الزبون") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = customerPhone,
-                        onValueChange = { customerPhone = it },
-                        label = { Text("رقم هاتف الزبون") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+            title = "تعديل فاتورة البيع #${sale.id}",
+            subtitle = sale.productName,
+            icon = Icons.Default.Edit,
+            accentColor = PdfHeaderNavy,
+            confirmText = "حفظ التعديلات",
+            confirmIcon = Icons.Default.Save,
+            confirmColor = PdfHeaderNavy,
+            onConfirm = {
+                val q = quantityStr.toIntOrNull() ?: sale.quantity
+                val p = unitPriceStr.toDoubleOrNull() ?: sale.unitSellPrice
+                val disc = discountStr.toDoubleOrNull() ?: sale.discount
+                val total = ((p * q) - disc).coerceAtLeast(0.0)
+                val profit = total - (sale.unitBuyPrice * q)
 
-                    val q = quantityStr.toIntOrNull() ?: sale.quantity
-                    val p = unitPriceStr.toDoubleOrNull() ?: sale.unitSellPrice
-                    val d = discountStr.toDoubleOrNull() ?: sale.discount
-                    val previewTotal = ((p * q) - d).coerceAtLeast(0.0)
-
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFFF1F5F9),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = "الإجمالي بعد التعديل: ${FormatUtils.formatCurrency(previewTotal)}",
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF0F172A),
-                            modifier = Modifier.padding(8.dp)
-                        )
-                    }
+                val (newCash, newTransfer, newDebt) = when {
+                    sale.paymentType.contains("دين") || sale.paymentType.contains("آجل") -> Triple(0.0, 0.0, total)
+                    sale.paymentType.contains("تحويل") -> Triple(0.0, total, 0.0)
+                    sale.paymentType.contains("نصف") -> Triple((total / 2), (total - (total / 2)), 0.0)
+                    else -> Triple(total, 0.0, 0.0)
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val q = quantityStr.toIntOrNull() ?: sale.quantity
-                        val p = unitPriceStr.toDoubleOrNull() ?: sale.unitSellPrice
-                        val disc = discountStr.toDoubleOrNull() ?: sale.discount
-                        val total = ((p * q) - disc).coerceAtLeast(0.0)
-                        val profit = total - (sale.unitBuyPrice * q)
 
-                        val (newCash, newTransfer, newDebt) = when {
-                            sale.paymentType.contains("دين") || sale.paymentType.contains("آجل") -> Triple(0.0, 0.0, total)
-                            sale.paymentType.contains("تحويل") -> Triple(0.0, total, 0.0)
-                            sale.paymentType.contains("نصف") -> Triple((total / 2), (total - (total / 2)), 0.0)
-                            else -> Triple(total, 0.0, 0.0)
-                        }
-
-                        viewModel.updateSale(
-                            sale.copy(
-                                customerName = customerName,
-                                customerPhone = customerPhone,
-                                quantity = q,
-                                unitSellPrice = p,
-                                discount = disc,
-                                totalAmount = total,
-                                profit = profit,
-                                cashAmount = newCash,
-                                transferAmount = newTransfer,
-                                debtAmount = newDebt
-                            )
-                        )
-                        saleToEdit = null
-                    }
-                ) {
-                    Text("حفظ التعديلات")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { saleToEdit = null }) {
-                    Text("إلغاء")
-                }
+                viewModel.updateSale(
+                    sale.copy(
+                        customerName = customerName,
+                        customerPhone = customerPhone,
+                        quantity = q,
+                        unitSellPrice = p,
+                        discount = disc,
+                        totalAmount = total,
+                        profit = profit,
+                        cashAmount = newCash,
+                        transferAmount = newTransfer,
+                        debtAmount = newDebt,
+                        timestamp = editTimestamp
+                    )
+                )
+                saleToEdit = null
             }
-        )
+        ) {
+            DialogSectionHeader(title = "الكمية والسعر والخصم", icon = Icons.Default.Inventory2, accentColor = PdfHeaderNavy)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = quantityStr,
+                    onValueChange = { quantityStr = it },
+                    label = { Text("الكمية (حبه)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = unitPriceStr,
+                    onValueChange = { unitPriceStr = it },
+                    label = { Text("سعر الحبة") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            OutlinedTextField(
+                value = discountStr,
+                onValueChange = { discountStr = it },
+                label = { Text("الخصم (ريال)") },
+                leadingIcon = { Icon(Icons.Default.Discount, contentDescription = null, tint = FintechAmber) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = storeDialogTextFieldColors(FintechAmber),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = customerName,
+                onValueChange = { customerName = it },
+                label = { Text("اسم الزبون") },
+                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = PdfHeaderNavy) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = customerPhone,
+                onValueChange = { customerPhone = it },
+                label = { Text("رقم هاتف الزبون") },
+                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = SlateTextSecondary) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            TransactionDatePickerField(
+                selectedTimestamp = editTimestamp,
+                onDateSelected = { editTimestamp = it },
+                label = "تاريخ الفاتورة",
+                testTag = "edit_sale_date_picker"
+            )
+
+            val q = quantityStr.toIntOrNull() ?: sale.quantity
+            val p = unitPriceStr.toDoubleOrNull() ?: sale.unitSellPrice
+            val d = discountStr.toDoubleOrNull() ?: sale.discount
+            val previewTotal = ((p * q) - d).coerceAtLeast(0.0)
+
+            DialogInfoBanner(
+                title = "الإجمالي بعد التعديل:",
+                value = FormatUtils.formatCurrency(previewTotal),
+                containerColor = FintechEmeraldBg,
+                contentColor = FintechEmerald,
+                borderColor = FintechEmerald.copy(alpha = 0.35f),
+                icon = Icons.Default.Calculate
+            )
+        }
     }
 
     // --- Delete Purchase Confirmation Dialog ---
     purchaseToDelete?.let { p ->
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { purchaseToDelete = null },
-            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = RubyExpense) },
-            title = { Text("تأكيد حذف فاتورة الشراء #${p.id}", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    Text(
-                        "هل أنت متأكد من حذف فاتورة شراء (${p.modelName})؟\n" +
-                                "• سيتم خصم الكمية (${p.quantity} حبه) من المخزون.\n" +
-                                "• سيتم إلغاء المبالغ المدفوعة واسترجاعها إلى الصندوق أو الصراف.\n" +
-                                "• سيتم إلغاء أي دين مسجل للمورد لهذه الفاتورة."
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.deletePurchase(p.id)
-                        purchaseToDelete = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = RubyExpense),
-                    modifier = Modifier.testTag("confirm_delete_purchase_button")
-                ) {
-                    Text("تأكيد الحذف وخصم الكمية")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { purchaseToDelete = null }) {
-                    Text("إلغاء")
-                }
+            title = "تأكيد حذف فاتورة الشراء #${p.id}",
+            subtitle = "${p.modelName} (${p.quantity} حبة)",
+            icon = Icons.Default.Warning,
+            accentColor = RubyExpense,
+            confirmText = "حذف وخصم الكمية",
+            confirmIcon = Icons.Default.DeleteOutline,
+            confirmColor = RubyExpense,
+            confirmTestTag = "confirm_delete_purchase_button",
+            onConfirm = {
+                viewModel.deletePurchase(p.id)
+                purchaseToDelete = null
             }
-        )
+        ) {
+            DialogInfoBanner(
+                title = "إجمالي فاتورة الشراء:",
+                value = FormatUtils.formatCurrency(p.totalCost),
+                containerColor = Color(0xFFFFF1F2),
+                contentColor = RubyExpense,
+                borderColor = Color(0xFFFECDD3),
+                icon = Icons.Default.Inventory
+            )
+            Text(
+                text = "هل أنت متأكد من حذف فاتورة شراء (${p.modelName})؟\n" +
+                    "• سيتم خصم الكمية (${p.quantity} حبه) من المخزون.\n" +
+                    "• سيتم إلغاء المبالغ المدفوعة واسترجاعها إلى الصندوق أو الصراف.\n" +
+                    "• سيتم إلغاء أي دين مسجل للمورد لهذه الفاتورة.",
+                fontSize = 13.sp,
+                color = SlateTextPrimary,
+                lineHeight = 20.sp
+            )
+        }
     }
 
     // --- Edit Purchase Dialog ---
@@ -474,111 +490,124 @@ fun TransactionsManagerScreen(
         var unitBuyPriceStr by remember { mutableStateOf(p.unitBuyPrice.toLong().toString()) }
         var sellPriceStr by remember { mutableStateOf(p.unitSellPrice.toLong().toString()) }
         var notes by remember { mutableStateOf(p.notes) }
+        var editTimestamp by remember(p.id) { mutableLongStateOf(p.timestamp) }
 
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { purchaseToEdit = null },
-            title = { Text("تعديل بيانات فاتورة الشراء #${p.id}", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text("الصنف: ${p.modelName} | المقاس: ${p.size}", fontWeight = FontWeight.Bold)
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = quantityStr,
-                            onValueChange = { quantityStr = it },
-                            label = { Text("الكمية (حبه)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = unitBuyPriceStr,
-                            onValueChange = { unitBuyPriceStr = it },
-                            label = { Text("سعر التكلفة للحبة") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    OutlinedTextField(
-                        value = sellPriceStr,
-                        onValueChange = { sellPriceStr = it },
-                        label = { Text("سعر البيع المقترح للحبة (ريال)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = supplierName,
-                        onValueChange = { supplierName = it },
-                        label = { Text("اسم المورد") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = invoiceNo,
-                        onValueChange = { invoiceNo = it },
-                        label = { Text("رقم الفاتورة") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = notes,
-                        onValueChange = { notes = it },
-                        label = { Text("ملاحظات") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+            title = "تعديل فاتورة الشراء #${p.id}",
+            subtitle = "${p.modelName} | المقاس: ${p.size}",
+            icon = Icons.Default.Edit,
+            accentColor = PdfHeaderNavy,
+            confirmText = "حفظ التعديلات",
+            confirmIcon = Icons.Default.Save,
+            confirmColor = PdfHeaderNavy,
+            onConfirm = {
+                val q = quantityStr.toIntOrNull() ?: p.quantity
+                val buyP = unitBuyPriceStr.toDoubleOrNull() ?: p.unitBuyPrice
+                val newSellPrice = sellPriceStr.toDoubleOrNull() ?: p.unitSellPrice
+                val newTotalCost = buyP * q
+                val newRemainingDebt = (newTotalCost - p.paidAmount).coerceAtLeast(0.0)
 
-                    val q = quantityStr.toIntOrNull() ?: p.quantity
-                    val buyP = unitBuyPriceStr.toDoubleOrNull() ?: p.unitBuyPrice
-                    val newTotal = q * buyP
-
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFFF1F5F9),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = "إجمالي التكلفة بعد التعديل: ${FormatUtils.formatCurrency(newTotal)}",
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF0F172A),
-                            modifier = Modifier.padding(8.dp)
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val q = quantityStr.toIntOrNull() ?: p.quantity
-                        val buyP = unitBuyPriceStr.toDoubleOrNull() ?: p.unitBuyPrice
-                        val newSellPrice = sellPriceStr.toDoubleOrNull() ?: p.unitSellPrice
-                        val newTotalCost = buyP * q
-                        val newRemainingDebt = (newTotalCost - p.paidAmount).coerceAtLeast(0.0)
-
-                        viewModel.updatePurchase(
-                            p.copy(
-                                supplierName = supplierName,
-                                invoiceNumber = invoiceNo,
-                                quantity = q,
-                                unitBuyPrice = buyP,
-                                unitSellPrice = newSellPrice,
-                                totalCost = newTotalCost,
-                                remainingDebt = newRemainingDebt,
-                                notes = notes
-                            )
-                        )
-                        purchaseToEdit = null
-                    }
-                ) {
-                    Text("حفظ التعديلات")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { purchaseToEdit = null }) {
-                    Text("إلغاء")
-                }
+                viewModel.updatePurchase(
+                    p.copy(
+                        supplierName = supplierName,
+                        invoiceNumber = invoiceNo,
+                        quantity = q,
+                        unitBuyPrice = buyP,
+                        unitSellPrice = newSellPrice,
+                        totalCost = newTotalCost,
+                        remainingDebt = newRemainingDebt,
+                        notes = notes,
+                        timestamp = editTimestamp
+                    )
+                )
+                purchaseToEdit = null
             }
-        )
+        ) {
+            DialogSectionHeader(title = "الكمية والتكلفة والبيع", icon = Icons.Default.Inventory2, accentColor = PdfHeaderNavy)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = quantityStr,
+                    onValueChange = { quantityStr = it },
+                    label = { Text("الكمية (حبه)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = unitBuyPriceStr,
+                    onValueChange = { unitBuyPriceStr = it },
+                    label = { Text("تكلفة الحبة") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            OutlinedTextField(
+                value = sellPriceStr,
+                onValueChange = { sellPriceStr = it },
+                label = { Text("سعر البيع المقترح للحبة (ريال)") },
+                leadingIcon = { Icon(Icons.Default.Sell, contentDescription = null, tint = FintechEmerald) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = storeDialogTextFieldColors(FintechEmerald),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = supplierName,
+                onValueChange = { supplierName = it },
+                label = { Text("اسم المورد") },
+                leadingIcon = { Icon(Icons.Default.LocalShipping, contentDescription = null, tint = PdfHeaderNavy) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = invoiceNo,
+                onValueChange = { invoiceNo = it },
+                label = { Text("رقم الفاتورة") },
+                leadingIcon = { Icon(Icons.Default.ConfirmationNumber, contentDescription = null, tint = SlateTextSecondary) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = notes,
+                onValueChange = { notes = it },
+                label = { Text("ملاحظات") },
+                leadingIcon = { Icon(Icons.Default.Notes, contentDescription = null, tint = SlateTextSecondary) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            TransactionDatePickerField(
+                selectedTimestamp = editTimestamp,
+                onDateSelected = { editTimestamp = it },
+                label = "تاريخ فاتورة الشراء",
+                testTag = "edit_purchase_date_picker"
+            )
+
+            val q = quantityStr.toIntOrNull() ?: p.quantity
+            val buyP = unitBuyPriceStr.toDoubleOrNull() ?: p.unitBuyPrice
+            val newTotal = q * buyP
+
+            DialogInfoBanner(
+                title = "إجمالي التكلفة بعد التعديل:",
+                value = FormatUtils.formatCurrency(newTotal),
+                containerColor = Color(0xFFEFF6FF),
+                contentColor = Color(0xFF1E3A8A),
+                borderColor = Color(0xFFBFDBFE),
+                icon = Icons.Default.Calculate
+            )
+        }
     }
 }
 

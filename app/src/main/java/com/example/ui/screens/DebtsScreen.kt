@@ -38,9 +38,14 @@ import com.example.data.model.SaleTransaction
 import com.example.data.model.StoreSettings
 import com.example.ui.StoreViewModel
 import com.example.ui.components.CollectionReceiptDialog
-import com.example.ui.components.QuickThousandAdder
+import com.example.ui.components.DialogInfoBanner
+import com.example.ui.components.DialogSectionHeader
+import com.example.ui.components.DialogSegmentedChoice
+import com.example.ui.components.StoreOperationDialog
 import com.example.ui.components.StoreTopBar
 import com.example.ui.components.SupplierPaymentDialog
+import com.example.ui.components.TransactionDatePickerField
+import com.example.ui.components.storeDialogTextFieldColors
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
 import com.example.ui.util.InvoiceHelper
@@ -611,11 +616,12 @@ fun DebtsScreen(
             initialType = addPartyDefaultType,
             existingParty = null,
             onDismiss = { showAddPartyDialog = false },
-            onSave = { party, initialDebt, debtNotes ->
+            onSave = { party, initialDebt, debtNotes, debtTs ->
                 viewModel.saveParty(
                     party = party,
                     initialDebt = initialDebt,
                     debtNotes = debtNotes,
+                    initialDebtTimestamp = debtTs,
                     onSuccess = { showAddPartyDialog = false }
                 )
             }
@@ -628,7 +634,7 @@ fun DebtsScreen(
             initialType = party.type,
             existingParty = party,
             onDismiss = { editingParty = null },
-            onSave = { updatedParty, _, _ ->
+            onSave = { updatedParty, _, _, _ ->
                 viewModel.saveParty(
                     party = updatedParty,
                     onSuccess = { editingParty = null }
@@ -644,7 +650,7 @@ fun DebtsScreen(
             totalDebt = totalDebt,
             exchangeAccounts = exchangeAccounts,
             onDismiss = { payingForParty = null },
-            onConfirm = { amount, paymentMethod, exchangeAcc, notes, transferRef ->
+            onConfirm = { amount, paymentMethod, exchangeAcc, notes, transferRef, paymentTimestamp ->
                 viewModel.recordPartyPayment(
                     partyName = party.name,
                     partyType = party.type,
@@ -653,6 +659,7 @@ fun DebtsScreen(
                     paymentMethod = paymentMethod,
                     exchangeAccount = exchangeAcc,
                     referenceNumber = transferRef,
+                    timestamp = paymentTimestamp,
                     onSuccess = { payingForParty = null }
                 )
             }
@@ -664,85 +671,80 @@ fun DebtsScreen(
         var amountStr by remember { mutableStateOf("") }
         var notesStr by remember { mutableStateOf("") }
         var dueDateDays by remember { mutableStateOf("15") }
+        var debtTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
         val isCustomer = party.type == "CUSTOMER"
 
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { addingDebtForParty = null },
-            title = {
-                Text(
-                    text = if (isCustomer) "تسجيل دين جديد على العميل: ${party.name}" else "تسجيل دين جديد للمورد: ${party.name}",
-                    fontWeight = FontWeight.Bold
+            title = if (isCustomer) "تسجيل دين جديد على العميل" else "تسجيل دين جديد للمورد",
+            subtitle = party.name,
+            icon = Icons.Default.AddCard,
+            accentColor = if (isCustomer) PdfGoldPrimary else FintechRose,
+            confirmText = "حفظ الدين",
+            confirmIcon = Icons.Default.Save,
+            confirmColor = PdfHeaderNavy,
+            confirmTestTag = "submit_add_party_debt_btn",
+            onConfirm = {
+                val amount = amountStr.toDoubleOrNull() ?: 0.0
+                val days = dueDateDays.toLongOrNull() ?: 15L
+                viewModel.addNewDebt(
+                    DebtRecord(
+                        type = party.type,
+                        partyName = party.name,
+                        phone = party.phone,
+                        originalAmount = amount,
+                        paidAmount = 0.0,
+                        remainingAmount = amount,
+                        details = notesStr.ifBlank { if (isCustomer) "دين إضافي على العميل" else "دين إضافي للمورد" },
+                        dueDate = debtTimestamp + 86400000L * days,
+                        createdAt = debtTimestamp,
+                        isSettled = false
+                    ),
+                    onSuccess = { addingDebtForParty = null }
                 )
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedTextField(
-                        value = amountStr,
-                        onValueChange = { amountStr = it },
-                        label = { Text("المبلغ المطلوب (ريال)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth().testTag("add_debt_amount_input")
-                    )
-
-                    QuickThousandAdder(
-                        currentValue = amountStr,
-                        onValueChange = { amountStr = it }
-                    )
-
-                    OutlinedTextField(
-                        value = notesStr,
-                        onValueChange = { notesStr = it },
-                        label = { Text("تفاصيل البضاعة / سبب الدين") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = dueDateDays,
-                        onValueChange = { dueDateDays = it },
-                        label = { Text("مدة السداد المتوقعة (بالأيام)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val amount = amountStr.toDoubleOrNull() ?: 0.0
-                        val days = dueDateDays.toLongOrNull() ?: 15L
-                        val now = System.currentTimeMillis()
-                        viewModel.addNewDebt(
-                            DebtRecord(
-                                type = party.type,
-                                partyName = party.name,
-                                phone = party.phone,
-                                originalAmount = amount,
-                                paidAmount = 0.0,
-                                remainingAmount = amount,
-                                details = notesStr.ifBlank { if (isCustomer) "دين إضافي على العميل" else "دين إضافي للمورد" },
-                                dueDate = now + 86400000L * days,
-                                createdAt = now,
-                                isSettled = false
-                            ),
-                            onSuccess = { addingDebtForParty = null }
-                        )
-                    },
-                    modifier = Modifier.testTag("submit_add_party_debt_btn")
-                ) {
-                    Text("حفظ الدين")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { addingDebtForParty = null }) {
-                    Text("إلغاء")
-                }
             }
-        )
+        ) {
+            OutlinedTextField(
+                value = amountStr,
+                onValueChange = { amountStr = it },
+                label = { Text("المبلغ المطلوب (ريال) *") },
+                leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null, tint = PdfHeaderNavy) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().testTag("add_debt_amount_input")
+            )
+
+            OutlinedTextField(
+                value = notesStr,
+                onValueChange = { notesStr = it },
+                label = { Text("تفاصيل البضاعة / سبب الدين") },
+                leadingIcon = { Icon(Icons.Default.Notes, contentDescription = null, tint = SlateTextSecondary) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedTextField(
+                value = dueDateDays,
+                onValueChange = { dueDateDays = it },
+                label = { Text("مدة السداد المتوقعة (بالأيام)") },
+                leadingIcon = { Icon(Icons.Default.Schedule, contentDescription = null, tint = BrandBlue) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = storeDialogTextFieldColors(BrandBlue),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            TransactionDatePickerField(
+                selectedTimestamp = debtTimestamp,
+                onDateSelected = { debtTimestamp = it },
+                label = "تاريخ تسجيل الدين",
+                testTag = "add_party_debt_date_picker"
+            )
+        }
     }
 
     // --- DIALOG: Account Statement (كشف حساب تفصيلي أو تقرير نهائي) ---
@@ -765,126 +767,131 @@ fun DebtsScreen(
         var paymentMethod by remember { mutableStateOf("نقداً") }
         var selectedExchangeAcc by remember { mutableStateOf<ExchangeAccount?>(null) }
         var paymentTransferRef by remember { mutableStateOf("") }
+        var paymentTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-        AlertDialog(
+        val isCustomerDebt = debt.type == "CUSTOMER"
+        StoreOperationDialog(
             onDismissRequest = { payingDirectDebt = null },
-            title = {
-                Text(
-                    text = if (debt.type == "CUSTOMER") "استلام دفعة من: ${debt.partyName}" else "تسديد دفعة للمورد: ${debt.partyName}",
-                    fontWeight = FontWeight.Bold
+            title = if (isCustomerDebt) "استلام دفعة من العميل" else "تسديد دفعة للمورد",
+            subtitle = debt.partyName,
+            icon = Icons.Default.ReceiptLong,
+            accentColor = if (isCustomerDebt) FintechEmerald else FintechRose,
+            confirmText = "تأكيد السداد",
+            confirmIcon = Icons.Default.Check,
+            confirmColor = if (isCustomerDebt) FintechEmerald else PdfHeaderNavy,
+            confirmTestTag = "confirm_direct_debt_payment_btn",
+            onConfirm = {
+                val amount = paymentAmountStr.toDoubleOrNull() ?: 0.0
+                viewModel.recordDebtPayment(
+                    debt = debt,
+                    amount = amount,
+                    notes = paymentNotes,
+                    paymentMethod = paymentMethod,
+                    exchangeAccount = selectedExchangeAcc,
+                    referenceNumber = paymentTransferRef.trim(),
+                    timestamp = paymentTimestamp,
+                    onSuccess = { payingDirectDebt = null }
                 )
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = "المبلغ المتبقي حالياً: ${FormatUtils.formatCurrency(debt.remainingAmount)}",
-                        style = MaterialTheme.typography.bodyMedium.copy(color = LuxuryGold, fontWeight = FontWeight.Bold)
-                    )
+            }
+        ) {
+            DialogInfoBanner(
+                title = "المبلغ المتبقي حالياً:",
+                value = FormatUtils.formatCurrency(debt.remainingAmount),
+                containerColor = GoldContainer,
+                contentColor = PdfGoldDark,
+                borderColor = PdfGoldPrimary.copy(alpha = 0.45f),
+                icon = Icons.Default.AccountBalanceWallet
+            )
 
-                    OutlinedTextField(
-                        value = paymentAmountStr,
-                        onValueChange = { paymentAmountStr = it },
-                        label = { Text("مبلغ الدفعة (ريال)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth().testTag("direct_debt_payment_input")
-                    )
+            OutlinedTextField(
+                value = paymentAmountStr,
+                onValueChange = { paymentAmountStr = it },
+                label = { Text("مبلغ الدفعة (ريال) *") },
+                leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null, tint = PdfHeaderNavy) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().testTag("direct_debt_payment_input")
+            )
 
-                    QuickThousandAdder(
-                        currentValue = paymentAmountStr,
-                        onValueChange = { paymentAmountStr = it }
-                    )
-
-                    // Payment Method selector (Cash Drawer vs Exchange Account)
-                    Text("طريقة استلام/سداد المبلغ:", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilterChip(
-                            selected = paymentMethod == "نقداً",
-                            onClick = { paymentMethod = "نقداً" },
-                            label = { Text(if (debt.type == "CUSTOMER") "نقداً بالصندوق" else "نقداً من الصندوق", maxLines = 1) },
-                            leadingIcon = { Icon(Icons.Default.AttachMoney, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = paymentMethod == "صرافة/محفظة",
-                            onClick = {
-                                paymentMethod = "صرافة/محفظة"
-                                if (selectedExchangeAcc == null && exchangeAccounts.isNotEmpty()) {
-                                    selectedExchangeAcc = exchangeAccounts.first()
-                                }
-                            },
-                            label = { Text("عبر الصرافة/المحفظة", maxLines = 1) },
-                            leadingIcon = { Icon(Icons.Default.AccountBalance, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    if (paymentMethod == "صرافة/محفظة" && exchangeAccounts.isNotEmpty()) {
-                        Text("اختر حساب الصراف / المحفظة:", style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted))
-                        LazyRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            items(exchangeAccounts) { acc ->
-                                FilterChip(
-                                    selected = selectedExchangeAcc?.id == acc.id,
-                                    onClick = { selectedExchangeAcc = acc },
-                                    label = { Text(acc.name, fontSize = 11.sp, maxLines = 1) }
-                                )
-                            }
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = paymentTransferRef,
-                        onValueChange = { paymentTransferRef = it },
-                        label = { Text("رقم السند (اختياري)") },
-                        placeholder = { Text("اتركه فارغاً للتوليد التلقائي (SND-0001)") },
-                        leadingIcon = { Icon(Icons.Default.ConfirmationNumber, contentDescription = null, tint = LuxuryGold, modifier = Modifier.size(18.dp)) },
-                        modifier = Modifier.fillMaxWidth().testTag("direct_debt_voucher_input"),
-                        singleLine = true
-                    )
-
-                    OutlinedTextField(
-                        value = paymentNotes,
-                        onValueChange = { paymentNotes = it },
-                        label = { Text("ملاحظات السداد") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
+            DialogSectionHeader(title = "طريقة استلام/سداد المبلغ", icon = Icons.Default.AccountBalanceWallet, accentColor = PdfHeaderNavy)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                DialogSegmentedChoice(
+                    selected = paymentMethod == "نقداً",
+                    label = if (isCustomerDebt) "نقداً بالصندوق" else "نقداً من الصندوق",
+                    icon = Icons.Default.Payments,
+                    selectedColor = FintechEmerald,
+                    onClick = { paymentMethod = "نقداً" },
+                    modifier = Modifier.weight(1f)
+                )
+                DialogSegmentedChoice(
+                    selected = paymentMethod == "صرافة/محفظة",
+                    label = "صرافة / محفظة",
+                    icon = Icons.Default.AccountBalance,
+                    selectedColor = FintechIndigo,
                     onClick = {
-                        val amount = paymentAmountStr.toDoubleOrNull() ?: 0.0
-                        viewModel.recordDebtPayment(
-                            debt = debt,
-                            amount = amount,
-                            notes = paymentNotes,
-                            paymentMethod = paymentMethod,
-                            exchangeAccount = selectedExchangeAcc,
-                            referenceNumber = paymentTransferRef.trim(),
-                            onSuccess = { payingDirectDebt = null }
-                        )
+                        paymentMethod = "صرافة/محفظة"
+                        if (selectedExchangeAcc == null && exchangeAccounts.isNotEmpty()) {
+                            selectedExchangeAcc = exchangeAccounts.first()
+                        }
                     },
-                    modifier = Modifier.testTag("confirm_direct_debt_payment_btn")
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            if (paymentMethod == "صرافة/محفظة" && exchangeAccounts.isNotEmpty()) {
+                DialogSectionHeader(title = "اختر حساب الصراف / المحفظة", icon = Icons.Default.AccountBalance, accentColor = FintechIndigo)
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text("تأكيد السداد")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { payingDirectDebt = null }) {
-                    Text("إلغاء")
+                    items(exchangeAccounts) { acc ->
+                        FilterChip(
+                            selected = selectedExchangeAcc?.id == acc.id,
+                            onClick = { selectedExchangeAcc = acc },
+                            label = { Text(acc.name, fontSize = 11.sp, maxLines = 1) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = FintechIndigo,
+                                selectedLabelColor = Color.White
+                            )
+                        )
+                    }
                 }
             }
-        )
+
+            OutlinedTextField(
+                value = paymentTransferRef,
+                onValueChange = { paymentTransferRef = it },
+                label = { Text("رقم السند (اختياري)") },
+                placeholder = { Text("اتركه فارغاً للتوليد التلقائي (SND-0001)") },
+                leadingIcon = { Icon(Icons.Default.ConfirmationNumber, contentDescription = null, tint = PdfGoldDark, modifier = Modifier.size(18.dp)) },
+                colors = storeDialogTextFieldColors(PdfGoldDark),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().testTag("direct_debt_voucher_input"),
+                singleLine = true
+            )
+
+            OutlinedTextField(
+                value = paymentNotes,
+                onValueChange = { paymentNotes = it },
+                label = { Text("ملاحظات السداد") },
+                leadingIcon = { Icon(Icons.Default.Notes, contentDescription = null, tint = SlateTextSecondary) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            TransactionDatePickerField(
+                selectedTimestamp = paymentTimestamp,
+                onDateSelected = { paymentTimestamp = it },
+                label = "تاريخ السداد / السند",
+                testTag = "direct_debt_pay_date_picker"
+            )
+        }
     }
 
     // --- DIALOG: Edit Direct Debt Record ---
@@ -893,96 +900,90 @@ fun DebtsScreen(
         var phone by remember { mutableStateOf(debt.phone) }
         var amountStr by remember { mutableStateOf(debt.originalAmount.toLong().toString()) }
         var details by remember { mutableStateOf(debt.details) }
+        var createdAtTimestamp by remember(debt.id) { mutableLongStateOf(debt.createdAt) }
 
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { editingDirectDebt = null },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Edit, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(20.dp))
-                    Text(
-                        text = if (debt.type == "CUSTOMER") "تعديل دين العميل: ${debt.partyName}" else "تعديل دين المورد: ${debt.partyName}",
-                        fontWeight = FontWeight.Bold
+            title = if (debt.type == "CUSTOMER") "تعديل دين العميل" else "تعديل دين المورد",
+            subtitle = debt.partyName,
+            icon = Icons.Default.Edit,
+            accentColor = BrandBlue,
+            confirmText = "حفظ التعديل",
+            confirmIcon = Icons.Default.Check,
+            confirmColor = PdfHeaderNavy,
+            onConfirm = {
+                val newOriginal = amountStr.toDoubleOrNull() ?: debt.originalAmount
+                if (newOriginal <= 0) {
+                    viewModel.showMessage("يرجى إدخال مبلغ دين صحيح أكبر من صفر!")
+                } else {
+                    val newRemaining = (newOriginal - debt.paidAmount).coerceAtLeast(0.0)
+                    viewModel.updateDebt(
+                        debt.copy(
+                            partyName = partyName.trim(),
+                            phone = phone.trim(),
+                            originalAmount = newOriginal,
+                            remainingAmount = newRemaining,
+                            details = details.trim(),
+                            createdAt = createdAtTimestamp,
+                            isSettled = newRemaining <= 0.01
+                        ),
+                        onSuccess = { editingDirectDebt = null }
                     )
-                }
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedTextField(
-                        value = partyName,
-                        onValueChange = { partyName = it },
-                        label = { Text("الاسم") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-
-                    OutlinedTextField(
-                        value = phone,
-                        onValueChange = { phone = it },
-                        label = { Text("رقم الهاتف") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-
-                    OutlinedTextField(
-                        value = amountStr,
-                        onValueChange = { amountStr = it },
-                        label = { Text("المبلغ الأصلي للدين (ريال)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-
-                    QuickThousandAdder(
-                        currentValue = amountStr,
-                        onValueChange = { amountStr = it }
-                    )
-
-                    OutlinedTextField(
-                        value = details,
-                        onValueChange = { details = it },
-                        label = { Text("البيان / تفاصيل البضاعة") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val newOriginal = amountStr.toDoubleOrNull() ?: debt.originalAmount
-                        if (newOriginal <= 0) {
-                            viewModel.showMessage("يرجى إدخال مبلغ دين صحيح أكبر من صفر!")
-                            return@Button
-                        }
-                        val newRemaining = (newOriginal - debt.paidAmount).coerceAtLeast(0.0)
-                        viewModel.updateDebt(
-                            debt.copy(
-                                partyName = partyName.trim(),
-                                phone = phone.trim(),
-                                originalAmount = newOriginal,
-                                remainingAmount = newRemaining,
-                                details = details.trim(),
-                                isSettled = newRemaining <= 0.01
-                            ),
-                            onSuccess = { editingDirectDebt = null }
-                        )
-                    }
-                ) {
-                    Text("حفظ التعديل")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { editingDirectDebt = null }) {
-                    Text("إلغاء")
                 }
             }
-        )
+        ) {
+            OutlinedTextField(
+                value = partyName,
+                onValueChange = { partyName = it },
+                label = { Text("الاسم") },
+                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = PdfHeaderNavy) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
+            )
+
+            OutlinedTextField(
+                value = phone,
+                onValueChange = { phone = it },
+                label = { Text("رقم الهاتف") },
+                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = SlateTextSecondary) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
+            )
+
+            OutlinedTextField(
+                value = amountStr,
+                onValueChange = { amountStr = it },
+                label = { Text("المبلغ الأصلي للدين (ريال) *") },
+                leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null, tint = BrandBlue) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = storeDialogTextFieldColors(BrandBlue),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
+            )
+
+            OutlinedTextField(
+                value = details,
+                onValueChange = { details = it },
+                label = { Text("البيان / تفاصيل البضاعة") },
+                leadingIcon = { Icon(Icons.Default.Notes, contentDescription = null, tint = SlateTextSecondary) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            TransactionDatePickerField(
+                selectedTimestamp = createdAtTimestamp,
+                onDateSelected = { createdAtTimestamp = it },
+                label = "تاريخ تسجيل الدين",
+                testTag = "edit_debt_date_picker"
+            )
+        }
     }
 
     // --- DIALOG: Direct Single Debt Creation ---
@@ -992,106 +993,112 @@ fun DebtsScreen(
         var amountStr by remember { mutableStateOf("") }
         var details by remember { mutableStateOf("") }
         var debtType by remember { mutableStateOf(if (selectedTab == 1) "SUPPLIER" else "CUSTOMER") }
+        var debtTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { showDirectAddDebtDialog = false },
-            title = {
-                Text(
-                    text = if (debtType == "CUSTOMER") "تسجيل دين مباشر على زبون" else "تسجيل دين مباشر لمورد",
-                    fontWeight = FontWeight.Bold
+            title = if (debtType == "CUSTOMER") "تسجيل دين مباشر على زبون" else "تسجيل دين مباشر لمورد",
+            subtitle = "إضافة سجل دين مستقل بالتاريخ والتفاصيل",
+            icon = Icons.Default.AddCard,
+            accentColor = if (debtType == "CUSTOMER") PdfGoldPrimary else FintechRose,
+            confirmText = "حفظ الدين",
+            confirmIcon = Icons.Default.Save,
+            confirmColor = PdfHeaderNavy,
+            confirmTestTag = "submit_direct_debt_btn",
+            onConfirm = {
+                val amount = amountStr.toDoubleOrNull() ?: 0.0
+                viewModel.addNewDebt(
+                    DebtRecord(
+                        type = debtType,
+                        partyName = partyName,
+                        phone = phone,
+                        originalAmount = amount,
+                        paidAmount = 0.0,
+                        remainingAmount = amount,
+                        details = details,
+                        dueDate = debtTimestamp + 86400000L * 15,
+                        createdAt = debtTimestamp,
+                        isSettled = false
+                    ),
+                    onSuccess = { showDirectAddDebtDialog = false }
                 )
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilterChip(
-                            selected = debtType == "CUSTOMER",
-                            onClick = { debtType = "CUSTOMER" },
-                            label = { Text("دين على زبون (لنا)") },
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = debtType == "SUPPLIER",
-                            onClick = { debtType = "SUPPLIER" },
-                            label = { Text("دين لمورد (عليا)") },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    OutlinedTextField(
-                        value = partyName,
-                        onValueChange = { partyName = it },
-                        label = { Text(if (debtType == "CUSTOMER") "اسم الزبون" else "اسم المورد") },
-                        modifier = Modifier.fillMaxWidth().testTag("new_direct_debt_name")
-                    )
-
-                    OutlinedTextField(
-                        value = phone,
-                        onValueChange = { phone = it },
-                        label = { Text("رقم الهاتف") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = amountStr,
-                        onValueChange = { amountStr = it },
-                        label = { Text("المبلغ المطلوب (ريال)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth().testTag("new_direct_debt_amount")
-                    )
-
-                    QuickThousandAdder(
-                        currentValue = amountStr,
-                        onValueChange = { amountStr = it }
-                    )
-
-                    OutlinedTextField(
-                        value = details,
-                        onValueChange = { details = it },
-                        label = { Text("تفاصيل المشتريات / البضاعة") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val amount = amountStr.toDoubleOrNull() ?: 0.0
-                        viewModel.addNewDebt(
-                            DebtRecord(
-                                type = debtType,
-                                partyName = partyName,
-                                phone = phone,
-                                originalAmount = amount,
-                                paidAmount = 0.0,
-                                remainingAmount = amount,
-                                details = details,
-                                dueDate = System.currentTimeMillis() + 86400000L * 15,
-                                isSettled = false
-                            ),
-                            onSuccess = { showDirectAddDebtDialog = false }
-                        )
-                    },
-                    modifier = Modifier.testTag("submit_direct_debt_btn")
-                ) {
-                    Text("حفظ الدين")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { showDirectAddDebtDialog = false }) {
-                    Text("إلغاء")
-                }
             }
-        )
+        ) {
+            DialogSectionHeader(title = "تصنيف الدين", icon = Icons.Default.Category, accentColor = PdfHeaderNavy)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                DialogSegmentedChoice(
+                    selected = debtType == "CUSTOMER",
+                    label = "دين على زبون (لنا)",
+                    icon = Icons.Default.Person,
+                    selectedColor = PdfHeaderNavy,
+                    onClick = { debtType = "CUSTOMER" },
+                    modifier = Modifier.weight(1f)
+                )
+                DialogSegmentedChoice(
+                    selected = debtType == "SUPPLIER",
+                    label = "دين لمورد (عليا)",
+                    icon = Icons.Default.Storefront,
+                    selectedColor = FintechRose,
+                    onClick = { debtType = "SUPPLIER" },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            OutlinedTextField(
+                value = partyName,
+                onValueChange = { partyName = it },
+                label = { Text(if (debtType == "CUSTOMER") "اسم الزبون *" else "اسم المورد *") },
+                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = PdfHeaderNavy) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().testTag("new_direct_debt_name")
+            )
+
+            OutlinedTextField(
+                value = phone,
+                onValueChange = { phone = it },
+                label = { Text("رقم الهاتف") },
+                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = SlateTextSecondary) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedTextField(
+                value = amountStr,
+                onValueChange = { amountStr = it },
+                label = { Text("المبلغ المطلوب (ريال) *") },
+                leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null, tint = PdfHeaderNavy) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().testTag("new_direct_debt_amount")
+            )
+
+            OutlinedTextField(
+                value = details,
+                onValueChange = { details = it },
+                label = { Text("تفاصيل المشتريات / البضاعة") },
+                leadingIcon = { Icon(Icons.Default.Notes, contentDescription = null, tint = SlateTextSecondary) },
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            TransactionDatePickerField(
+                selectedTimestamp = debtTimestamp,
+                onDateSelected = { debtTimestamp = it },
+                label = "تاريخ تسجيل الدين",
+                testTag = "direct_debt_date_picker"
+            )
+        }
     }
 
     if (showCollectionDialog) {
@@ -1104,7 +1111,7 @@ fun DebtsScreen(
                 showCollectionDialog = false
                 collectionInitialParty = null
             },
-            onConfirm = { payerName, party, amount, voucher, method, account, notes ->
+            onConfirm = { payerName, party, amount, voucher, method, account, notes, timestamp ->
                 viewModel.recordCollectionReceipt(
                     payerName = payerName,
                     party = party,
@@ -1112,7 +1119,8 @@ fun DebtsScreen(
                     voucherNumberInput = voucher,
                     paymentMethod = method,
                     exchangeAccount = account,
-                    notes = notes
+                    notes = notes,
+                    timestamp = timestamp
                 ) {
                     showCollectionDialog = false
                     collectionInitialParty = null
@@ -1131,7 +1139,7 @@ fun DebtsScreen(
                 showSupplierPaymentDialog = false
                 supplierPayInitialParty = null
             },
-            onConfirm = { supplierName, party, amount, voucher, method, account, notes ->
+            onConfirm = { supplierName, party, amount, voucher, method, account, notes, timestamp ->
                 viewModel.recordSupplierPaymentReceipt(
                     supplierName = supplierName,
                     party = party,
@@ -1139,7 +1147,8 @@ fun DebtsScreen(
                     voucherNumberInput = voucher,
                     paymentMethod = method,
                     exchangeAccount = account,
-                    notes = notes
+                    notes = notes,
+                    timestamp = timestamp
                 ) {
                     showSupplierPaymentDialog = false
                     supplierPayInitialParty = null
@@ -1368,7 +1377,7 @@ fun AddOrEditPartyDialog(
     initialType: String,
     existingParty: PartyAccount?,
     onDismiss: () -> Unit,
-    onSave: (PartyAccount, Double, String) -> Unit
+    onSave: (PartyAccount, Double, String, Long) -> Unit
 ) {
     var partyType by remember { mutableStateOf(existingParty?.type ?: initialType) }
     var name by remember { mutableStateOf(existingParty?.name ?: "") }
@@ -1380,167 +1389,177 @@ fun AddOrEditPartyDialog(
     var hasInitialDebt by remember { mutableStateOf(false) }
     var initialDebtAmountStr by remember { mutableStateOf("") }
     var initialDebtNotes by remember { mutableStateOf("") }
+    var initialDebtTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     val isNew = existingParty == null
     val isCustomer = partyType == "CUSTOMER"
 
-    AlertDialog(
+    StoreOperationDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = if (isNew) {
-                    if (isCustomer) "فتح حساب عميل جديد" else "فتح حساب مورد جديد"
-                } else {
-                    if (isCustomer) "تعديل بيانات العميل" else "تعديل بيانات المورد"
-                },
-                fontWeight = FontWeight.Bold
+        title = if (isNew) {
+            if (isCustomer) "فتح حساب عميل جديد" else "فتح حساب مورد جديد"
+        } else {
+            if (isCustomer) "تعديل بيانات العميل" else "تعديل بيانات المورد"
+        },
+        subtitle = if (isCustomer) "بيانات العميل والرصيد الافتتاحي" else "بيانات المورد والرصيد الافتتاحي",
+        icon = if (isCustomer) Icons.Default.PersonAdd else Icons.Default.Storefront,
+        accentColor = if (isCustomer) PdfGoldPrimary else FintechRose,
+        confirmText = if (isNew) "فتح الحساب وحفظه" else "حفظ التعديلات",
+        confirmIcon = Icons.Default.Save,
+        confirmColor = PdfHeaderNavy,
+        confirmTestTag = "btn_save_party_account",
+        onConfirm = {
+            val initialDebt = if (hasInitialDebt) initialDebtAmountStr.toDoubleOrNull() ?: 0.0 else 0.0
+            val party = (existingParty ?: PartyAccount(
+                type = partyType,
+                name = name.trim(),
+                phone = phone.trim(),
+                address = address.trim(),
+                notes = notes.trim(),
+                initialBalance = initialDebt
+            )).copy(
+                type = partyType,
+                name = name.trim(),
+                phone = phone.trim(),
+                address = address.trim(),
+                notes = notes.trim()
             )
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+            onSave(party, initialDebt, initialDebtNotes, initialDebtTimestamp)
+        }
+    ) {
+        if (isNew) {
+            DialogSectionHeader(title = "نوع الحساب", icon = Icons.Default.Category, accentColor = PdfHeaderNavy)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (isNew) {
-                    // Type selector
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilterChip(
-                            selected = isCustomer,
-                            onClick = { partyType = "CUSTOMER" },
-                            label = { Text("عميل (زبون)") },
-                            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = !isCustomer,
-                            onClick = { partyType = "SUPPLIER" },
-                            label = { Text("مورد (معمل)") },
-                            leadingIcon = { Icon(Icons.Default.Storefront, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text(if (isCustomer) "اسم العميل الكامل *" else "اسم المورد / المعمل *") },
-                    modifier = Modifier.fillMaxWidth().testTag("party_dialog_name_input"),
-                    shape = RoundedCornerShape(10.dp)
+                DialogSegmentedChoice(
+                    selected = isCustomer,
+                    label = "عميل (زبون)",
+                    icon = Icons.Default.Person,
+                    selectedColor = PdfHeaderNavy,
+                    onClick = { partyType = "CUSTOMER" },
+                    modifier = Modifier.weight(1f)
                 )
-
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = { phone = it },
-                    label = { Text("رقم الهاتف (للتواصل واتصال مباشر)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
+                DialogSegmentedChoice(
+                    selected = !isCustomer,
+                    label = "مورد (معمل)",
+                    icon = Icons.Default.Storefront,
+                    selectedColor = FintechRose,
+                    onClick = { partyType = "SUPPLIER" },
+                    modifier = Modifier.weight(1f)
                 )
-
-                OutlinedTextField(
-                    value = address,
-                    onValueChange = { address = it },
-                    label = { Text("العنوان / المدينة") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                )
-
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    label = { Text("ملاحظات إضافية") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                )
-
-                // Opening Balance Section (Only for new accounts)
-                if (isNew) {
-                    HorizontalDivider(color = SlateBorder)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = if (isCustomer) "يوجد رصيد سابق (عليه زلط سابقة)؟" else "يوجد رصيد سابق (عليا زلط للمورد)؟",
-                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold)
-                            )
-                            Text(
-                                text = "تسجيل دين وافتتاح الحساب به تلقائياً",
-                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, color = SlateMuted)
-                            )
-                        }
-                        Switch(
-                            checked = hasInitialDebt,
-                            onCheckedChange = { hasInitialDebt = it }
-                        )
-                    }
-
-                    if (hasInitialDebt) {
-                        OutlinedTextField(
-                            value = initialDebtAmountStr,
-                            onValueChange = { initialDebtAmountStr = it },
-                            label = { Text(if (isCustomer) "المبلغ المطلوب منه بالريال (عليه زلط)" else "المبلغ المستحق له بالريال (عليا زلط)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth().testTag("party_dialog_debt_amount_input"),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-
-                        QuickThousandAdder(
-                            currentValue = initialDebtAmountStr,
-                            onValueChange = { initialDebtAmountStr = it }
-                        )
-
-                        OutlinedTextField(
-                            value = initialDebtNotes,
-                            onValueChange = { initialDebtNotes = it },
-                            label = { Text("تفاصيل الرصيد السابق (اختياري)") },
-                            placeholder = { Text("مثال: حساب بضاعة سابقة قبل النظام") },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val initialDebt = if (hasInitialDebt) initialDebtAmountStr.toDoubleOrNull() ?: 0.0 else 0.0
-                    val party = (existingParty ?: PartyAccount(
-                        type = partyType,
-                        name = name.trim(),
-                        phone = phone.trim(),
-                        address = address.trim(),
-                        notes = notes.trim(),
-                        initialBalance = initialDebt
-                    )).copy(
-                        type = partyType,
-                        name = name.trim(),
-                        phone = phone.trim(),
-                        address = address.trim(),
-                        notes = notes.trim()
-                    )
-                    onSave(party, initialDebt, initialDebtNotes)
-                },
-                modifier = Modifier.testTag("btn_save_party_account")
-            ) {
-                Text(if (isNew) "فتح الحساب وحفظه" else "حفظ التعديلات")
-            }
-        },
-        dismissButton = {
-            OutlinedButton(onClick = onDismiss) {
-                Text("إلغاء")
             }
         }
-    )
+
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = { Text(if (isCustomer) "اسم العميل الكامل *" else "اسم المورد / المعمل *") },
+            leadingIcon = { Icon(if (isCustomer) Icons.Default.Person else Icons.Default.Storefront, contentDescription = null, tint = PdfHeaderNavy) },
+            colors = storeDialogTextFieldColors(PdfHeaderNavy),
+            modifier = Modifier.fillMaxWidth().testTag("party_dialog_name_input"),
+            shape = RoundedCornerShape(12.dp),
+            singleLine = true
+        )
+
+        OutlinedTextField(
+            value = phone,
+            onValueChange = { phone = it },
+            label = { Text("رقم الهاتف (للتواصل واتصال مباشر)") },
+            leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = SlateTextSecondary) },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+            colors = storeDialogTextFieldColors(PdfHeaderNavy),
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            singleLine = true
+        )
+
+        OutlinedTextField(
+            value = address,
+            onValueChange = { address = it },
+            label = { Text("العنوان / المدينة") },
+            leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null, tint = SlateTextSecondary) },
+            colors = storeDialogTextFieldColors(PdfHeaderNavy),
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            singleLine = true
+        )
+
+        OutlinedTextField(
+            value = notes,
+            onValueChange = { notes = it },
+            label = { Text("ملاحظات إضافية") },
+            leadingIcon = { Icon(Icons.Default.Notes, contentDescription = null, tint = SlateTextSecondary) },
+            colors = storeDialogTextFieldColors(PdfHeaderNavy),
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        )
+
+        // Opening Balance Section (Only for new accounts)
+        if (isNew) {
+            HorizontalDivider(color = SlateBorder)
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = SlateBg,
+                border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (isCustomer) "يوجد رصيد سابق (عليه زلط سابقة)؟" else "يوجد رصيد سابق (عليا زلط للمورد)؟",
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold, color = SlateTextPrimary)
+                        )
+                        Text(
+                            text = "تسجيل دين وافتتاح الحساب به تلقائياً",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, color = SlateMuted)
+                        )
+                    }
+                    Switch(
+                        checked = hasInitialDebt,
+                        onCheckedChange = { hasInitialDebt = it }
+                    )
+                }
+            }
+
+            if (hasInitialDebt) {
+                OutlinedTextField(
+                    value = initialDebtAmountStr,
+                    onValueChange = { initialDebtAmountStr = it },
+                    label = { Text(if (isCustomer) "المبلغ المطلوب منه (عليه زلط)" else "المبلغ المستحق له (عليا زلط)") },
+                    leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null, tint = PdfGoldDark) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    colors = storeDialogTextFieldColors(PdfGoldDark),
+                    modifier = Modifier.fillMaxWidth().testTag("party_dialog_debt_amount_input"),
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = initialDebtNotes,
+                    onValueChange = { initialDebtNotes = it },
+                    label = { Text("تفاصيل الرصيد السابق (اختياري)") },
+                    placeholder = { Text("مثال: حساب بضاعة سابقة قبل النظام") },
+                    leadingIcon = { Icon(Icons.Default.Notes, contentDescription = null, tint = SlateTextSecondary) },
+                    colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                TransactionDatePickerField(
+                    selectedTimestamp = initialDebtTimestamp,
+                    onDateSelected = { initialDebtTimestamp = it },
+                    label = "تاريخ الرصيد / الدين السابق",
+                    testTag = "party_initial_debt_date_picker"
+                )
+            }
+        }
+    }
 }
 
 // ----------------------------------------------------
@@ -1552,7 +1571,7 @@ fun PartyPaymentDialog(
     totalDebt: Double,
     exchangeAccounts: List<ExchangeAccount>,
     onDismiss: () -> Unit,
-    onConfirm: (amount: Double, paymentMethod: String, exchangeAccount: ExchangeAccount?, notes: String, transferRef: String) -> Unit
+    onConfirm: (amount: Double, paymentMethod: String, exchangeAccount: ExchangeAccount?, notes: String, transferRef: String, timestamp: Long) -> Unit
 ) {
     val isCustomer = party.type == "CUSTOMER"
     var amountStr by remember { mutableStateOf(totalDebt.toLong().toString()) }
@@ -1562,143 +1581,142 @@ fun PartyPaymentDialog(
     var notes by remember {
         mutableStateOf(if (isCustomer) "قبض زلط نقدية من العميل" else "سداد دفعة للمورد")
     }
+    var paymentTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    AlertDialog(
+    StoreOperationDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = if (isCustomer) "قبض زلط من: ${party.name}" else "سداد دفعة للمورد: ${party.name}",
-                fontWeight = FontWeight.Bold
+        title = if (isCustomer) "قبض زلط من العميل" else "سداد دفعة للمورد",
+        subtitle = party.name,
+        icon = if (isCustomer) Icons.Default.Download else Icons.Default.Upload,
+        accentColor = if (isCustomer) FintechEmerald else FintechRose,
+        confirmText = if (isCustomer) "تأكيد قبض الزلط" else "تأكيد سداد المورد",
+        confirmIcon = Icons.Default.Check,
+        confirmColor = if (isCustomer) FintechEmerald else PdfHeaderNavy,
+        confirmTestTag = "btn_confirm_party_payment",
+        onConfirm = {
+            val amount = amountStr.toDoubleOrNull() ?: 0.0
+            onConfirm(amount, paymentMethod, selectedExchangeAcc, notes, transferRef, paymentTimestamp)
+        }
+    ) {
+        DialogInfoBanner(
+            title = if (isCustomer) "إجمالي المطلوب من العميل:" else "إجمالي المستحق للمورد:",
+            value = FormatUtils.formatCurrency(totalDebt),
+            containerColor = if (isCustomer) GoldContainer else Color(0xFFFFF1F2),
+            contentColor = if (isCustomer) PdfGoldDark else RubyExpense,
+            borderColor = if (isCustomer) PdfGoldPrimary.copy(alpha = 0.45f) else Color(0xFFFECDD3),
+            icon = Icons.Default.AccountBalanceWallet
+        )
+
+        OutlinedTextField(
+            value = amountStr,
+            onValueChange = { amountStr = it },
+            label = { Text("المبلغ المدفوع (ريال) *") },
+            leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null, tint = PdfHeaderNavy) },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            colors = storeDialogTextFieldColors(PdfHeaderNavy),
+            modifier = Modifier.fillMaxWidth().testTag("party_payment_amount_input"),
+            shape = RoundedCornerShape(12.dp),
+            singleLine = true
+        )
+
+        DialogSectionHeader(
+            title = if (isCustomer) "طريقة إيداع الزلط" else "طريقة صرف الزلط للمورد",
+            icon = Icons.Default.AccountBalanceWallet,
+            accentColor = PdfHeaderNavy
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            DialogSegmentedChoice(
+                selected = paymentMethod == "نقداً",
+                label = if (isCustomer) "نقداً للصندوق" else "نقداً من الصندوق",
+                icon = Icons.Default.Payments,
+                selectedColor = FintechEmerald,
+                onClick = { paymentMethod = "نقداً" },
+                modifier = Modifier.weight(1f)
             )
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+            DialogSegmentedChoice(
+                selected = paymentMethod == "صرافة/محفظة",
+                label = "صرافة / محفظة",
+                icon = Icons.Default.AccountBalance,
+                selectedColor = FintechIndigo,
+                onClick = {
+                    paymentMethod = "صرافة/محفظة"
+                    if (selectedExchangeAcc == null && exchangeAccounts.isNotEmpty()) {
+                        selectedExchangeAcc = exchangeAccounts.first()
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        if (paymentMethod == "صرافة/محفظة") {
+            if (exchangeAccounts.isEmpty()) {
                 Text(
-                    text = if (isCustomer) "إجمالي المبلغ المطلوب منه: ${FormatUtils.formatCurrency(totalDebt)}" else "إجمالي المستحق للمورد: ${FormatUtils.formatCurrency(totalDebt)}",
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = if (isCustomer) LuxuryGold else RubyExpense
-                    )
+                    text = "تنبيه: لا يوجد حساب صراف مضاف! يرجى إضافة حساب صراف أولاً.",
+                    color = RubyExpense,
+                    fontSize = 11.sp
                 )
-
-                OutlinedTextField(
-                    value = amountStr,
-                    onValueChange = { amountStr = it },
-                    label = { Text("المبلغ المدفوع (ريال)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth().testTag("party_payment_amount_input"),
-                    shape = RoundedCornerShape(10.dp)
-                )
-
-                QuickThousandAdder(
-                    currentValue = amountStr,
-                    onValueChange = { amountStr = it }
-                )
-
-                // Method selector
-                Text(
-                    text = if (isCustomer) "طريقة إيداع الزلط:" else "طريقة صرف الزلط للمورد:",
-                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold)
-                )
-                Row(
+            } else {
+                DialogSectionHeader(title = "اختر حساب الصراف أو المحفظة", icon = Icons.Default.AccountBalance, accentColor = FintechIndigo)
+                LazyRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    FilterChip(
-                        selected = paymentMethod == "نقداً",
-                        onClick = { paymentMethod = "نقداً" },
-                        label = { Text(if (isCustomer) "نقداً للصندوق" else "نقداً من الصندوق", maxLines = 1) },
-                        leadingIcon = { Icon(Icons.Default.AttachMoney, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    FilterChip(
-                        selected = paymentMethod == "صرافة/محفظة",
-                        onClick = {
-                            paymentMethod = "صرافة/محفظة"
-                            if (selectedExchangeAcc == null && exchangeAccounts.isNotEmpty()) {
-                                selectedExchangeAcc = exchangeAccounts.first()
-                            }
-                        },
-                        label = { Text("عبر الصرافة/المحفظة", maxLines = 1) },
-                        leadingIcon = { Icon(Icons.Default.AccountBalance, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                if (paymentMethod == "صرافة/محفظة") {
-                    if (exchangeAccounts.isEmpty()) {
-                        Text(
-                            text = "تنبيه: لا يوجد حساب صراف مضاف! يرجى إضافة حساب صراف أولاً.",
-                            color = RubyExpense,
-                            fontSize = 11.sp
+                    items(exchangeAccounts) { acc ->
+                        FilterChip(
+                            selected = selectedExchangeAcc?.id == acc.id,
+                            onClick = { selectedExchangeAcc = acc },
+                            label = { Text(acc.name, fontSize = 11.sp, maxLines = 1) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = FintechIndigo,
+                                selectedLabelColor = Color.White
+                            )
                         )
-                    } else {
-                        Text("اختر حساب الصراف أو المحفظة:", style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted))
-                        LazyRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            items(exchangeAccounts) { acc ->
-                                FilterChip(
-                                    selected = selectedExchangeAcc?.id == acc.id,
-                                    onClick = { selectedExchangeAcc = acc },
-                                    label = { Text(acc.name, fontSize = 11.sp, maxLines = 1) }
-                                )
-                            }
-                        }
                     }
                 }
-
-                OutlinedTextField(
-                    value = transferRef,
-                    onValueChange = { transferRef = it },
-                    label = { Text("رقم السند (اختياري)") },
-                    placeholder = { Text("اتركه فارغاً للتوليد التلقائي (SND-0001)") },
-                    modifier = Modifier.fillMaxWidth().testTag("party_payment_voucher_input"),
-                    shape = RoundedCornerShape(10.dp),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    label = { Text("ملاحظات وتوثيق السداد") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                )
-
-                Text(
-                    text = if (isCustomer) {
-                        if (paymentMethod == "نقداً") "سيتم إضافة المبلغ تلقائياً إلى رصيد الصندوق النقدي." else "سيتم زيادة رصيد حساب الصراف المحدد تلقائياً."
-                    } else {
-                        if (paymentMethod == "نقداً") "سيتم خصم المبلغ تلقائياً من رصيد الصندوق النقدي." else "سيتم خصم المبلغ من رصيد حساب الصراف المحدد."
-                    },
-                    style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted, fontSize = 11.sp)
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val amount = amountStr.toDoubleOrNull() ?: 0.0
-                    onConfirm(amount, paymentMethod, selectedExchangeAcc, notes, transferRef)
-                },
-                modifier = Modifier.testTag("btn_confirm_party_payment")
-            ) {
-                Text(if (isCustomer) "تأكيد قبض الزلط" else "تأكيد سداد المورد")
-            }
-        },
-        dismissButton = {
-            OutlinedButton(onClick = onDismiss) {
-                Text("إلغاء")
             }
         }
-    )
+
+        OutlinedTextField(
+            value = transferRef,
+            onValueChange = { transferRef = it },
+            label = { Text("رقم السند (اختياري)") },
+            placeholder = { Text("اتركه فارغاً للتوليد التلقائي (SND-0001)") },
+            leadingIcon = { Icon(Icons.Default.ConfirmationNumber, contentDescription = null, tint = PdfGoldDark) },
+            colors = storeDialogTextFieldColors(PdfGoldDark),
+            modifier = Modifier.fillMaxWidth().testTag("party_payment_voucher_input"),
+            shape = RoundedCornerShape(12.dp),
+            singleLine = true
+        )
+
+        OutlinedTextField(
+            value = notes,
+            onValueChange = { notes = it },
+            label = { Text("ملاحظات وتوثيق السداد") },
+            leadingIcon = { Icon(Icons.Default.Notes, contentDescription = null, tint = SlateTextSecondary) },
+            colors = storeDialogTextFieldColors(PdfHeaderNavy),
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        )
+
+        TransactionDatePickerField(
+            selectedTimestamp = paymentTimestamp,
+            onDateSelected = { paymentTimestamp = it },
+            label = "تاريخ الدفعة / السند",
+            testTag = "party_payment_date_picker"
+        )
+
+        Text(
+            text = if (isCustomer) {
+                if (paymentMethod == "نقداً") "سيتم إضافة المبلغ تلقائياً إلى رصيد الصندوق النقدي." else "سيتم زيادة رصيد حساب الصراف المحدد تلقائياً."
+            } else {
+                if (paymentMethod == "نقداً") "سيتم خصم المبلغ تلقائياً من رصيد الصندوق النقدي." else "سيتم خصم المبلغ من رصيد حساب الصراف المحدد."
+            },
+            style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted, fontSize = 11.sp)
+        )
+    }
 }
 
 // ----------------------------------------------------
@@ -1728,60 +1746,112 @@ fun PartyStatementDialog(
         )
     }
 
-    AlertDialog(
+    StoreOperationDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "كشف حساب: ${party.name}",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = if (summary.isCustomer) "عميل / زبون" else "مورد / معمل",
-                        style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted)
-                    )
-                }
-            }
-        },
-        text = {
+        title = "كشف حساب: ${party.name}",
+        subtitle = if (summary.isCustomer) "عميل / زبون" else "مورد / معمل",
+        icon = Icons.Default.ReceiptLong,
+        accentColor = PdfGoldPrimary,
+        maxWidth = 560.dp,
+        footer = {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Mode Toggle: كشف مفصل vs تقرير نهائي
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    FilterChip(
-                        selected = mode == StatementMode.DETAILED,
-                        onClick = { mode = StatementMode.DETAILED },
-                        label = { Text("كشف مفصل (${summary.entries.size})", fontSize = 11.sp, maxLines = 1) },
-                        modifier = Modifier.weight(1f).testTag("tab_statement_detailed")
-                    )
-                    FilterChip(
-                        selected = mode == StatementMode.SUMMARY,
-                        onClick = { mode = StatementMode.SUMMARY },
-                        label = { Text("تقرير نهائي (ملخص)", fontSize = 11.sp, maxLines = 1) },
-                        modifier = Modifier.weight(1f).testTag("tab_statement_summary")
-                    )
+                    OutlinedButton(
+                        onClick = {
+                            val file = InvoiceHelper.generatePartyStatementPdf(context, summary, mode, settings)
+                            InvoiceHelper.printPdfFile(context, file, "كشف_حساب_${party.name}")
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f).testTag("btn_print_statement_pdf")
+                    ) {
+                        Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("طباعة PDF", fontSize = 11.sp, maxLines = 1)
+                    }
+                    Button(
+                        onClick = {
+                            val file = InvoiceHelper.generatePartyStatementPdf(context, summary, mode, settings)
+                            InvoiceHelper.sharePdfFile(context, file, "مشاركة كشف حساب ${party.name}")
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                        modifier = Modifier.weight(1f).testTag("btn_share_statement_pdf")
+                    ) {
+                        Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("مشاركة PDF", fontSize = 11.sp, maxLines = 1)
+                    }
                 }
-
-                // 3-Column Summary: عليه | له | باقي
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    Button(
+                        onClick = {
+                            val text = StatementHelper.formatPartyStatementText(summary, mode, settings)
+                            StatementHelper.shareText(context, text, "كشف حساب ${party.name}")
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldProfit),
+                        modifier = Modifier.weight(1.3f).testTag("btn_share_statement_text")
+                    ) {
+                        Icon(Icons.Default.Forum, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("مشاركة واتساب", fontSize = 11.sp, maxLines = 1)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            val text = StatementHelper.formatPartyStatementText(summary, mode, settings)
+                            StatementHelper.copyToClipboard(context, text, "كشف حساب ${party.name}")
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(0.9f).testTag("btn_copy_statement_text")
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("نسخ", fontSize = 11.sp, maxLines = 1)
+                    }
+                    TextButton(onClick = onDismiss) {
+                        Text("إغلاق", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    ) {
+        // Mode Toggle: كشف مفصل vs تقرير نهائي
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            DialogSegmentedChoice(
+                selected = mode == StatementMode.DETAILED,
+                label = "كشف مفصل (${summary.entries.size})",
+                icon = Icons.Default.FormatListBulleted,
+                selectedColor = PdfHeaderNavy,
+                onClick = { mode = StatementMode.DETAILED },
+                modifier = Modifier.weight(1f).testTag("tab_statement_detailed")
+            )
+            DialogSegmentedChoice(
+                selected = mode == StatementMode.SUMMARY,
+                label = "تقرير نهائي (ملخص)",
+                icon = Icons.Default.Summarize,
+                selectedColor = PdfGoldDark,
+                onClick = { mode = StatementMode.SUMMARY },
+                modifier = Modifier.weight(1f).testTag("tab_statement_summary")
+            )
+        }
+
+        // 3-Column Summary: عليه | له | باقي
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = if (summary.isCustomer) RubyLight else Color(0xFFEFF6FF),
@@ -1964,78 +2034,8 @@ fun PartyStatementDialog(
                             }
                         }
                     }
-                }
-            }
-        },
-        confirmButton = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            val file = InvoiceHelper.generatePartyStatementPdf(context, summary, mode, settings)
-                            InvoiceHelper.printPdfFile(context, file, "كشف_حساب_${party.name}")
-                        },
-                        modifier = Modifier.weight(1f).testTag("btn_print_statement_pdf")
-                    ) {
-                        Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("طباعة PDF", fontSize = 11.sp, maxLines = 1)
-                    }
-                    Button(
-                        onClick = {
-                            val file = InvoiceHelper.generatePartyStatementPdf(context, summary, mode, settings)
-                            InvoiceHelper.sharePdfFile(context, file, "مشاركة كشف حساب ${party.name}")
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
-                        modifier = Modifier.weight(1f).testTag("btn_share_statement_pdf")
-                    ) {
-                        Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("مشاركة PDF", fontSize = 11.sp, maxLines = 1)
-                    }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = {
-                            val text = StatementHelper.formatPartyStatementText(summary, mode, settings)
-                            StatementHelper.shareText(context, text, "كشف حساب ${party.name}")
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldProfit),
-                        modifier = Modifier.weight(1.3f).testTag("btn_share_statement_text")
-                    ) {
-                        Icon(Icons.Default.Forum, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("مشاركة واتساب", fontSize = 11.sp, maxLines = 1)
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            val text = StatementHelper.formatPartyStatementText(summary, mode, settings)
-                            StatementHelper.copyToClipboard(context, text, "كشف حساب ${party.name}")
-                        },
-                        modifier = Modifier.weight(0.9f).testTag("btn_copy_statement_text")
-                    ) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("نسخ", fontSize = 11.sp, maxLines = 1)
-                    }
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("إغلاق")
-            }
         }
-    )
+    }
 }
 
 // ----------------------------------------------------

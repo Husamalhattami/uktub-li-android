@@ -35,7 +35,11 @@ import com.example.data.model.ExchangeAccount
 import com.example.data.model.PartyAccount
 import com.example.data.model.StoreSettings
 import com.example.ui.StoreViewModel
-import com.example.ui.components.QuickThousandAdder
+import com.example.ui.components.DialogInfoBanner
+import com.example.ui.components.DialogSectionHeader
+import com.example.ui.components.StoreOperationDialog
+import com.example.ui.components.TransactionDatePickerField
+import com.example.ui.components.storeDialogTextFieldColors
 import com.example.ui.theme.*
 import com.example.ui.util.ClothingSizes
 import com.example.ui.util.ClothingUnits
@@ -82,6 +86,7 @@ fun PurchaseScreen(
     // Invoice Header Information
     var supplierName by remember { mutableStateOf("") }
     var invoiceNumberInput by remember { mutableStateOf("") }
+    var purchaseTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var showAddSupplierDialog by remember { mutableStateOf(false) }
 
     // Multi-Item Purchase Cart
@@ -300,6 +305,8 @@ fun PurchaseScreen(
         val itemsSnapshot = purchaseCartItems.toList()
         val finalSupplier = supplierName.trim().ifBlank { "مورد عام" }
 
+        val chosenTimestamp = purchaseTimestamp
+
         viewModel.executeCartPurchase(
             items = itemsSnapshot,
             supplierName = finalSupplier,
@@ -310,9 +317,9 @@ fun PurchaseScreen(
             debtPart = actualDebt,
             exchangeAccount = selectedExchangeAccount,
             transferRef = transferRef.trim(),
-            notes = invoiceNotes.trim()
+            notes = invoiceNotes.trim(),
+            timestamp = chosenTimestamp
         ) { generatedInvoiceNumber ->
-            val now = System.currentTimeMillis()
             val pdf = try {
                 InvoiceHelper.generateMultiItemPurchaseInvoicePdf(
                     context = context,
@@ -326,7 +333,7 @@ fun PurchaseScreen(
                     cashPaid = actualCash,
                     transferPaid = actualTransfer,
                     debtAmount = actualDebt,
-                    timestamp = now,
+                    timestamp = chosenTimestamp,
                     settings = storeSettings
                 )
             } catch (e: Exception) {
@@ -350,7 +357,7 @@ fun PurchaseScreen(
                 debtAmount = actualDebt,
                 exchangeAccountName = selectedExchangeAccount?.name ?: "",
                 transferRef = transferRef.trim(),
-                timestamp = now,
+                timestamp = chosenTimestamp,
                 pdfFile = pdf
             )
 
@@ -359,6 +366,7 @@ fun PurchaseScreen(
             invoiceNumberInput = ""
             transferRef = ""
             invoiceNotes = ""
+            purchaseTimestamp = System.currentTimeMillis()
         }
     }
 
@@ -505,6 +513,13 @@ fun PurchaseScreen(
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
                             leadingIcon = { Icon(Icons.Default.Tag, contentDescription = null, tint = PdfGoldDark) }
+                        )
+
+                        TransactionDatePickerField(
+                            selectedTimestamp = purchaseTimestamp,
+                            onDateSelected = { purchaseTimestamp = it },
+                            label = "تاريخ فاتورة الشراء",
+                            testTag = "purchase_date_picker_field"
                         )
                     }
                 }
@@ -700,10 +715,6 @@ fun PurchaseScreen(
                                     modifier = Modifier.fillMaxWidth().testTag("purchase_buy_price_input"),
                                     shape = RoundedCornerShape(12.dp)
                                 )
-                                QuickThousandAdder(
-                                    currentValue = buyPricePerUnitStr,
-                                    onValueChange = { buyPricePerUnitStr = it }
-                                )
                             }
 
                             Column(modifier = Modifier.weight(1f)) {
@@ -714,10 +725,6 @@ fun PurchaseScreen(
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     modifier = Modifier.fillMaxWidth().testTag("purchase_sell_price_input"),
                                     shape = RoundedCornerShape(12.dp)
-                                )
-                                QuickThousandAdder(
-                                    currentValue = sellPricePerUnitStr,
-                                    onValueChange = { sellPricePerUnitStr = it }
                                 )
                             }
                         }
@@ -1112,135 +1119,110 @@ fun PurchaseScreen(
 
     // 1. Add Category Dialog (User Request #1)
     if (showAddCategoryDialog) {
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { showAddCategoryDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Category, contentDescription = null, tint = PdfGoldDark)
-                    Text("إضافة نوع صنف جديد", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            title = "إضافة نوع صنف جديد",
+            subtitle = "سيظهر فوراً في قوائم الشراء والبيع والمخزون",
+            icon = Icons.Default.Category,
+            accentColor = PdfGoldPrimary,
+            confirmText = "إضافة واختيار",
+            confirmIcon = Icons.Default.AddCircleOutline,
+            confirmColor = PdfGoldDark,
+            confirmEnabled = newCategoryInput.trim().isNotBlank(),
+            confirmTestTag = "confirm_add_purchase_category_btn",
+            onConfirm = {
+                val trimmed = newCategoryInput.trim()
+                if (trimmed.isNotBlank()) {
+                    viewModel.addNewCategory(trimmed)
+                    selectedCategory = trimmed
+                    newCategoryInput = ""
+                    showAddCategoryDialog = false
                 }
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text("اكتب اسم نوع الصنف وسيظهر فوراً في قائمة الاختيارات السريعة للشراء والبيع والمخزون:", fontSize = 12.sp, color = Color(0xFF64748B))
-                    OutlinedTextField(
-                        value = newCategoryInput,
-                        onValueChange = { newCategoryInput = it },
-                        label = { Text("اسم نوع الصنف (مثلاً: أرواب، سراويل، شيلان...)") },
-                        modifier = Modifier.fillMaxWidth().testTag("new_purchase_category_input"),
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val trimmed = newCategoryInput.trim()
-                        if (trimmed.isNotBlank()) {
-                            viewModel.addNewCategory(trimmed)
-                            selectedCategory = trimmed
-                            newCategoryInput = ""
-                            showAddCategoryDialog = false
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = PdfGoldDark),
-                    modifier = Modifier.testTag("confirm_add_purchase_category_btn")
-                ) {
-                    Text("إضافة واختيار")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { showAddCategoryDialog = false }) { Text("إلغاء") }
             }
-        )
+        ) {
+            Text(
+                "اكتب اسم نوع الصنف وسيظهر فوراً في قائمة الاختيارات السريعة للشراء والبيع والمخزون:",
+                fontSize = 12.sp,
+                color = SlateTextSecondary
+            )
+            OutlinedTextField(
+                value = newCategoryInput,
+                onValueChange = { newCategoryInput = it },
+                label = { Text("اسم نوع الصنف (مثلاً: أرواب، سراويل، شيلان...)") },
+                modifier = Modifier.fillMaxWidth().testTag("new_purchase_category_input"),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = storeDialogTextFieldColors(PdfGoldDark)
+            )
+        }
     }
 
     if (showAddSizeDialog) {
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { showAddSizeDialog = false },
-            title = { Text("إضافة مقاس جديد", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedTextField(
-                        value = newSizeInput,
-                        onValueChange = { newSizeInput = it },
-                        label = { Text("اسم المقاس (مثلاً: شبابي، جامبو، 42...)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+            title = "إضافة مقاس جديد",
+            subtitle = "تخصيص خيارات المقاسات للمنتجات",
+            icon = Icons.Default.Straighten,
+            accentColor = PdfGoldPrimary,
+            confirmText = "إضافة واختيار",
+            confirmIcon = Icons.Default.AddCircleOutline,
+            confirmColor = PdfGoldDark,
+            confirmEnabled = newSizeInput.trim().isNotBlank(),
+            onConfirm = {
+                val trimmed = newSizeInput.trim()
+                if (trimmed.isNotBlank()) {
+                    viewModel.addConfigItem(com.example.data.model.StoreConfigTypes.PRODUCT_SIZE, trimmed)
+                    selectedSize = trimmed
+                    newSizeInput = ""
+                    showAddSizeDialog = false
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val trimmed = newSizeInput.trim()
-                        if (trimmed.isNotBlank()) {
-                            viewModel.addConfigItem(com.example.data.model.StoreConfigTypes.PRODUCT_SIZE, trimmed)
-                            selectedSize = trimmed
-                            newSizeInput = ""
-                            showAddSizeDialog = false
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = PdfGoldDark)
-                ) { Text("إضافة واختيار") }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { showAddSizeDialog = false }) { Text("إلغاء") }
             }
-        )
+        ) {
+            OutlinedTextField(
+                value = newSizeInput,
+                onValueChange = { newSizeInput = it },
+                label = { Text("اسم المقاس (مثلاً: شبابي، جامبو، 42...)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = storeDialogTextFieldColors(PdfGoldDark)
+            )
+        }
     }
 
     if (showAddColorDialog) {
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { showAddColorDialog = false },
-            title = { Text("إضافة لون جديد", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedTextField(
-                        value = newColorInput,
-                        onValueChange = { newColorInput = it },
-                        label = { Text("اسم اللون (مثلاً: عودي، خمري، فضي...)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+            title = "إضافة لون جديد",
+            subtitle = "إضافة لون متاح لتشكيلة الشراء",
+            icon = Icons.Default.Palette,
+            accentColor = PdfGoldPrimary,
+            confirmText = "إضافة واختيار",
+            confirmIcon = Icons.Default.AddCircleOutline,
+            confirmColor = PdfGoldDark,
+            confirmEnabled = newColorInput.trim().isNotBlank(),
+            onConfirm = {
+                val trimmed = newColorInput.trim()
+                if (trimmed.isNotBlank()) {
+                    viewModel.addConfigItem(com.example.data.model.StoreConfigTypes.PRODUCT_COLOR, trimmed)
+                    if (!selectedColorsSet.contains(trimmed)) {
+                        selectedColorsSet.add(trimmed)
+                    }
+                    newColorInput = ""
+                    showAddColorDialog = false
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val trimmed = newColorInput.trim()
-                        if (trimmed.isNotBlank()) {
-                            viewModel.addConfigItem(com.example.data.model.StoreConfigTypes.PRODUCT_COLOR, trimmed)
-                            if (!selectedColorsSet.contains(trimmed)) {
-                                selectedColorsSet.add(trimmed)
-                            }
-                            newColorInput = ""
-                            showAddColorDialog = false
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = PdfGoldDark)
-                ) { Text("إضافة واختيار") }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { showAddColorDialog = false }) { Text("إلغاء") }
             }
-        )
+        ) {
+            OutlinedTextField(
+                value = newColorInput,
+                onValueChange = { newColorInput = it },
+                label = { Text("اسم اللون (مثلاً: عودي، خمري، فضي...)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = storeDialogTextFieldColors(PdfGoldDark)
+            )
+        }
     }
 
     // 2. Add Supplier Dialog
@@ -1249,11 +1231,12 @@ fun PurchaseScreen(
             initialType = "SUPPLIER",
             existingParty = null,
             onDismiss = { showAddSupplierDialog = false },
-            onSave = { party, initialDebt, debtNotes ->
+            onSave = { party, initialDebt, debtNotes, debtTs ->
                 viewModel.saveParty(
                     party = party,
                     initialDebt = initialDebt,
                     debtNotes = debtNotes,
+                    initialDebtTimestamp = debtTs,
                     onSuccess = {
                         supplierName = party.name
                         showAddSupplierDialog = false
@@ -1265,132 +1248,110 @@ fun PurchaseScreen(
 
     // 3. Purchase Success Receipt Dialog
     completedReceipt?.let { receipt ->
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { completedReceipt = null },
-            icon = {
-                Box(
-                    modifier = Modifier
-                        .size(54.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFDCFCE7)),
-                    contentAlignment = Alignment.Center
+            title = "تم حفظ فاتورة الشراء بنجاح!",
+            subtitle = "رقم الفاتورة: #${receipt.invoiceNumber}",
+            icon = Icons.Default.CheckCircle,
+            accentColor = EmeraldProfit,
+            footer = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(36.dp))
+                    Button(
+                        onClick = {
+                            val file = receipt.pdfFile ?: InvoiceHelper.generateMultiItemPurchaseInvoicePdf(
+                                context = context,
+                                invoiceNumber = receipt.invoiceNumber,
+                                supplierName = receipt.supplierName,
+                                paymentMethod = receipt.paymentMethod,
+                                exchangeAccountName = receipt.exchangeAccountName,
+                                transferRef = receipt.transferRef,
+                                items = receipt.items,
+                                totalCost = receipt.totalCost,
+                                cashPaid = receipt.cashPaid,
+                                transferPaid = receipt.transferPaid,
+                                debtAmount = receipt.debtAmount,
+                                timestamp = receipt.timestamp,
+                                settings = storeSettings
+                            )
+                            InvoiceHelper.printPdfFile(context, file, "فاتورة_شراء_${receipt.invoiceNumber}")
+                        },
+                        shape = RoundedCornerShape(13.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = PdfHeaderNavy),
+                        modifier = Modifier.weight(1.3f).heightIn(min = 48.dp)
+                    ) {
+                        Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("طباعة PDF", fontWeight = FontWeight.Bold)
+                    }
+                    OutlinedButton(
+                        onClick = { completedReceipt = null },
+                        shape = RoundedCornerShape(13.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Color.White,
+                            contentColor = SlateTextSecondary
+                        ),
+                        modifier = Modifier.weight(0.9f).heightIn(min = 48.dp)
+                    ) {
+                        Text("فاتورة جديدة", fontWeight = FontWeight.Bold)
+                    }
                 }
-            },
-            title = {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("تم حفظ فاتورة الشراء بنجاح!", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Color(0xFF0F172A))
-                    Text("رقم الفاتورة: #${receipt.invoiceNumber}", fontSize = 13.sp, color = Color(0xFF64748B))
-                }
-            },
-            text = {
+            }
+        ) {
+            DialogInfoBanner(
+                title = "إجمالي فاتورة الشراء",
+                value = FormatUtils.formatCurrency(receipt.totalCost),
+                containerColor = Color(0xFFF0FDF4),
+                contentColor = Color(0xFF15803D),
+                borderColor = Color(0xFFBBF7D0),
+                icon = Icons.Default.ReceiptLong
+            )
+
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
+            ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Card(
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("المورد:", fontSize = 12.sp, color = Color(0xFF64748B))
-                                Text(receipt.supplierName, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
-                            }
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("عدد الأصناف:", fontSize = 12.sp, color = Color(0xFF64748B))
-                                Text("${receipt.items.size} أصناف", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("إجمالي الفاتورة:", fontSize = 12.sp, color = Color(0xFF64748B))
-                                Text(FormatUtils.formatCurrency(receipt.totalCost), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF0F172A))
-                            }
-                            if (receipt.transferRef.isNotBlank()) {
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("رقم الحوالة:", fontSize = 12.sp, color = Color(0xFF0F766E))
-                                    Text("#${receipt.transferRef}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F766E))
-                                }
-                            }
-                            if (receipt.debtAmount > 0) {
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("الآجل للمورد:", fontSize = 12.sp, color = Color(0xFFDC2626))
-                                    Text(FormatUtils.formatCurrency(receipt.debtAmount), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
-                                }
-                            }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("المورد:", fontSize = 12.sp, color = Color(0xFF64748B))
+                        Text(receipt.supplierName, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("عدد الأصناف:", fontSize = 12.sp, color = Color(0xFF64748B))
+                        Text("${receipt.items.size} أصناف", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                    if (receipt.transferRef.isNotBlank()) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("رقم الحوالة:", fontSize = 12.sp, color = Color(0xFF0F766E))
+                            Text("#${receipt.transferRef}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F766E))
                         }
                     }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                val file = receipt.pdfFile ?: InvoiceHelper.generateMultiItemPurchaseInvoicePdf(
-                                    context = context,
-                                    invoiceNumber = receipt.invoiceNumber,
-                                    supplierName = receipt.supplierName,
-                                    paymentMethod = receipt.paymentMethod,
-                                    exchangeAccountName = receipt.exchangeAccountName,
-                                    transferRef = receipt.transferRef,
-                                    items = receipt.items,
-                                    totalCost = receipt.totalCost,
-                                    cashPaid = receipt.cashPaid,
-                                    transferPaid = receipt.transferPaid,
-                                    debtAmount = receipt.debtAmount,
-                                    timestamp = receipt.timestamp,
-                                    settings = storeSettings
-                                )
-                                InvoiceHelper.sharePdfFile(context, file, "مشاركة فاتورة شراء #${receipt.invoiceNumber}")
-                            },
-                            modifier = Modifier.weight(1f).height(44.dp).testTag("btn_purchase_receipt_share_pdf"),
-                            contentPadding = PaddingValues(horizontal = 6.dp)
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("مشاركة PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-
-                        Button(
-                            onClick = {
-                                val txt = StatementHelper.formatMultiItemPurchaseText(
-                                    invoiceNumber = receipt.invoiceNumber,
-                                    supplierName = receipt.supplierName,
-                                    paymentMethod = receipt.paymentMethod,
-                                    itemsCount = receipt.items.size,
-                                    totalCost = receipt.totalCost,
-                                    cashPaid = receipt.cashPaid,
-                                    transferPaid = receipt.transferPaid,
-                                    debtAmount = receipt.debtAmount,
-                                    exchangeAccountName = receipt.exchangeAccountName,
-                                    transferRef = receipt.transferRef,
-                                    timestamp = receipt.timestamp,
-                                    settings = storeSettings
-                                )
-                                StatementHelper.shareText(context, txt, "مشاركة فاتورة شراء #${receipt.invoiceNumber}")
-                            },
-                            modifier = Modifier.weight(1f).height(44.dp).testTag("btn_purchase_receipt_share_whatsapp"),
-                            contentPadding = PaddingValues(horizontal = 6.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldProfit)
-                        ) {
-                            Icon(Icons.Default.Chat, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("واتساب / نص", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    if (receipt.debtAmount > 0) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("الآجل للمورد:", fontSize = 12.sp, color = Color(0xFFDC2626))
+                            Text(FormatUtils.formatCurrency(receipt.debtAmount), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
                         }
                     }
                 }
-            },
-            confirmButton = {
-                Button(
+            }
+
+            DialogSectionHeader(title = "مشاركة الفاتورة", icon = Icons.Default.Share, accentColor = PdfHeaderNavy)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
                     onClick = {
                         val file = receipt.pdfFile ?: InvoiceHelper.generateMultiItemPurchaseInvoicePdf(
                             context = context,
@@ -1407,21 +1368,46 @@ fun PurchaseScreen(
                             timestamp = receipt.timestamp,
                             settings = storeSettings
                         )
-                        InvoiceHelper.printPdfFile(context, file, "فاتورة_شراء_${receipt.invoiceNumber}")
+                        InvoiceHelper.sharePdfFile(context, file, "مشاركة فاتورة شراء #${receipt.invoiceNumber}")
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = PdfHeaderNavy)
+                    modifier = Modifier.weight(1f).height(48.dp).testTag("btn_purchase_receipt_share_pdf"),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 6.dp)
                 ) {
-                    Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("طباعة PDF")
+                    Text("مشاركة PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { completedReceipt = null }) {
-                    Text("فاتورة جديدة")
+
+                Button(
+                    onClick = {
+                        val txt = StatementHelper.formatMultiItemPurchaseText(
+                            invoiceNumber = receipt.invoiceNumber,
+                            supplierName = receipt.supplierName,
+                            paymentMethod = receipt.paymentMethod,
+                            itemsCount = receipt.items.size,
+                            totalCost = receipt.totalCost,
+                            cashPaid = receipt.cashPaid,
+                            transferPaid = receipt.transferPaid,
+                            debtAmount = receipt.debtAmount,
+                            exchangeAccountName = receipt.exchangeAccountName,
+                            transferRef = receipt.transferRef,
+                            timestamp = receipt.timestamp,
+                            settings = storeSettings
+                        )
+                        StatementHelper.shareText(context, txt, "مشاركة فاتورة شراء #${receipt.invoiceNumber}")
+                    },
+                    modifier = Modifier.weight(1f).height(48.dp).testTag("btn_purchase_receipt_share_whatsapp"),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 6.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldProfit)
+                ) {
+                    Icon(Icons.Default.Chat, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("واتساب / نص", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
-        )
+        }
         }
     }
 }

@@ -8,6 +8,7 @@ import com.example.data.model.*
 import com.example.data.repository.StoreRepository
 import com.example.ui.util.ClothingSizes
 import com.example.ui.util.ClothingUnits
+import com.example.ui.util.FormatUtils
 import com.example.ui.util.StatementHelper
 import com.example.ui.util.StatementMode
 import kotlinx.coroutines.flow.firstOrNull
@@ -860,5 +861,120 @@ class StoreAccountingRobolectricTest {
         assertTrue(reportText.contains("متجر النور"))
         assertTrue(reportText.contains("التحصيلات من العملاء"))
         assertTrue(reportText.contains("المدفوعات للموردين"))
+    }
+
+    @Test
+    fun testBackdatedOperationsPersistCustomTimestamp() = runBlocking {
+        val pastTs = System.currentTimeMillis() - (7L * 86_400_000L) // 7 days ago
+        assertTrue(FormatUtils.isPastDate(pastTs))
+        assertFalse(FormatUtils.isFutureDate(pastTs))
+        assertFalse(FormatUtils.isToday(pastTs))
+
+        val accId = db.storeDao().insertExchangeAccount(
+            ExchangeAccount(name = "حساب الكريمي", balance = 50_000.0)
+        )
+        val empId = db.storeDao().insertEmployee(
+            Employee(name = "أحمد", role = "بائع", baseSalary = 2000.0, commissionPercent = 5.0)
+        )
+        val employee = db.storeDao().getEmployeeById(empId)!!
+
+        // 1. Backdated purchase (credit)
+        repository.executeCartPurchase(
+            items = listOf(
+                CartPurchaseItem(
+                    category = "أكوات",
+                    modelName = "كوت تاريخ قديم",
+                    color = "أسود",
+                    size = "L",
+                    unit = ClothingUnits.PIECE,
+                    unitCount = 10.0,
+                    buyPricePerUnit = 100.0,
+                    sellPricePerUnit = 150.0
+                )
+            ),
+            supplierName = "مورد الأمس",
+            invoiceNumber = "PUR-PAST-1",
+            paymentMethod = "آجل للمورد",
+            cashPaidPart = 0.0,
+            transferPaidPart = 0.0,
+            debtPart = 1000.0,
+            exchangeAccount = null,
+            transferRef = "",
+            notes = "شراء سابق",
+            timestamp = pastTs
+        )
+        val purchases = db.storeDao().getAllPurchases().firstOrNull().orEmpty()
+        assertEquals(1, purchases.size)
+        assertEquals(pastTs, purchases.first().timestamp)
+
+        val product = db.storeDao().getAllProducts().firstOrNull().orEmpty().first()
+        assertEquals(pastTs, product.purchaseDate)
+
+        // 2. Backdated credit sale
+        repository.executeCartSale(
+            items = listOf(CartSaleItem(product = product, quantity = 2, sellPrice = 150.0, unit = ClothingUnits.PIECE)),
+            discount = 0.0,
+            customerName = "عميل قديم",
+            customerPhone = "777111222",
+            paymentType = PaymentMethods.CREDIT,
+            cashPart = 0.0,
+            transferPart = 0.0,
+            debtPart = 300.0,
+            exchangeAccount = null,
+            transferRef = "",
+            employee = employee,
+            customInvoiceNumber = "INV-PAST-1",
+            timestamp = pastTs
+        )
+        val sales = db.storeDao().getAllSales().firstOrNull().orEmpty()
+        assertEquals(1, sales.size)
+        assertEquals(pastTs, sales.first().timestamp)
+
+        // 3. Backdated manual deposit, withdrawal, and transfer
+        repository.recordManualDeposit(5000.0, "تغذية سابقة", pastTs)
+        repository.recordOwnerWithdrawal(200.0, "سحب سابق", pastTs)
+        repository.transferBetweenCashAndExchange(accId, 500.0, true, "مناقلة سابقة", "TR-1", pastTs)
+
+        // 4. Backdated expense & employee transaction
+        repository.recordExpense("كهرباء", 150.0, "فاتورة سابقة", "EXP-1", paidFromCash = true, exchangeAccount = null, timestamp = pastTs)
+        repository.recordEmployeeTransaction(empId, employee.name, "صرفة يومية", 100.0, "صرفة سابقة", paidFromCashDrawer = true, exchangeAccount = null, timestamp = pastTs)
+
+        val expenses = db.storeDao().getAllExpenses().firstOrNull().orEmpty()
+        assertEquals(pastTs, expenses.first().timestamp)
+        val empTxs = db.storeDao().getAllEmployeeTransactions().firstOrNull().orEmpty()
+        assertEquals(pastTs, empTxs.first().timestamp)
+
+        // 5. Backdated collection receipt & supplier payment receipt
+        val collectReceipt = repository.recordCollectionReceipt(
+            payerName = "عميل قديم",
+            party = null,
+            amount = 100.0,
+            voucherNumberInput = "",
+            paymentMethod = "نقداً",
+            exchangeAccount = null,
+            notes = "تحصيل سابق",
+            timestamp = pastTs
+        )
+        assertEquals(pastTs, collectReceipt.timestamp)
+
+        val supplierReceipt = repository.recordSupplierPaymentReceipt(
+            supplierName = "مورد الأمس",
+            party = null,
+            amount = 250.0,
+            voucherNumberInput = "",
+            paymentMethod = "نقداً",
+            exchangeAccount = null,
+            notes = "تسديد سابق",
+            timestamp = pastTs
+        )
+        assertEquals(pastTs, supplierReceipt.timestamp)
+
+        val payments = db.storeDao().getAllDebtPayments().firstOrNull().orEmpty()
+        assertTrue(payments.isNotEmpty())
+        assertTrue(payments.all { it.timestamp == pastTs })
+
+        val movements = db.storeDao().getAllCashMovements().firstOrNull().orEmpty()
+        assertTrue(movements.isNotEmpty())
+        assertTrue(movements.all { it.timestamp == pastTs })
     }
 }

@@ -205,7 +205,8 @@ class StoreRepository(
         exchangeAccount: ExchangeAccount? = null,
         transferRef: String = "",
         employee: Employee? = null,
-        customInvoiceNumber: String = ""
+        customInvoiceNumber: String = "",
+        timestamp: Long = System.currentTimeMillis()
     ): String {
         if (items.isEmpty()) {
             throw IllegalArgumentException("سلة المبيعات فارغة، يرجى إضافة منتج واحد على الأقل.")
@@ -290,8 +291,8 @@ class StoreRepository(
         }
 
         return runInTransaction {
-            val now = System.currentTimeMillis()
-            val invoiceNumber = customInvoiceNumber.trim().ifBlank { "INV-${now % 1000000}" }
+            val now = timestamp
+            val invoiceNumber = customInvoiceNumber.trim().ifBlank { "INV-${System.currentTimeMillis() % 1000000}" }
             val activeShiftObj = dao.getActiveShift().firstOrNull()
             val shiftId = activeShiftObj?.id ?: 0L
             val finalCustomer = customerName.ifBlank { if (actualDebt > 0) "عميل آجل" else "زبون نقدي" }
@@ -449,7 +450,8 @@ class StoreRepository(
         cashPart: Double = 0.0,
         transferPart: Double = 0.0,
         exchangeAccount: ExchangeAccount? = null,
-        transferRef: String = ""
+        transferRef: String = "",
+        timestamp: Long = System.currentTimeMillis()
     ): SaleTransaction {
         val multiplier = ClothingUnits.getMultiplier(unit)
         val totalPieces = quantity * multiplier
@@ -497,14 +499,14 @@ class StoreRepository(
                 throw IllegalStateException("الكمية المطلوبة ($totalPieces حبة) غير متوفرة! المتبقي في المخزن فقط (${freshProduct.quantity} حبة).")
             }
 
-            val updatedRows = dao.decrementStockSafe(product.id, totalPieces, System.currentTimeMillis())
+            val now = timestamp
+            val updatedRows = dao.decrementStockSafe(product.id, totalPieces, now)
             if (updatedRows == 0) {
                 throw IllegalStateException("تعذر خصم الكمية من المخزون بسبب عدم كفاية الرصيد أو حدوث حركة متزامنة!")
             }
 
             val activeShiftObj = dao.getActiveShift().firstOrNull()
             val shiftId = activeShiftObj?.id ?: 0L
-            val now = System.currentTimeMillis()
 
             val costOfGoods = freshProduct.buyPrice * totalPieces
             val profit = totalAmount - costOfGoods
@@ -711,6 +713,8 @@ class StoreRepository(
                             phone = newSale.customerPhone,
                             originalAmount = oldDebt.originalAmount + debtDiff,
                             remainingAmount = (oldDebt.remainingAmount + debtDiff).coerceAtLeast(0.0),
+                            createdAt = newSale.timestamp,
+                            dueDate = newSale.timestamp + 86400000L * 15,
                             isSettled = (oldDebt.remainingAmount + debtDiff) <= 0.01
                         )
                     )
@@ -723,7 +727,9 @@ class StoreRepository(
                             originalAmount = newDebtAmount,
                             remainingAmount = newDebtAmount,
                             details = "دين معدل من فاتورة #${newSale.id}",
-                            referenceSaleId = newSale.id
+                            referenceSaleId = newSale.id,
+                            createdAt = newSale.timestamp,
+                            dueDate = newSale.timestamp + 86400000L * 15
                         )
                     )
                 }
@@ -756,7 +762,8 @@ class StoreRepository(
         debtPart: Double = 0.0,
         exchangeAccount: ExchangeAccount? = null,
         transferRef: String = "",
-        notes: String = ""
+        notes: String = "",
+        timestamp: Long = System.currentTimeMillis()
     ): String {
         if (items.isEmpty()) {
             throw IllegalArgumentException("فاتورة الشراء فارغة! يرجى إضافة صنف واحد على الأقل.")
@@ -837,8 +844,8 @@ class StoreRepository(
         return runInTransaction {
             val activeShiftObj = dao.getActiveShift().firstOrNull()
             val shiftId = activeShiftObj?.id ?: 0L
-            val now = System.currentTimeMillis()
-            val finalInvoiceNumber = invoiceNumber.trim().ifBlank { "PUR-${now % 1000000}" }
+            val now = timestamp
+            val finalInvoiceNumber = invoiceNumber.trim().ifBlank { "PUR-${System.currentTimeMillis() % 1000000}" }
             val finalSupplier = supplierName.trim().ifBlank { "مورد عام" }
 
             var firstPurchaseId = 0L
@@ -1012,7 +1019,8 @@ class StoreRepository(
         colorDetails: String,
         cashPaidPart: Double = 0.0,
         transferPaidPart: Double = 0.0,
-        exchangeAccount: ExchangeAccount? = null
+        exchangeAccount: ExchangeAccount? = null,
+        timestamp: Long = System.currentTimeMillis()
     ): Long {
         // Strict accounting validations
         if (unitCount <= 0) {
@@ -1049,7 +1057,7 @@ class StoreRepository(
         return runInTransaction {
             val activeShiftObj = dao.getActiveShift().firstOrNull()
             val shiftId = activeShiftObj?.id ?: 0L
-            val now = System.currentTimeMillis()
+            val now = timestamp
 
             val multiplier = ClothingUnits.getMultiplier(unit)
             val totalPieces = (unitCount * multiplier).toInt().coerceAtLeast(1)
@@ -1321,6 +1329,8 @@ class StoreRepository(
                             partyName = newPurchase.supplierName,
                             originalAmount = oldDebt.originalAmount + debtDiff,
                             remainingAmount = (oldDebt.remainingAmount + debtDiff).coerceAtLeast(0.0),
+                            createdAt = newPurchase.timestamp,
+                            dueDate = newPurchase.timestamp + 86400000L * 30,
                             isSettled = (oldDebt.remainingAmount + debtDiff) <= 0.01
                         )
                     )
@@ -1332,7 +1342,9 @@ class StoreRepository(
                             originalAmount = newPurchase.remainingDebt,
                             remainingAmount = newPurchase.remainingDebt,
                             details = "دين مورد معدل من فاتورة #${newPurchase.id}",
-                            referencePurchaseId = newPurchase.id
+                            referencePurchaseId = newPurchase.id,
+                            createdAt = newPurchase.timestamp,
+                            dueDate = newPurchase.timestamp + 86400000L * 30
                         )
                     )
                 }
@@ -1362,11 +1374,12 @@ class StoreRepository(
         receiptNumber: String,
         paidFromCash: Boolean,
         exchangeAccount: ExchangeAccount? = null,
-        employee: Employee? = null
+        employee: Employee? = null,
+        timestamp: Long = System.currentTimeMillis()
     ): Long {
         val activeShiftObj = dao.getActiveShift().firstOrNull()
         val shiftId = activeShiftObj?.id ?: 0L
-        val now = System.currentTimeMillis()
+        val now = timestamp
 
         val finalNotes = if (employee != null) {
             "صرفة يومية للعامل: ${employee.name}${if (notes.isNotBlank()) " - $notes" else ""}"
@@ -1574,11 +1587,12 @@ class StoreRepository(
         notes: String,
         paidFromCashDrawer: Boolean,
         exchangeAccount: ExchangeAccount? = null,
-        referenceNumber: String = ""
+        referenceNumber: String = "",
+        timestamp: Long = System.currentTimeMillis()
     ): Long {
         val activeShiftObj = dao.getActiveShift().firstOrNull()
         val shiftId = activeShiftObj?.id ?: 0L
-        val now = System.currentTimeMillis()
+        val now = timestamp
 
         val tx = EmployeeTransaction(
             employeeId = employeeId,
@@ -1653,11 +1667,12 @@ class StoreRepository(
         notes: String,
         paymentMethod: String = "نقداً", // "نقداً" or "صرافة/محفظة"
         exchangeAccount: ExchangeAccount? = null,
-        referenceNumber: String = ""
+        referenceNumber: String = "",
+        timestamp: Long = System.currentTimeMillis()
     ): Long {
         val activeShiftObj = dao.getActiveShift().firstOrNull()
         val shiftId = activeShiftObj?.id ?: 0L
-        val now = System.currentTimeMillis()
+        val now = timestamp
         val finalVoucher = resolveVoucherNumber(referenceNumber, "SND")
 
         val newPaid = debt.paidAmount + paymentAmount
@@ -1758,8 +1773,13 @@ class StoreRepository(
     suspend fun deleteDebt(id: Long) = dao.deleteDebt(id)
 
     // --- Parties Management (Customers & Suppliers) ---
-    suspend fun saveParty(party: PartyAccount, initialDebt: Double = 0.0, debtNotes: String = ""): Long {
-        val now = System.currentTimeMillis()
+    suspend fun saveParty(
+        party: PartyAccount,
+        initialDebt: Double = 0.0,
+        debtNotes: String = "",
+        initialDebtTimestamp: Long = System.currentTimeMillis()
+    ): Long {
+        val now = initialDebtTimestamp
         val partyId = if (party.id == 0L) {
             dao.insertParty(party.copy(initialBalance = initialDebt))
         } else {
@@ -1800,7 +1820,8 @@ class StoreRepository(
         notes: String,
         paymentMethod: String = "نقداً",
         exchangeAccount: ExchangeAccount? = null,
-        referenceNumber: String = ""
+        referenceNumber: String = "",
+        timestamp: Long = System.currentTimeMillis()
     ): Boolean {
         if (totalPayment <= 0) return false
         val allDebtsList = dao.getAllDebts().firstOrNull() ?: emptyList()
@@ -1821,7 +1842,8 @@ class StoreRepository(
                 notes = notes,
                 paymentMethod = paymentMethod,
                 exchangeAccount = exchangeAccount,
-                referenceNumber = finalVoucher
+                referenceNumber = finalVoucher,
+                timestamp = timestamp
             )
             remainingToApply -= paymentForThisDebt
         }
@@ -1835,13 +1857,14 @@ class StoreRepository(
         voucherNumberInput: String,
         paymentMethod: String, // "نقداً" or "صرافة/محفظة"
         exchangeAccount: ExchangeAccount? = null,
-        notes: String = ""
+        notes: String = "",
+        timestamp: Long = System.currentTimeMillis()
     ): CollectionReceiptResult {
         require(amount > 0.0) { "يرجى إدخال مبلغ التحصيل" }
         require(paymentMethod == "نقداً" || exchangeAccount != null) { "اختر حساب الصرافة أو المحفظة" }
 
         return runInTransaction {
-            val now = System.currentTimeMillis()
+            val now = timestamp
             val shiftId = dao.getActiveShift().firstOrNull()?.id ?: 0L
             val finalVoucher = resolveVoucherNumber(voucherNumberInput, "SND")
             val rawPayer = (party?.name ?: payerName).trim()
@@ -1868,7 +1891,8 @@ class StoreRepository(
                             notes = notes.ifBlank { "تحصيل زلط / سند قبض" },
                             paymentMethod = paymentMethod,
                             exchangeAccount = exchangeAccount,
-                            referenceNumber = finalVoucher
+                            referenceNumber = finalVoucher,
+                            timestamp = now
                         )
                         appliedToDebt += applyNow
                         remainingToCollect -= applyNow
@@ -1961,13 +1985,14 @@ class StoreRepository(
         voucherNumberInput: String,
         paymentMethod: String, // "نقداً" or "صرافة/محفظة"
         exchangeAccount: ExchangeAccount? = null,
-        notes: String = ""
+        notes: String = "",
+        timestamp: Long = System.currentTimeMillis()
     ): SupplierPaymentReceiptResult {
         require(amount > 0.0) { "يرجى إدخال مبلغ السداد" }
         require(paymentMethod == "نقداً" || exchangeAccount != null) { "اختر حساب الصرافة أو المحفظة" }
 
         return runInTransaction {
-            val now = System.currentTimeMillis()
+            val now = timestamp
             val shiftId = dao.getActiveShift().firstOrNull()?.id ?: 0L
             val finalVoucher = resolveVoucherNumber(voucherNumberInput, "SRF")
             val rawSupplier = (party?.name ?: supplierName).trim()
@@ -1994,7 +2019,8 @@ class StoreRepository(
                             notes = notes.ifBlank { "تسديد لمورد / سند صرف" },
                             paymentMethod = paymentMethod,
                             exchangeAccount = exchangeAccount,
-                            referenceNumber = finalVoucher
+                            referenceNumber = finalVoucher,
+                            timestamp = now
                         )
                         appliedToDebt += applyNow
                         remainingToPay -= applyNow
@@ -2099,12 +2125,13 @@ class StoreRepository(
         amount: Double,
         fromCashToExchange: Boolean,
         notes: String,
-        referenceNumber: String = ""
+        referenceNumber: String = "",
+        timestamp: Long = System.currentTimeMillis()
     ) {
         val account = dao.getExchangeAccountById(accountId) ?: return
         val activeShiftObj = dao.getActiveShift().firstOrNull()
         val shiftId = activeShiftObj?.id ?: 0L
-        val now = System.currentTimeMillis()
+        val now = timestamp
 
         val fullNotes = if (referenceNumber.isNotBlank()) "رقم السند/الحوالة: $referenceNumber | $notes" else notes
 
@@ -2204,10 +2231,10 @@ class StoreRepository(
         dao.updateShift(updated)
     }
 
-    suspend fun recordOwnerWithdrawal(amount: Double, reason: String) {
+    suspend fun recordOwnerWithdrawal(amount: Double, reason: String, timestamp: Long = System.currentTimeMillis()) {
         val activeShiftObj = dao.getActiveShift().firstOrNull()
         val shiftId = activeShiftObj?.id ?: 0L
-        val now = System.currentTimeMillis()
+        val now = timestamp
 
         dao.insertCashMovement(
             CashDrawerMovement(
@@ -2222,10 +2249,10 @@ class StoreRepository(
         )
     }
 
-    suspend fun recordManualDeposit(amount: Double, reason: String) {
+    suspend fun recordManualDeposit(amount: Double, reason: String, timestamp: Long = System.currentTimeMillis()) {
         val activeShiftObj = dao.getActiveShift().firstOrNull()
         val shiftId = activeShiftObj?.id ?: 0L
-        val now = System.currentTimeMillis()
+        val now = timestamp
 
         dao.insertCashMovement(
             CashDrawerMovement(

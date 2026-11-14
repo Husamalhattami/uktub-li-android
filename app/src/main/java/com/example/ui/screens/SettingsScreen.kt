@@ -33,7 +33,10 @@ import com.example.data.model.StoreConfigItem
 import com.example.data.model.StoreConfigTypes
 import com.example.data.model.StoreSettings
 import com.example.ui.StoreViewModel
+import com.example.ui.components.DialogInfoBanner
+import com.example.ui.components.StoreOperationDialog
 import com.example.ui.components.StoreTopBar
+import com.example.ui.components.storeDialogTextFieldColors
 import com.example.ui.theme.*
 import com.example.ui.util.BackupManager
 import com.example.ui.util.FormatUtils
@@ -753,217 +756,177 @@ fun SettingsScreen(
     // Restore Dialog
     if (showRestoreDialog) {
         var restoreWordConfirm by remember { mutableStateOf("") }
-        AlertDialog(
+        val canRestore = restoreWordConfirm.trim() == "استعادة" && restoreJsonInput.isNotBlank()
+        StoreOperationDialog(
             onDismissRequest = { showRestoreDialog = false },
-            title = { Text("استعادة البيانات من نسخة احتياطية", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = "الصق محتوى ملف النسخة الاحتياطية (JSON) أدناه:",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = SlateMuted
-                    )
-                    OutlinedTextField(
-                        value = restoreJsonInput,
-                        onValueChange = { restoreJsonInput = it },
-                        label = { Text("بيانات النسخة الاحتياطية JSON") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(140.dp),
-                        maxLines = 8
-                    )
-                    Text(
-                        text = "تنبيه: ستستبدل الاستعادة البيانات الحالية بالنسخة. اكتب «استعادة» للتأكيد:",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = RubyExpense,
-                            fontWeight = FontWeight.Bold
-                        )
-                    )
-                    OutlinedTextField(
-                        value = restoreWordConfirm,
-                        onValueChange = { restoreWordConfirm = it },
-                        placeholder = { Text("اكتب استعادة") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                }
-            },
-            confirmButton = {
-                val canRestore = restoreWordConfirm.trim() == "استعادة" && restoreJsonInput.isNotBlank()
-                Button(
-                    onClick = {
-                        viewModel.restoreBackup(restoreJsonInput) { ok ->
-                            if (ok) {
-                                showRestoreDialog = false
-                            }
-                        }
-                    },
-                    enabled = canRestore,
-                    colors = ButtonDefaults.buttonColors(containerColor = RubyExpense)
-                ) {
-                    Text("تنفيذ الاستعادة")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { showRestoreDialog = false }) {
-                    Text("إلغاء")
+            title = "استعادة البيانات من نسخة احتياطية",
+            subtitle = "استيراد ملف JSON محفوظ مسبقاً",
+            icon = Icons.Default.Restore,
+            accentColor = RubyExpense,
+            confirmText = "تنفيذ الاستعادة",
+            confirmIcon = Icons.Default.RestorePage,
+            confirmColor = RubyExpense,
+            confirmEnabled = canRestore,
+            onConfirm = {
+                viewModel.restoreBackup(restoreJsonInput) { ok ->
+                    if (ok) {
+                        showRestoreDialog = false
+                    }
                 }
             }
-        )
+        ) {
+            Text(
+                text = "الصق محتوى ملف النسخة الاحتياطية (JSON) أدناه:",
+                style = MaterialTheme.typography.bodySmall,
+                color = SlateMuted
+            )
+            OutlinedTextField(
+                value = restoreJsonInput,
+                onValueChange = { restoreJsonInput = it },
+                label = { Text("بيانات النسخة الاحتياطية JSON") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(140.dp),
+                maxLines = 8,
+                shape = RoundedCornerShape(12.dp),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy)
+            )
+            DialogInfoBanner(
+                title = "تنبيه الاستعادة",
+                value = "ستستبدل الاستعادة البيانات الحالية بالنسخة. اكتب «استعادة» للتأكيد:",
+                containerColor = RubyLight,
+                contentColor = RubyExpense,
+                borderColor = Color(0xFFFECACA),
+                icon = Icons.Default.WarningAmber
+            )
+            OutlinedTextField(
+                value = restoreWordConfirm,
+                onValueChange = { restoreWordConfirm = it },
+                placeholder = { Text("اكتب استعادة") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = storeDialogTextFieldColors(RubyExpense)
+            )
+        }
     }
 
     if (showWipeAllDialog) {
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { showWipeAllDialog = false },
-            title = { Text("تأكيد تهيئة التطبيق بالكامل", fontWeight = FontWeight.Bold, color = RubyExpense) },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("سيتم حذف وإفراغ جميع البيانات المخزنة في قواعد البيانات بشكل نهائي، بما في ذلك:")
-                    Text("• جميع المنتجات والأصناف والأنواع\n• المبيعات والمشتريات والمصروفات\n• الصندوق والورديات والصرافين والمحافظ\n• العملاء والموردين والديون وسندات التحصيل\n• العمال وسجل التدقيق", fontSize = 12.sp, color = SlateMuted)
-                    Text("هل أنت متأكد من تهيئة التطبيق وإفراغ كل شيء؟", fontWeight = FontWeight.Bold)
+            title = "تأكيد تهيئة التطبيق بالكامل",
+            subtitle = "حذف وإفراغ جميع قواعد البيانات",
+            icon = Icons.Default.DeleteSweep,
+            accentColor = RubyExpense,
+            confirmText = "نعم، إفراغ الكل",
+            confirmIcon = Icons.Default.DeleteForever,
+            confirmColor = RubyExpense,
+            confirmTestTag = "confirm_wipe_all_button",
+            onConfirm = {
+                viewModel.clearData(transactionsOnly = false) {
+                    showWipeAllDialog = false
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.clearData(transactionsOnly = false) {
-                            showWipeAllDialog = false
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = RubyExpense),
-                    modifier = Modifier.testTag("confirm_wipe_all_button")
-                ) {
-                    Text("نعم، إفراغ الكل")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { showWipeAllDialog = false }) { Text("إلغاء") }
             }
-        )
+        ) {
+            DialogInfoBanner(
+                title = "تحذير نهائي",
+                value = "سيتم حذف وإفراغ جميع البيانات المخزنة في قواعد البيانات بشكل نهائي.",
+                containerColor = RubyLight,
+                contentColor = RubyExpense,
+                borderColor = Color(0xFFFECACA),
+                icon = Icons.Default.WarningAmber
+            )
+            Text("• جميع المنتجات والأصناف والأنواع\n• المبيعات والمشتريات والمصروفات\n• الصندوق والورديات والصرافين والمحافظ\n• العملاء والموردين والديون وسندات التحصيل\n• العمال وسجل التدقيق", fontSize = 12.sp, color = SlateMuted)
+            Text("هل أنت متأكد من تهيئة التطبيق وإفراغ كل شيء؟", fontWeight = FontWeight.Bold)
+        }
     }
 
     if (showWipeTransactionsDialog) {
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { showWipeTransactionsDialog = false },
-            title = { Text("تأكيد تصفير الحركات والفواتير", fontWeight = FontWeight.Bold, color = RubyExpense) },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("سيتم حذف جميع المبيعات والمشتريات والمصروفات والديون وحركات الصندوق، مع الإبقاء على قائمة المنتجات والأطراف والحسابات.")
+            title = "تأكيد تصفير الحركات والفواتير",
+            subtitle = "تنظيف السجل مع حفظ البيانات الأساسية",
+            icon = Icons.Default.RestartAlt,
+            accentColor = RubyExpense,
+            confirmText = "تصفير الحركات",
+            confirmIcon = Icons.Default.DeleteSweep,
+            confirmColor = RubyExpense,
+            confirmTestTag = "confirm_wipe_transactions_button",
+            onConfirm = {
+                viewModel.clearData(transactionsOnly = true) {
+                    showWipeTransactionsDialog = false
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.clearData(transactionsOnly = true) {
-                            showWipeTransactionsDialog = false
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = RubyExpense),
-                    modifier = Modifier.testTag("confirm_wipe_transactions_button")
-                ) {
-                    Text("تصفير الحركات")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { showWipeTransactionsDialog = false }) { Text("إلغاء") }
             }
-        )
+        ) {
+            DialogInfoBanner(
+                title = "نطاق التصفير",
+                value = "سيتم حذف جميع المبيعات والمشتريات والمصروفات والديون وحركات الصندوق، مع الإبقاء على قائمة المنتجات والأطراف والحسابات.",
+                containerColor = RubyLight,
+                contentColor = RubyExpense,
+                borderColor = Color(0xFFFECACA),
+                icon = Icons.Default.Info
+            )
+        }
     }
 
     // Edit Dictionary Item Dialog
     configItemToEdit?.let { item ->
         var editedName by remember(item.id) { mutableStateOf(item.name) }
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { configItemToEdit = null },
-            title = { Text("تعديل العنصر", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = "سيتم تحديث الاسم في القائمة وكذلك في السجلات المرتبطة به تلقائياً:",
-                        fontSize = 12.sp,
-                        color = SlateMuted
-                    )
-                    OutlinedTextField(
-                        value = editedName,
-                        onValueChange = { editedName = it },
-                        label = { Text("الاسم الجديد") },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("edit_config_name_input")
-                    )
+            title = "تعديل العنصر",
+            subtitle = item.name,
+            icon = Icons.Default.Edit,
+            accentColor = PdfGoldPrimary,
+            confirmText = "حفظ التعديل",
+            confirmIcon = Icons.Default.Check,
+            confirmColor = PdfHeaderNavy,
+            confirmTestTag = "confirm_edit_config_btn",
+            onConfirm = {
+                viewModel.updateConfigItem(item, editedName) {
+                    configItemToEdit = null
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.updateConfigItem(item, editedName) {
-                            configItemToEdit = null
-                        }
-                    },
-                    modifier = Modifier.testTag("confirm_edit_config_btn")
-                ) {
-                    Text("حفظ التعديل")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { configItemToEdit = null }) { Text("إلغاء") }
             }
-        )
+        ) {
+            Text(
+                text = "سيتم تحديث الاسم في القائمة وكذلك في السجلات المرتبطة به تلقائياً:",
+                fontSize = 12.sp,
+                color = SlateMuted
+            )
+            OutlinedTextField(
+                value = editedName,
+                onValueChange = { editedName = it },
+                label = { Text("الاسم الجديد") },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("edit_config_name_input")
+            )
+        }
     }
 
     // Delete Dictionary Item Dialog
     configItemToDelete?.let { item ->
-        AlertDialog(
+        StoreOperationDialog(
             onDismissRequest = { configItemToDelete = null },
-            title = { Text("تأكيد الحذف", fontWeight = FontWeight.Bold, color = RubyExpense) },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("هل تريد حذف «${item.name}» من قوائم النظام؟")
-                    Text("لن يتم حذف الفواتير أو المنتجات السابقة، فقط سيُزال من اختيارات الإضافة.", fontSize = 12.sp, color = SlateMuted)
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.deleteConfigItem(item)
-                        configItemToDelete = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = RubyExpense),
-                    modifier = Modifier.testTag("confirm_delete_config_btn")
-                ) {
-                    Text("حذف")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { configItemToDelete = null }) { Text("إلغاء") }
+            title = "تأكيد الحذف",
+            subtitle = item.name,
+            icon = Icons.Default.DeleteForever,
+            accentColor = RubyExpense,
+            confirmText = "حذف",
+            confirmIcon = Icons.Default.Delete,
+            confirmColor = RubyExpense,
+            confirmTestTag = "confirm_delete_config_btn",
+            onConfirm = {
+                viewModel.deleteConfigItem(item)
+                configItemToDelete = null
             }
-        )
+        ) {
+            Text("هل تريد حذف «${item.name}» من قوائم النظام؟", fontWeight = FontWeight.Bold)
+            Text("لن يتم حذف الفواتير أو المنتجات السابقة، فقط سيُزال من اختيارات الإضافة.", fontSize = 12.sp, color = SlateMuted)
+        }
     }
 }
 
