@@ -2348,11 +2348,14 @@ class StoreRepository(
         }
     }
 
+    private fun isMonetaryEmployeeTxType(type: String): Boolean =
+        type == "سلفة" || type == "صرف راتب" || type == "مكافأة" || type == "صرفة يومية"
+
     suspend fun updateEmployeeTransaction(newTx: EmployeeTransaction) {
         if (newTx.amount <= 0) {
             throw IllegalArgumentException("يرجى إدخال مبلغ صحيح أكبر من الصفر.")
         }
-        val isMonetary = newTx.type != "خصم غياب"
+        val isMonetary = isMonetaryEmployeeTxType(newTx.type)
         if (isMonetary && !newTx.paidFromCash && newTx.exchangeAccountId <= 0L) {
             throw IllegalArgumentException("يجب اختيار حساب الصراف أو المحفظة عند الصرف بغير الصندوق.")
         }
@@ -2360,6 +2363,7 @@ class StoreRepository(
         runInTransaction {
             val oldTx = dao.getEmployeeTransactionById(newTx.id)
                 ?: throw IllegalArgumentException("حركة العامل غير موجودة!")
+            val oldWasMonetary = isMonetaryEmployeeTxType(oldTx.type)
 
             // Revert old financial impact
             dao.deleteCashMovementsForEmployeeTx(oldTx.id)
@@ -2369,8 +2373,8 @@ class StoreRepository(
             reverseLinkedTransfersOrFallback(
                 refType = "EMPLOYEE_TX",
                 refIds = listOf(oldTx.id),
-                fallbackAccountId = if (!oldTx.paidFromCash && oldTx.type != "خصم غياب") oldTx.exchangeAccountId else 0L,
-                fallbackAmount = if (!oldTx.paidFromCash && oldTx.type != "خصم غياب") oldTx.amount else 0.0,
+                fallbackAccountId = if (!oldTx.paidFromCash && oldWasMonetary) oldTx.exchangeAccountId else 0L,
+                fallbackAmount = if (!oldTx.paidFromCash && oldWasMonetary) oldTx.amount else 0.0,
                 fallbackWasCredit = false,
                 reason = "تعديل حركة عامل #${oldTx.id}"
             )
@@ -2466,11 +2470,12 @@ class StoreRepository(
             if (tx.linkedExpenseId > 0L) {
                 dao.deleteCashMovementsForExpense(tx.linkedExpenseId)
             }
+            val wasMonetary = isMonetaryEmployeeTxType(tx.type)
             reverseLinkedTransfersOrFallback(
                 refType = "EMPLOYEE_TX",
                 refIds = listOf(txId),
-                fallbackAccountId = if (!tx.paidFromCash && tx.type != "خصم غياب") tx.exchangeAccountId else 0L,
-                fallbackAmount = if (!tx.paidFromCash && tx.type != "خصم غياب") tx.amount else 0.0,
+                fallbackAccountId = if (!tx.paidFromCash && wasMonetary) tx.exchangeAccountId else 0L,
+                fallbackAmount = if (!tx.paidFromCash && wasMonetary) tx.amount else 0.0,
                 fallbackWasCredit = false,
                 reason = "حذف حركة عامل #${tx.id}"
             )
@@ -3480,6 +3485,457 @@ class StoreRepository(
                     )
                 }
             }
+        }
+    }
+
+    // ====================================================================
+    // Opening Balances (الأرصدة الافتتاحية الشاملة للمحل بدون أي خصم من الصندوق)
+    // ====================================================================
+
+    suspend fun setOpeningCashBalance(
+        amount: Double,
+        replaceExistingBalance: Boolean,
+        notes: String = "",
+        timestamp: Long = System.currentTimeMillis()
+    ) {
+        if (replaceExistingBalance) {
+            if (amount < 0.0) throw IllegalArgumentException("رصيد الصندوق الفعلي لا يمكن أن يكون سالباً.")
+        } else {
+            if (amount <= 0.0) throw IllegalArgumentException("يرجى إدخال مبلغ صحيح أكبر من الصفر.")
+        }
+
+        runInTransaction {
+            val currentCash = dao.getAvailableCashBalance()
+            val activeShiftObj = dao.getActiveShift().firstOrNull()
+            val shiftId = if (activeShiftObj != null) {
+                activeShiftObj.id
+            } else {
+                dao.insertShift(
+                    CashDrawerShift(
+                        openedAt = timestamp,
+                        closedAt = null,
+                        openingBalance = if (replaceExistingBalance) amount else (currentCash + amount).coerceAtLeast(0.0),
+                        closingBalanceActual = null,
+                        isOpen = true,
+                        cashierName = "صاحب المحل",
+                        notes = notes.ifBlank { "فتح وردية — الرصيد الافتتاحي للمحل" }
+                    )
+                )
+            }
+
+            if (!replaceExistingBalance) {
+                dao.insertCashMovement(
+                    CashDrawerMovement(
+                        shiftId = shiftId,
+                        type = "CAPITAL_DEPOSIT",
+                        amount = amount,
+                        isIncome = true,
+                        title = "رصيد افتتاحي للصندوق",
+                        details = notes.ifBlank { "نقدية موجودة بالصندوق عند بدء النظام" },
+                        timestamp = timestamp
+                    )
+                )
+                logAudit("رصيد افتتاحي للصندوق", "المدير", "إضافة رصيد افتتاحي نقدي: ${FormatUtils.formatCurrency(amount)}")
+            } else {
+                val diff = amount - currentCash
+                if (kotlin.math.abs(diff) > 0.01) {
+                    dao.insertCashMovement(
+                        CashDrawerMovement(
+                            shiftId = shiftId,
+                            type = if (diff > 0.0) "CAPITAL_DEPOSIT" else "WITHDRAWAL",
+                            amount = kotlin.math.abs(diff),
+                            isIncome = diff > 0.0,
+                            title = "اعتماد الرصيد الافتتاحي للصندوق",
+                            details = notes.ifBlank { "اعتماد رصيد الصندوق الفعلي: ${FormatUtils.formatCurrency(amount)}" },
+                            timestamp = timestamp
+                        )
+                    )
+                }
+                logAudit("رصيد افتتاحي للصندوق", "المدير", "اعتماد الرصيد الافتتاحي الفعلي للصندوق: ${FormatUtils.formatCurrency(amount)}")
+            }
+        }
+    }
+
+    suspend fun saveOpeningExchangeAccount(
+        accountId: Long = 0L,
+        name: String,
+        type: String,
+        accountNumber: String = "",
+        phone: String = "",
+        openingBalance: Double,
+        replaceExistingBalance: Boolean = false,
+        notes: String = "",
+        timestamp: Long = System.currentTimeMillis()
+    ): Long {
+        val trimmedName = name.trim()
+        if (trimmedName.isBlank()) throw IllegalArgumentException("يرجى إدخال اسم الصراف أو المحفظة.")
+        if (openingBalance < 0.0) throw IllegalArgumentException("رصيد الصراف أو المحفظة لا يمكن أن يكون سالباً.")
+
+        return runInTransaction {
+            val allAccounts = dao.getAllExchangeAccountsIncludingArchivedDirect()
+            val existing = if (accountId > 0L) {
+                allAccounts.firstOrNull { it.id == accountId }
+            } else {
+                allAccounts.firstOrNull { !it.isArchived && it.name.trim().equals(trimmedName, ignoreCase = true) }
+                    ?: allAccounts.firstOrNull { it.name.trim().equals(trimmedName, ignoreCase = true) }
+            }
+
+            if (type.isNotBlank()) {
+                addConfigItem(StoreConfigTypes.ACCOUNT_TYPE, type.trim())
+            }
+
+            if (existing != null) {
+                val oldBalance = existing.balance
+                val targetBalance = if (replaceExistingBalance) openingBalance else (oldBalance + openingBalance)
+                val delta = targetBalance - oldBalance
+                dao.updateExchangeAccount(
+                    existing.copy(
+                        name = trimmedName,
+                        type = type.trim().ifBlank { existing.type },
+                        accountNumber = accountNumber.trim().ifBlank { existing.accountNumber },
+                        phone = phone.trim().ifBlank { existing.phone },
+                        balance = targetBalance,
+                        notes = notes.trim().ifBlank { existing.notes },
+                        isArchived = false
+                    )
+                )
+                if (kotlin.math.abs(delta) > 0.01) {
+                    dao.insertExchangeTransfer(
+                        ExchangeTransfer(
+                            accountId = existing.id,
+                            accountName = trimmedName,
+                            type = "رصيد افتتاحي",
+                            amount = kotlin.math.abs(delta),
+                            isCredit = delta >= 0.0,
+                            title = if (replaceExistingBalance) "اعتماد الرصيد الافتتاحي: $trimmedName" else "إضافة رصيد افتتاحي: $trimmedName",
+                            referenceNumber = "OPENING",
+                            notes = notes.ifBlank { "رصيد افتتاحي بدون خصم من الصندوق" },
+                            timestamp = timestamp,
+                            referenceType = "OPENING_BALANCE",
+                            referenceId = existing.id
+                        )
+                    )
+                }
+                logAudit("رصيد افتتاحي لصراف/محفظة", "المدير", "تحديث رصيد ($trimmedName) إلى ${FormatUtils.formatCurrency(targetBalance)} كرصيد افتتاحي")
+                existing.id
+            } else {
+                val newId = dao.insertExchangeAccount(
+                    ExchangeAccount(
+                        name = trimmedName,
+                        type = type.trim().ifBlank { "صراف" },
+                        accountNumber = accountNumber.trim(),
+                        phone = phone.trim(),
+                        balance = openingBalance,
+                        notes = notes.trim().ifBlank { "رصيد افتتاحي قبل بدء النظام" },
+                        createdAt = timestamp,
+                        isArchived = false
+                    )
+                )
+                if (openingBalance > 0.01) {
+                    dao.insertExchangeTransfer(
+                        ExchangeTransfer(
+                            accountId = newId,
+                            accountName = trimmedName,
+                            type = "رصيد افتتاحي",
+                            amount = openingBalance,
+                            isCredit = true,
+                            title = "رصيد افتتاحي للحساب: $trimmedName",
+                            referenceNumber = "OPENING",
+                            notes = notes.ifBlank { "رصيد افتتاحي بدون خصم من الصندوق" },
+                            timestamp = timestamp,
+                            referenceType = "OPENING_BALANCE",
+                            referenceId = newId
+                        )
+                    )
+                }
+                logAudit("رصيد افتتاحي لصراف/محفظة", "المدير", "إضافة حساب ($trimmedName) برصيد افتتاحي ${FormatUtils.formatCurrency(openingBalance)}")
+                newId
+            }
+        }
+    }
+
+    suspend fun addOpeningInventoryItems(
+        items: List<CartPurchaseItem>,
+        timestamp: Long = System.currentTimeMillis()
+    ): Int {
+        if (items.isEmpty()) throw IllegalArgumentException("يرجى إضافة صنف واحد على الأقل للمخزن.")
+        items.forEach { item ->
+            if (item.category.trim().isBlank()) throw IllegalArgumentException("يرجى تحديد القسم / النوع لكل صنف.")
+            if (item.totalPieces <= 0) throw IllegalArgumentException("الكمية الإجمالية بالقطع يجب أن تكون أكبر من الصفر.")
+            if (item.buyPricePerUnit < 0.0) throw IllegalArgumentException("سعر التكلفة لا يمكن أن يكون سالباً.")
+            if (item.sellPricePerUnit <= 0.0) throw IllegalArgumentException("يرجى إدخال سعر بيع صحيح أكبر من الصفر.")
+        }
+
+        return runInTransaction {
+            items.forEach { item ->
+                val cleanCat = item.category.trim()
+                val cleanSize = item.size.trim().ifBlank { ClothingSizes.BIG }
+                val cleanModel = item.modelName.trim().ifBlank { "$cleanCat $cleanSize" }
+                addConfigItem(StoreConfigTypes.PRODUCT_CATEGORY, cleanCat)
+                addConfigItem(StoreConfigTypes.PRODUCT_SIZE, cleanSize)
+
+                val totalPieces = item.totalPieces
+                val unitBuyPrice = item.lineCost / totalPieces
+                val unitSellPrice = (item.sellPricePerUnit * item.unitCount) / totalPieces
+
+                dao.insertProduct(
+                    ProductItem(
+                        category = cleanCat,
+                        modelName = cleanModel,
+                        color = item.color.trim().ifBlank { "مشكل" },
+                        size = cleanSize,
+                        quantity = totalPieces,
+                        buyPrice = unitBuyPrice,
+                        sellPrice = unitSellPrice,
+                        unit = item.unit,
+                        barcode = item.barcode.trim(),
+                        colorsCount = item.colorsCount,
+                        colorDetails = item.colorDetails,
+                        notes = item.notes.trim().ifBlank { "رصيد افتتاحي للمخزن" },
+                        invoiceNumber = "OPENING",
+                        lastSoldTimestamp = timestamp
+                    )
+                )
+            }
+            val totalCost = items.sumOf { it.lineCost }
+            val totalPiecesAll = items.sumOf { it.totalPieces }
+            logAudit(
+                action = "رصيد افتتاحي للمخزن",
+                details = "إضافة ${items.size} أصناف ($totalPiecesAll قطعة) بقيمة تكلفة ${FormatUtils.formatCurrency(totalCost)} دون أي خصم من الصندوق أو قيود شراء"
+            )
+            items.size
+        }
+    }
+
+    suspend fun recordPartyOpeningBalance(
+        type: String,
+        name: String,
+        phone: String = "",
+        address: String = "",
+        amount: Double,
+        isNormalDebtDirection: Boolean = true,
+        notes: String = "",
+        timestamp: Long = System.currentTimeMillis()
+    ): Long {
+        if (type != "CUSTOMER" && type != "SUPPLIER") {
+            throw IllegalArgumentException("نوع الطرف غير صالح.")
+        }
+        val trimmedName = name.trim()
+        if (trimmedName.isBlank()) throw IllegalArgumentException("يرجى إدخال الاسم الكامل.")
+        if (amount < 0.0) throw IllegalArgumentException("المبلغ لا يمكن أن يكون سالباً.")
+
+        return runInTransaction {
+            val allParties = dao.getAllPartiesIncludingArchivedDirect()
+            val existing = allParties.firstOrNull {
+                it.type == type && !it.isArchived && it.name.trim().equals(trimmedName, ignoreCase = true)
+            } ?: allParties.firstOrNull {
+                it.type == type && it.name.trim().equals(trimmedName, ignoreCase = true)
+            }
+
+            val defaultDebtDetails = when {
+                type == "CUSTOMER" && isNormalDebtDirection -> "رصيد افتتاحي (عليه للمحل قبل النظام)"
+                type == "CUSTOMER" && !isNormalDebtDirection -> "رصيد افتتاحي (له فائض عند المحل)"
+                type == "SUPPLIER" && isNormalDebtDirection -> "رصيد افتتاحي (عليا للمورد قبل النظام)"
+                else -> "رصيد افتتاحي (لنا فائض عند المورد)"
+            }
+
+            val partyId = if (existing != null) {
+                val partyDebts = dao.getAllDebtsDirect().filter {
+                    it.type == type && it.partyName.trim().equals(existing.name.trim(), ignoreCase = true)
+                }
+                // Materialize legacy positive initialBalance if it didn't have a DebtRecord before mutating
+                if (existing.initialBalance > 0.01) {
+                    val hasMatchingDebt = partyDebts.any { d ->
+                        d.referenceSaleId == null && d.referencePurchaseId == null &&
+                            kotlin.math.abs(d.originalAmount - existing.initialBalance) <= 0.01
+                    }
+                    if (!hasMatchingDebt) {
+                        dao.insertDebt(
+                            DebtRecord(
+                                type = type,
+                                partyName = existing.name,
+                                phone = existing.phone,
+                                originalAmount = existing.initialBalance,
+                                paidAmount = 0.0,
+                                remainingAmount = existing.initialBalance,
+                                details = "رصيد افتتاحي سابق",
+                                dueDate = existing.createdAt + if (type == "CUSTOMER") 86400000L * 15 else 86400000L * 30,
+                                createdAt = existing.createdAt,
+                                isSettled = false
+                            )
+                        )
+                    }
+                }
+
+                val updatedInitialBalance = if (amount > 0.01 && !isNormalDebtDirection) {
+                    if (existing.initialBalance < 0.0) existing.initialBalance - amount else -amount
+                } else {
+                    if (existing.initialBalance > 0.01) existing.initialBalance else existing.initialBalance
+                }
+
+                dao.updateParty(
+                    existing.copy(
+                        phone = phone.trim().ifBlank { existing.phone },
+                        address = address.trim().ifBlank { existing.address },
+                        notes = notes.trim().ifBlank { existing.notes },
+                        initialBalance = updatedInitialBalance,
+                        isArchived = false
+                    )
+                )
+
+                if (amount > 0.01 && isNormalDebtDirection) {
+                    dao.insertDebt(
+                        DebtRecord(
+                            type = type,
+                            partyName = existing.name,
+                            phone = phone.trim().ifBlank { existing.phone },
+                            originalAmount = amount,
+                            paidAmount = 0.0,
+                            remainingAmount = amount,
+                            details = notes.trim().ifBlank { defaultDebtDetails },
+                            dueDate = timestamp + if (type == "CUSTOMER") 86400000L * 15 else 86400000L * 30,
+                            createdAt = timestamp,
+                            isSettled = false
+                        )
+                    )
+                }
+                existing.id
+            } else {
+                val initBal = when {
+                    amount <= 0.01 -> 0.0
+                    isNormalDebtDirection -> amount
+                    else -> -amount
+                }
+                val newId = dao.insertParty(
+                    PartyAccount(
+                        type = type,
+                        name = trimmedName,
+                        phone = phone.trim(),
+                        address = address.trim(),
+                        notes = notes.trim().ifBlank { "حساب برصيد افتتاحي" },
+                        initialBalance = initBal,
+                        createdAt = timestamp,
+                        isArchived = false
+                    )
+                )
+                if (amount > 0.01 && isNormalDebtDirection) {
+                    dao.insertDebt(
+                        DebtRecord(
+                            type = type,
+                            partyName = trimmedName,
+                            phone = phone.trim(),
+                            originalAmount = amount,
+                            paidAmount = 0.0,
+                            remainingAmount = amount,
+                            details = notes.trim().ifBlank { defaultDebtDetails },
+                            dueDate = timestamp + if (type == "CUSTOMER") 86400000L * 15 else 86400000L * 30,
+                            createdAt = timestamp,
+                            isSettled = false
+                        )
+                    )
+                }
+                newId
+            }
+
+            val roleAr = if (type == "CUSTOMER") "عميل" else "مورد"
+            logAudit(
+                action = "رصيد افتتاحي لـ$roleAr",
+                details = "$trimmedName | المبلغ: ${FormatUtils.formatCurrency(amount)} | الحالة: $defaultDebtDetails"
+            )
+            partyId
+        }
+    }
+
+    suspend fun recordEmployeeOpeningBalance(
+        employeeId: Long = 0L,
+        name: String,
+        phone: String = "",
+        role: String = "بائع",
+        salaryType: String = "شهري",
+        baseSalary: Double = 0.0,
+        commissionPercent: Double = 0.0,
+        openingAmount: Double = 0.0,
+        isOwedToEmployee: Boolean = true,
+        notes: String = "",
+        timestamp: Long = System.currentTimeMillis()
+    ): Long {
+        val trimmedName = name.trim()
+        if (trimmedName.isBlank()) throw IllegalArgumentException("يرجى إدخال اسم العامل.")
+        if (baseSalary < 0.0) throw IllegalArgumentException("الراتب الأساسي لا يمكن أن يكون سالباً.")
+        if (commissionPercent < 0.0) throw IllegalArgumentException("نسبة العمولة لا يمكن أن تكون سالبة.")
+        if (openingAmount < 0.0) throw IllegalArgumentException("المبلغ الافتتاحي لا يمكن أن يكون سالباً.")
+
+        return runInTransaction {
+            val allEmps = dao.getAllEmployeesIncludingArchivedDirect()
+            val existing = if (employeeId > 0L) {
+                allEmps.firstOrNull { it.id == employeeId }
+            } else {
+                allEmps.firstOrNull { it.active && it.name.trim().equals(trimmedName, ignoreCase = true) }
+                    ?: allEmps.firstOrNull { it.name.trim().equals(trimmedName, ignoreCase = true) }
+            }
+
+            val finalRole = role.trim().ifBlank { "بائع" }
+            addConfigItem(StoreConfigTypes.EMPLOYEE_ROLE, finalRole)
+
+            val savedEmpId: Long
+            val savedEmpName: String
+            if (existing != null) {
+                savedEmpId = existing.id
+                savedEmpName = existing.name
+                dao.updateEmployee(
+                    existing.copy(
+                        phone = phone.trim().ifBlank { existing.phone },
+                        role = finalRole,
+                        salaryType = salaryType.ifBlank { existing.salaryType },
+                        baseSalary = if (baseSalary > 0.0) baseSalary else existing.baseSalary,
+                        commissionPercent = if (commissionPercent > 0.0) commissionPercent else existing.commissionPercent,
+                        active = true
+                    )
+                )
+            } else {
+                savedEmpName = trimmedName
+                savedEmpId = dao.insertEmployee(
+                    Employee(
+                        name = trimmedName,
+                        phone = phone.trim(),
+                        role = finalRole,
+                        salaryType = salaryType.ifBlank { "شهري" },
+                        baseSalary = baseSalary,
+                        commissionPercent = commissionPercent,
+                        startDate = timestamp,
+                        active = true
+                    )
+                )
+            }
+
+            if (openingAmount > 0.01) {
+                val txType = if (isOwedToEmployee) "رصيد افتتاحي (له)" else "رصيد افتتاحي (عليه)"
+                val defaultNote = if (isOwedToEmployee) {
+                    "مستحقات سابقة للعامل قبل بدء النظام"
+                } else {
+                    "سلفة / رصيد سابق على العامل قبل بدء النظام"
+                }
+                dao.insertEmployeeTransaction(
+                    EmployeeTransaction(
+                        employeeId = savedEmpId,
+                        employeeName = savedEmpName,
+                        type = txType,
+                        amount = openingAmount,
+                        notes = notes.trim().ifBlank { defaultNote },
+                        timestamp = timestamp,
+                        shiftId = 0L,
+                        paidFromCash = false,
+                        exchangeAccountId = 0L,
+                        exchangeAccountName = ""
+                    )
+                )
+            }
+
+            logAudit(
+                action = "رصيد افتتاحي لعامل",
+                details = "$savedEmpName ($finalRole) | رصيد افتتاحي: ${FormatUtils.formatCurrency(openingAmount)} (${if (isOwedToEmployee) "له" else "عليه"}) دون خصم من الصندوق"
+            )
+            savedEmpId
         }
     }
 

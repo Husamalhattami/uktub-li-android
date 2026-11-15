@@ -53,10 +53,12 @@ data class EmployeeStatementSummary(
     val dailyStipends: Double,
     val deductions: Double,
     val salaryPaid: Double,
-    val totalEarned: Double,          // إجمالي ما له (راتب + عمولة + مكافآت)
-    val totalDeductedAndPaid: Double, // إجمالي ما عليه / استلمه (سلف + صرفيات + خصومات + راتب مصروف)
+    val totalEarned: Double,          // إجمالي ما له (راتب + عمولة + مكافآت + مستحقات سابقة)
+    val totalDeductedAndPaid: Double, // إجمالي ما عليه / استلمه (سلف + صرفيات + خصومات + راتب مصروف + رصيد سابق عليه)
     val remainingBalance: Double,     // صافي المتبقي له
-    val entries: List<EmployeeLedgerEntry>
+    val entries: List<EmployeeLedgerEntry>,
+    val openingCredit: Double = 0.0,
+    val openingDebit: Double = 0.0
 )
 
 data class DailyReportSummary(
@@ -156,7 +158,7 @@ object StatementHelper {
 
             val hasOpeningDebtRecord = partyDebts.any { d ->
                 d.referenceSaleId == null && d.referencePurchaseId == null &&
-                    (d.details.contains("رصيد افتتاحي") || kotlin.math.abs(d.originalAmount - party.initialBalance) <= 0.01)
+                    kotlin.math.abs(d.originalAmount - party.initialBalance) <= 0.01
             }
             if (party.initialBalance > 0.01 && !hasOpeningDebtRecord) {
                 rawRows.add(
@@ -166,6 +168,18 @@ object StatementHelper {
                         subDetails = "رصيد مستحق سابق مسجل في ملف العميل",
                         debit = party.initialBalance,
                         credit = 0.0,
+                        runningBalance = 0.0,
+                        kind = "DEBT"
+                    )
+                )
+            } else if (party.initialBalance < -0.01) {
+                rawRows.add(
+                    PartyLedgerEntry(
+                        timestamp = party.createdAt,
+                        title = "رصيد افتتاحي (له فائض عند المحل)",
+                        subDetails = "دفعة مقدمة / رصيد دائن سابق للعميل قبل النظام",
+                        debit = 0.0,
+                        credit = kotlin.math.abs(party.initialBalance),
                         runningBalance = 0.0,
                         kind = "DEBT"
                     )
@@ -298,7 +312,7 @@ object StatementHelper {
 
             val hasOpeningDebtRecord = partyDebts.any { d ->
                 d.referenceSaleId == null && d.referencePurchaseId == null &&
-                    (d.details.contains("رصيد افتتاحي") || kotlin.math.abs(d.originalAmount - party.initialBalance) <= 0.01)
+                    kotlin.math.abs(d.originalAmount - party.initialBalance) <= 0.01
             }
             if (party.initialBalance > 0.01 && !hasOpeningDebtRecord) {
                 rawRows.add(
@@ -308,6 +322,18 @@ object StatementHelper {
                         subDetails = "رصيد مستحق سابق مسجل في ملف المورد",
                         debit = 0.0,
                         credit = party.initialBalance,
+                        runningBalance = 0.0,
+                        kind = "DEBT"
+                    )
+                )
+            } else if (party.initialBalance < -0.01) {
+                rawRows.add(
+                    PartyLedgerEntry(
+                        timestamp = party.createdAt,
+                        title = "رصيد افتتاحي (لنا فائض عند المورد)",
+                        subDetails = "دفعة مقدمة / رصيد مدفوع سابقاً لدى المورد قبل النظام",
+                        debit = kotlin.math.abs(party.initialBalance),
+                        credit = 0.0,
                         runningBalance = 0.0,
                         kind = "DEBT"
                     )
@@ -400,13 +426,15 @@ object StatementHelper {
         val commissionEarned = totalSalesAmount * (employee.commissionPercent / 100.0)
 
         val bonuses = empTxs.filter { it.type == "مكافأة" }.sumOf { it.amount }
+        val openingCredit = empTxs.filter { it.type == "رصيد افتتاحي (له)" }.sumOf { it.amount }
         val advances = empTxs.filter { it.type == "سلفة" }.sumOf { it.amount }
+        val openingDebit = empTxs.filter { it.type == "رصيد افتتاحي (عليه)" }.sumOf { it.amount }
         val dailyStipends = empTxs.filter { it.type == "صرفة يومية" }.sumOf { it.amount }
         val deductions = empTxs.filter { it.type == "خصم غياب" }.sumOf { it.amount }
         val salaryPaid = empTxs.filter { it.type == "صرف راتب" }.sumOf { it.amount }
 
-        val totalEarned = employee.baseSalary + commissionEarned + bonuses
-        val totalDeductedAndPaid = advances + dailyStipends + deductions + salaryPaid
+        val totalEarned = employee.baseSalary + commissionEarned + bonuses + openingCredit
+        val totalDeductedAndPaid = advances + openingDebit + dailyStipends + deductions + salaryPaid
         val remainingBalance = totalEarned - totalDeductedAndPaid
 
         val rawEntries = mutableListOf<EmployeeLedgerEntry>()
@@ -436,7 +464,7 @@ object StatementHelper {
         }
 
         empTxs.sortedBy { it.timestamp }.forEach { tx ->
-            val isCredit = tx.type == "مكافأة"
+            val isCredit = tx.type == "مكافأة" || tx.type == "رصيد افتتاحي (له)"
             rawEntries.add(
                 EmployeeLedgerEntry(
                     timestamp = tx.timestamp,
@@ -468,7 +496,9 @@ object StatementHelper {
             totalEarned = totalEarned,
             totalDeductedAndPaid = totalDeductedAndPaid,
             remainingBalance = remainingBalance,
-            entries = finalEntries
+            entries = finalEntries,
+            openingCredit = openingCredit,
+            openingDebit = openingDebit
         )
     }
 
@@ -665,8 +695,12 @@ object StatementHelper {
             if (summary.bonuses > 0.01) {
                 appendLine("   • المكافآت: ${FormatUtils.formatCurrency(summary.bonuses, currency)}")
             }
+            if (summary.openingCredit > 0.01) {
+                appendLine("   • مستحقات سابقة (رصيد افتتاحي له): ${FormatUtils.formatCurrency(summary.openingCredit, currency)}")
+            }
             appendLine("🔴 *كم عليه (المستلم والخصومات):* ${FormatUtils.formatCurrency(summary.totalDeductedAndPaid, currency)}")
             if (summary.advances > 0.01) appendLine("   • السلف: ${FormatUtils.formatCurrency(summary.advances, currency)}")
+            if (summary.openingDebit > 0.01) appendLine("   • سلف سابقة (رصيد افتتاحي عليه): ${FormatUtils.formatCurrency(summary.openingDebit, currency)}")
             if (summary.dailyStipends > 0.01) appendLine("   • الصرفيات اليومية: ${FormatUtils.formatCurrency(summary.dailyStipends, currency)}")
             if (summary.deductions > 0.01) appendLine("   • خصومات الغياب: ${FormatUtils.formatCurrency(summary.deductions, currency)}")
             if (summary.salaryPaid > 0.01) appendLine("   • الرواتب المصروفة: ${FormatUtils.formatCurrency(summary.salaryPaid, currency)}")

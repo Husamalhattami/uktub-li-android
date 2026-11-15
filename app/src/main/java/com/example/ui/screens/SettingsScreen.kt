@@ -53,6 +53,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     viewModel: StoreViewModel,
+    onOpenOpeningBalances: () -> Unit = { viewModel.navigateTo(com.example.ui.AppScreen.OPENING_BALANCES) },
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -384,13 +385,26 @@ fun SettingsScreen(
                             onClick = { viewModel.openSetupWizard() },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(46.dp)
+                                .height(48.dp)
                                 .testTag("reopen_setup_wizard_btn"),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(imageVector = Icons.Default.AutoFixHigh, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("فتح معالج التهيئة الشامل للنظام", fontWeight = FontWeight.Bold)
+                        }
+
+                        OutlinedButton(
+                            onClick = onOpenOpeningBalances,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("settings_opening_balances_btn"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Verified, contentDescription = null, tint = PdfHeaderNavy)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("معالج الأرصدة الافتتاحية للمحل (صندوق، بضاعة، أطراف)", fontWeight = FontWeight.Bold, color = PdfHeaderNavy)
                         }
                     }
                 }

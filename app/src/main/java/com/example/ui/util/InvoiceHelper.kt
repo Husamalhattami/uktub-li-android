@@ -879,7 +879,7 @@ object InvoiceHelper {
                 )
             }
             activeTransfers.forEach { t ->
-                val isIn = t.type == "إيداع"
+                val isIn = t.isCredit
                 add(
                     DailyLedgerLine(
                         timestamp = t.timestamp,
@@ -1189,15 +1189,21 @@ object InvoiceHelper {
         y = boxBottom + 14f
 
         if (mode == StatementMode.SUMMARY) {
-            val rows = listOf(
-                "الراتب الأساسي (${emp.salaryType})" to "+ ${FormatUtils.formatCurrency(emp.baseSalary, currency)}",
-                "عمولة المبيعات (${emp.commissionPercent}%)" to "+ ${FormatUtils.formatCurrency(summary.commissionEarned, currency)}",
-                "المكافآت المضافة" to "+ ${FormatUtils.formatCurrency(summary.bonuses, currency)}",
-                "السلف المسحوبة" to "- ${FormatUtils.formatCurrency(summary.advances, currency)}",
-                "الصرفيات اليومية" to "- ${FormatUtils.formatCurrency(summary.dailyStipends, currency)}",
-                "خصومات الغياب والتأخير" to "- ${FormatUtils.formatCurrency(summary.deductions, currency)}",
-                "الرواتب المصروفة" to "- ${FormatUtils.formatCurrency(summary.salaryPaid, currency)}"
-            )
+            val rows = buildList {
+                add("الراتب الأساسي (${emp.salaryType})" to "+ ${FormatUtils.formatCurrency(emp.baseSalary, currency)}")
+                add("عمولة المبيعات (${emp.commissionPercent}%)" to "+ ${FormatUtils.formatCurrency(summary.commissionEarned, currency)}")
+                add("المكافآت المضافة" to "+ ${FormatUtils.formatCurrency(summary.bonuses, currency)}")
+                if (summary.openingCredit > 0.01) {
+                    add("مستحقات سابقة (رصيد افتتاحي له)" to "+ ${FormatUtils.formatCurrency(summary.openingCredit, currency)}")
+                }
+                add("السلف المسحوبة" to "- ${FormatUtils.formatCurrency(summary.advances, currency)}")
+                if (summary.openingDebit > 0.01) {
+                    add("سلف سابقة (رصيد افتتاحي عليه)" to "- ${FormatUtils.formatCurrency(summary.openingDebit, currency)}")
+                }
+                add("الصرفيات اليومية" to "- ${FormatUtils.formatCurrency(summary.dailyStipends, currency)}")
+                add("خصومات الغياب والتأخير" to "- ${FormatUtils.formatCurrency(summary.deductions, currency)}")
+                add("الرواتب المصروفة" to "- ${FormatUtils.formatCurrency(summary.salaryPaid, currency)}")
+            }
             rows.forEachIndexed { idx, (label, value) ->
                 val lh = measureWrappedHeight(label, regularTp, 270f, Layout.Alignment.ALIGN_NORMAL)
                 val vh = measureWrappedHeight(value, regularTp, 200f, Layout.Alignment.ALIGN_OPPOSITE)

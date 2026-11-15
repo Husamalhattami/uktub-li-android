@@ -149,7 +149,7 @@ fun EmployeesScreen(
                         employee = employee,
                         totalSales = empSummary.totalSalesAmount,
                         commissionEarned = empSummary.commissionEarned,
-                        advances = empSummary.advances + empSummary.dailyStipends,
+                        advances = empSummary.advances + empSummary.dailyStipends + empSummary.openingDebit,
                         deductions = empSummary.deductions,
                         salaryPaid = empSummary.salaryPaid,
                         remainingBalance = empSummary.remainingBalance,
@@ -640,10 +640,22 @@ fun EmployeesScreen(
                                         Text(FormatUtils.formatCurrency(empSummary.bonuses), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = EmeraldProfit)
                                     }
                                 }
+                                if (empSummary.openingCredit > 0.01) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("مستحقات سابقة (رصيد افتتاحي):", fontSize = 12.sp, color = SlateMuted)
+                                        Text(FormatUtils.formatCurrency(empSummary.openingCredit), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = EmeraldProfit)
+                                    }
+                                }
                                 HorizontalDivider(color = SlateBorder)
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                     Text("السلف المسحوبة:", fontSize = 12.sp, color = SlateMuted)
                                     Text(FormatUtils.formatCurrency(empSummary.advances), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = RubyExpense)
+                                }
+                                if (empSummary.openingDebit > 0.01) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("سلف سابقة (رصيد افتتاحي):", fontSize = 12.sp, color = SlateMuted)
+                                        Text(FormatUtils.formatCurrency(empSummary.openingDebit), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = RubyExpense)
+                                    }
                                 }
                                 if (empSummary.dailyStipends > 0.01) {
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -700,7 +712,7 @@ fun EmployeesScreen(
                                                     text = FormatUtils.formatCurrency(tx.amount),
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 12.sp,
-                                                    color = if (tx.type == "مكافأة") EmeraldProfit else RubyExpense
+                                                    color = if (tx.type == "مكافأة" || tx.type == "رصيد افتتاحي (له)") EmeraldProfit else RubyExpense
                                                 )
                                                 IconButton(onClick = { editingEmployeeTx = tx }, modifier = Modifier.size(28.dp)) {
                                                     Icon(Icons.Default.Edit, contentDescription = "تعديل", tint = BrandBlue, modifier = Modifier.size(16.dp))
@@ -741,11 +753,12 @@ fun EmployeesScreen(
             confirmIcon = Icons.Default.Check,
             confirmColor = PdfHeaderNavy,
             onConfirm = {
+                val isNonMonetary = tx.type == "خصم غياب" || tx.type.startsWith("رصيد افتتاحي")
                 val amount = amountStr.toDoubleOrNull() ?: 0.0
-                val isCash = if (tx.type == "خصم غياب") false else paidFromCash
+                val isCash = if (isNonMonetary) false else paidFromCash
                 if (amount <= 0) {
                     viewModel.showMessage("يرجى إدخال مبلغ صحيح أكبر من الصفر!")
-                } else if (tx.type != "خصم غياب" && !isCash && selectedExchangeAccount == null) {
+                } else if (!isNonMonetary && !isCash && selectedExchangeAccount == null) {
                     viewModel.showMessage("يجب اختيار حساب الصراف أو المحفظة للعملية غير النقدية!")
                 } else {
                     viewModel.updateEmployeeTransaction(
@@ -753,8 +766,8 @@ fun EmployeesScreen(
                             amount = amount,
                             notes = notes,
                             paidFromCash = isCash,
-                            exchangeAccountId = if (isCash || tx.type == "خصم غياب") 0L else (selectedExchangeAccount?.id ?: 0L),
-                            exchangeAccountName = if (isCash || tx.type == "خصم غياب") "" else (selectedExchangeAccount?.name ?: ""),
+                            exchangeAccountId = if (isCash || isNonMonetary) 0L else (selectedExchangeAccount?.id ?: 0L),
+                            exchangeAccountName = if (isCash || isNonMonetary) "" else (selectedExchangeAccount?.name ?: ""),
                             timestamp = editTimestamp
                         ),
                         onSuccess = { editingEmployeeTx = null }
@@ -791,7 +804,7 @@ fun EmployeesScreen(
                 testTag = "edit_emp_tx_date_picker"
             )
 
-            if (tx.type != "خصم غياب") {
+            if (tx.type != "خصم غياب" && !tx.type.startsWith("رصيد افتتاحي")) {
                 DialogSectionHeader(title = "مصدر الدفع", icon = Icons.Default.AccountBalanceWallet, accentColor = PdfHeaderNavy)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -983,7 +996,7 @@ fun EmployeesScreen(
             Text(
                 text = buildString {
                     appendLine("سيتم حذف هذه الحركة وإعادة احتساب كشف حساب العامل:")
-                    if (tx.type != "خصم غياب") {
+                    if (tx.type != "خصم غياب" && !tx.type.startsWith("رصيد افتتاحي")) {
                         if (tx.paidFromCash) {
                             appendLine("• استرداد ${FormatUtils.formatCurrency(tx.amount)} إلى الصندوق النقدي.")
                         } else if (tx.exchangeAccountId > 0L) {

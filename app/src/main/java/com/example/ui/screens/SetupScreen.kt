@@ -616,26 +616,77 @@ fun SetupScreen(
                         tagPrefix = "setup_role"
                     )
 
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        OutlinedButton(
-                            onClick = { currentStep = 1 },
-                            modifier = Modifier
-                                .weight(0.45f)
-                                .height(52.dp),
-                            shape = RoundedCornerShape(14.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Text("السابق", fontWeight = FontWeight.Bold)
+                            OutlinedButton(
+                                onClick = { currentStep = 1 },
+                                modifier = Modifier
+                                    .weight(0.45f)
+                                    .height(52.dp),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Text("السابق", fontWeight = FontWeight.Bold)
+                            }
+
+                            Button(
+                                onClick = {
+                                    if (shopNameAr.trim().isBlank()) {
+                                        currentStep = 1
+                                        viewModel.showMessage("يرجى إدخال اسم المحل أولاً")
+                                        return@Button
+                                    }
+                                    val finalSettings = StoreSettings(
+                                        id = 1,
+                                        shopNameAr = shopNameAr.trim(),
+                                        shopNameEn = shopNameEn.trim(),
+                                        phone = phone.trim(),
+                                        address = address.trim(),
+                                        currency = currency.trim().ifBlank { "ريال" },
+                                        taxNumber = existingSettings?.taxNumber.orEmpty(),
+                                        invoiceHeader = invoiceHeader.trim().ifBlank { shopNameAr.trim() },
+                                        invoiceFooter = invoiceFooter.trim(),
+                                        showProfitInReports = existingSettings?.showProfitInReports ?: true,
+                                        managerPin = "",
+                                        isManagerRole = existingSettings?.isManagerRole ?: true,
+                                        logoPath = logoPath,
+                                        isSetupCompleted = true
+                                    )
+                                    viewModel.completeInitialSetup(
+                                        settings = finalSettings,
+                                        rawManagerPin = managerPinInput.trim(),
+                                        categories = categoriesList.toList(),
+                                        sizes = sizesList.toList(),
+                                        expenseCategories = expenseCategoriesList.toList(),
+                                        accountTypes = accountTypesList.toList(),
+                                        colors = colorsList.toList(),
+                                        roles = rolesList.toList()
+                                    )
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(52.dp)
+                                    .testTag("setup_complete_btn"),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = EmeraldProfit)
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("حفظ التهيئة وبدء العمل", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color.White)
+                            }
                         }
 
-                        Button(
+                        OutlinedButton(
                             onClick = {
                                 if (shopNameAr.trim().isBlank()) {
                                     currentStep = 1
                                     viewModel.showMessage("يرجى إدخال اسم المحل أولاً")
-                                    return@Button
+                                    return@OutlinedButton
                                 }
                                 val finalSettings = StoreSettings(
                                     id = 1,
@@ -661,19 +712,24 @@ fun SetupScreen(
                                     expenseCategories = expenseCategoriesList.toList(),
                                     accountTypes = accountTypesList.toList(),
                                     colors = colorsList.toList(),
-                                    roles = rolesList.toList()
+                                    roles = rolesList.toList(),
+                                    targetScreenAfterSetup = com.example.ui.AppScreen.OPENING_BALANCES
                                 )
                             },
                             modifier = Modifier
-                                .weight(1f)
-                                .height(52.dp)
-                                .testTag("setup_complete_btn"),
+                                .fillMaxWidth()
+                                .height(50.dp)
+                                .testTag("setup_complete_and_opening_btn"),
                             shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldProfit)
+                            border = androidx.compose.foundation.BorderStroke(1.2.dp, PdfHeaderNavy)
                         ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White)
+                            Icon(Icons.Default.Verified, contentDescription = null, tint = PdfHeaderNavy)
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("حفظ التهيئة وبدء العمل", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color.White)
+                            Text(
+                                text = "حفظ التهيئة والانتقال للأرصدة الافتتاحية",
+                                fontWeight = FontWeight.Bold,
+                                color = PdfHeaderNavy
+                            )
                         }
                     }
                 }

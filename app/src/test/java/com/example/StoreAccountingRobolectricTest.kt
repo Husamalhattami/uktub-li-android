@@ -1667,4 +1667,289 @@ class StoreAccountingRobolectricTest {
         db.storeDao().updateStoreSettings(db.storeDao().getStoreSettingsDirect()!!.copy(pinLockUntilTimestamp = System.currentTimeMillis() - 1000L))
         assertEquals(PinVerificationResult.Success, repository.verifyManagerPin("8492"))
     }
+
+    @Test
+    @Config(sdk = [36], shadows = [TestPdfDocumentShadow::class, TestPdfDocumentPageShadow::class])
+    fun testOpeningBalancesCashExchangeInventoryPartiesAndEmployeesDoNotDeductCashOrDistortProfit() = runBlocking {
+        val pastTs = System.currentTimeMillis() - (3L * 86_400_000L)
+
+        // 1. Opening Cash Drawer Balance (additive then replace mode) + auto shift creation
+        repository.setOpeningCashBalance(
+            amount = 20_000.0,
+            replaceExistingBalance = false,
+            notes = "كاش افتتاحي بالدرج",
+            timestamp = pastTs
+        )
+        assertNotNull("Open shift must be auto-created for opening cash", db.storeDao().getActiveShift().firstOrNull())
+        assertEquals(20_000.0, db.storeDao().getAvailableCashBalance(), 0.01)
+
+        repository.setOpeningCashBalance(
+            amount = 25_000.0,
+            replaceExistingBalance = true,
+            notes = "اعتماد الرصيد الفعلي",
+            timestamp = pastTs
+        )
+        assertEquals(25_000.0, db.storeDao().getAvailableCashBalance(), 0.01)
+
+        // 2. Opening Exchange Accounts & Wallets (ZERO cash deduction)
+        val accId = repository.saveOpeningExchangeAccount(
+            name = "الكريمي",
+            type = "صراف",
+            accountNumber = "123456",
+            phone = "777000111",
+            openingBalance = 15_000.0,
+            notes = "رصيد الكريمي السابق",
+            timestamp = pastTs
+        )
+        assertTrue(accId > 0L)
+        // Update same account in replace mode
+        repository.saveOpeningExchangeAccount(
+            accountId = accId,
+            name = "الكريمي",
+            type = "صراف",
+            openingBalance = 18_000.0,
+            replaceExistingBalance = true,
+            timestamp = pastTs
+        )
+        assertEquals(18_000.0, db.storeDao().getExchangeAccountById(accId)!!.balance, 0.01)
+        assertEquals("Cash must remain completely untouched by exchange opening balance", 25_000.0, db.storeDao().getAvailableCashBalance(), 0.01)
+        assertTrue(db.storeDao().getAllExchangeTransfersDirect().any { it.referenceType == "OPENING_BALANCE" && it.type == "رصيد افتتاحي" })
+
+        // 3. Opening Inventory (batch with dozen + piece, ZERO cash/exchange/purchase/debt impact)
+        val addedCount = repository.addOpeningInventoryItems(
+            items = listOf(
+                CartPurchaseItem(
+                    category = "أكوات",
+                    modelName = "كوت شتوي افتتاحي",
+                    color = "أسود",
+                    size = ClothingSizes.BIG,
+                    unit = ClothingUnits.DOZEN,
+                    unitCount = 2.0,
+                    buyPricePerUnit = 12_000.0,
+                    sellPricePerUnit = 18_000.0,
+                    notes = "مخزن قديم"
+                ),
+                CartPurchaseItem(
+                    category = "دجلات",
+                    modelName = "دجلة افتتاحية",
+                    color = "كحلي",
+                    size = ClothingSizes.YOUTH,
+                    unit = ClothingUnits.PIECE,
+                    unitCount = 5.0,
+                    buyPricePerUnit = 500.0,
+                    sellPricePerUnit = 800.0
+                )
+            ),
+            timestamp = pastTs
+        )
+        assertEquals(2, addedCount)
+        val allProducts = db.storeDao().getAllProductsDirect()
+        assertEquals(2, allProducts.size)
+        val totalPieces = allProducts.sumOf { it.quantity }
+        val totalInventoryCost = allProducts.sumOf { it.buyPrice * it.quantity }
+        assertEquals(29, totalPieces)
+        assertEquals(26_500.0, totalInventoryCost, 0.01)
+        assertTrue(allProducts.all { it.invoiceNumber == "OPENING" })
+        assertEquals("Cash untouched after opening inventory", 25_000.0, db.storeDao().getAvailableCashBalance(), 0.01)
+        assertEquals("Exchange untouched after opening inventory", 18_000.0, db.storeDao().getExchangeAccountById(accId)!!.balance, 0.01)
+        assertEquals("Zero PurchaseRecords created for opening stock", 0, db.storeDao().getAllPurchasesDirect().size)
+        assertEquals("Zero Debts created for opening stock", 0, db.storeDao().getAllDebtsDirect().size)
+
+        // 4. Customer Opening Balances (both owed to store & surplus advance credit)
+        val custOwedId = repository.recordPartyOpeningBalance(
+            type = "CUSTOMER",
+            name = "خالد الزبون",
+            phone = "771111111",
+            amount = 4_000.0,
+            isNormalDebtDirection = true,
+            notes = "دين قديم",
+            timestamp = pastTs
+        )
+        val custSurplusId = repository.recordPartyOpeningBalance(
+            type = "CUSTOMER",
+            name = "سعيد فائض",
+            phone = "772222222",
+            amount = 1_200.0,
+            isNormalDebtDirection = false,
+            notes = "مبلغ مقدم له",
+            timestamp = pastTs
+        )
+
+        val custOwedStmt = StatementHelper.buildPartyStatement(
+            party = db.storeDao().getPartyById(custOwedId)!!,
+            sales = emptyList(),
+            purchases = emptyList(),
+            debts = db.storeDao().getAllDebtsDirect(),
+            payments = emptyList()
+        )
+        assertEquals(4_000.0, custOwedStmt.totalOnParty, 0.01)
+        assertEquals(4_000.0, custOwedStmt.netBalance, 0.01)
+
+        val custSurplusStmt = StatementHelper.buildPartyStatement(
+            party = db.storeDao().getPartyById(custSurplusId)!!,
+            sales = emptyList(),
+            purchases = emptyList(),
+            debts = db.storeDao().getAllDebtsDirect(),
+            payments = emptyList()
+        )
+        assertEquals(1_200.0, custSurplusStmt.totalForParty, 0.01)
+        assertEquals(-1_200.0, custSurplusStmt.netBalance, 0.01)
+
+        // 5. Supplier Opening Balances (both owed by store & advance surplus with supplier)
+        val supOwedId = repository.recordPartyOpeningBalance(
+            type = "SUPPLIER",
+            name = "معمل التميز",
+            phone = "773333333",
+            amount = 9_000.0,
+            isNormalDebtDirection = true,
+            notes = "رصيد سابق للمورد",
+            timestamp = pastTs
+        )
+        val supSurplusId = repository.recordPartyOpeningBalance(
+            type = "SUPPLIER",
+            name = "مورد مقدم",
+            phone = "774444444",
+            amount = 2_500.0,
+            isNormalDebtDirection = false,
+            notes = "دفعة مقدمة سابقة عند المورد",
+            timestamp = pastTs
+        )
+
+        val supOwedStmt = StatementHelper.buildPartyStatement(
+            party = db.storeDao().getPartyById(supOwedId)!!,
+            sales = emptyList(),
+            purchases = emptyList(),
+            debts = db.storeDao().getAllDebtsDirect(),
+            payments = emptyList()
+        )
+        assertEquals(9_000.0, supOwedStmt.totalForParty, 0.01)
+        assertEquals(9_000.0, supOwedStmt.netBalance, 0.01)
+
+        val supSurplusStmt = StatementHelper.buildPartyStatement(
+            party = db.storeDao().getPartyById(supSurplusId)!!,
+            sales = emptyList(),
+            purchases = emptyList(),
+            debts = db.storeDao().getAllDebtsDirect(),
+            payments = emptyList()
+        )
+        assertEquals(2_500.0, supSurplusStmt.totalOnParty, 0.01)
+        assertEquals(-2_500.0, supSurplusStmt.netBalance, 0.01)
+
+        assertEquals(0, db.storeDao().getAllSalesDirect().size)
+        assertEquals(0, db.storeDao().getAllPurchasesDirect().size)
+        assertEquals(0, db.storeDao().getAllDebtPaymentsDirect().size)
+
+        // 6. Employees Opening Balances (both prior dues owed to employee & prior advances owed by employee)
+        val empOwedId = repository.recordEmployeeOpeningBalance(
+            name = "سالم البائع",
+            phone = "775555555",
+            role = "بائع",
+            salaryType = "شهري",
+            baseSalary = 2_000.0,
+            openingAmount = 1_500.0,
+            isOwedToEmployee = true,
+            notes = "راتب متأخر",
+            timestamp = pastTs
+        )
+        val empAdvanceId = repository.recordEmployeeOpeningBalance(
+            name = "علي الموظف",
+            phone = "776666666",
+            role = "كاشير",
+            salaryType = "شهري",
+            baseSalary = 1_000.0,
+            openingAmount = 400.0,
+            isOwedToEmployee = false,
+            notes = "سلفة قديمة",
+            timestamp = pastTs
+        )
+
+        val allEmpTxs = db.storeDao().getAllEmployeeTransactionsDirect()
+        assertEquals(2, allEmpTxs.size)
+        assertTrue(allEmpTxs.all { !it.paidFromCash && it.exchangeAccountId == 0L })
+
+        val empOwedSummary = StatementHelper.buildEmployeeStatement(
+            employee = db.storeDao().getEmployeeById(empOwedId)!!,
+            transactions = allEmpTxs,
+            sales = emptyList()
+        )
+        assertEquals(1_500.0, empOwedSummary.openingCredit, 0.01)
+        assertEquals(3_500.0, empOwedSummary.remainingBalance, 0.01)
+
+        val empAdvanceSummary = StatementHelper.buildEmployeeStatement(
+            employee = db.storeDao().getEmployeeById(empAdvanceId)!!,
+            transactions = allEmpTxs,
+            sales = emptyList()
+        )
+        assertEquals(400.0, empAdvanceSummary.openingDebit, 0.01)
+        assertEquals(600.0, empAdvanceSummary.remainingBalance, 0.01)
+
+        assertEquals("Cash untouched after employee opening balances", 25_000.0, db.storeDao().getAvailableCashBalance(), 0.01)
+        assertEquals("Exchange untouched after employee opening balances", 18_000.0, db.storeDao().getExchangeAccountById(accId)!!.balance, 0.01)
+        assertEquals("Zero ExpenseRecords created for opening balances", 0, db.storeDao().getAllExpensesDirect().size)
+
+        // 7. Financial P&L Report must NOT treat opening balances as daily sales, purchases, expenses, or payroll cost
+        val reportSummary = StatementHelper.buildDailyReportSummary(
+            periodTitle = "الكل",
+            filteredSales = db.storeDao().getAllSalesDirect(),
+            filteredPurchases = db.storeDao().getAllPurchasesDirect(),
+            filteredExpenses = db.storeDao().getAllExpensesDirect(),
+            filteredEmployeeTx = db.storeDao().getAllEmployeeTransactionsDirect(),
+            filteredPayments = db.storeDao().getAllDebtPaymentsDirect(),
+            allDebts = db.storeDao().getAllDebtsDirect(),
+            allProducts = db.storeDao().getAllProductsDirect(),
+            currentCashBalance = db.storeDao().getAvailableCashBalance(),
+            currentExchangeBalance = db.storeDao().getExchangeAccountById(accId)!!.balance
+        )
+        assertEquals(0.0, reportSummary.totalSales, 0.01)
+        assertEquals(0.0, reportSummary.totalPurchases, 0.01)
+        assertEquals(0.0, reportSummary.expensesTotal, 0.01)
+        assertEquals(0.0, reportSummary.salariesAndAdvancesTotal, 0.01)
+        assertEquals(0.0, reportSummary.collectionsTotal, 0.01)
+        assertEquals(0.0, reportSummary.supplierPaymentsTotal, 0.01)
+        assertEquals(0.0, reportSummary.netProfit, 0.01)
+
+        // 8. Editing & deleting non-monetary opening employee transaction must NOT touch cash or exchange
+        val openingEmpTx = allEmpTxs.first { it.employeeId == empOwedId }
+        repository.updateEmployeeTransaction(
+            newTx = openingEmpTx.copy(
+                type = "رصيد افتتاحي (له)",
+                amount = 1_800.0,
+                notes = "تعديل مستحقات سابقة",
+                paidFromCash = false,
+                exchangeAccountId = 0L,
+                exchangeAccountName = "",
+                timestamp = pastTs
+            )
+        )
+        assertEquals(25_000.0, db.storeDao().getAvailableCashBalance(), 0.01)
+        assertEquals(18_000.0, db.storeDao().getExchangeAccountById(accId)!!.balance, 0.01)
+        assertEquals(1_800.0, db.storeDao().getEmployeeTransactionById(openingEmpTx.id)!!.amount, 0.01)
+
+        repository.deleteEmployeeTransaction(openingEmpTx.id)
+        assertEquals(25_000.0, db.storeDao().getAvailableCashBalance(), 0.01)
+        assertEquals(18_000.0, db.storeDao().getExchangeAccountById(accId)!!.balance, 0.01)
+
+        // 9. Backup export/validate/restore round-trip preserves all opening balances cleanly
+        val backupJson = BackupManager.createBackupJsonString(repository)
+        val parsed = BackupManager.validateAndParseBackup(backupJson)
+        assertTrue(parsed.isSuccess)
+        repository.clearEverythingCompletely(clearConfigDictionaries = true)
+        assertEquals(0, db.storeDao().getAllProductsDirect().size)
+        repository.restoreFullBackupSnapshot(parsed.getOrThrow().snapshot)
+        assertEquals(25_000.0, db.storeDao().getAvailableCashBalance(), 0.01)
+        assertEquals(18_000.0, db.storeDao().getExchangeAccountById(accId)!!.balance, 0.01)
+        assertEquals(2, db.storeDao().getAllProductsDirect().size)
+        assertEquals(4, db.storeDao().getAllParties().first().size)
+        assertEquals(2, db.storeDao().getAllEmployees().first().size)
+
+        // Verify employee statement PDF generation works with opening credit/debit fields
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val empPdf = InvoiceHelper.generateEmployeeStatementPdf(
+            context = context,
+            summary = empOwedSummary,
+            mode = StatementMode.DETAILED,
+            settings = StoreSettings(shopNameAr = "متجر النور")
+        )
+        assertTrue(empPdf.exists() && empPdf.length() > 50L)
+    }
 }

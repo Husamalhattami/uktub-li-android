@@ -186,8 +186,13 @@ fun MainAppContent(viewModel: StoreViewModel) {
                             viewModel = viewModel,
                             onBack = { viewModel.navigateBack() }
                         )
+                        AppScreen.OPENING_BALANCES -> OpeningBalancesScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.navigateBack() }
+                        )
                         AppScreen.SETTINGS, AppScreen.AUDIT_LOGS -> SettingsScreen(
                             viewModel = viewModel,
+                            onOpenOpeningBalances = { viewModel.navigateTo(AppScreen.OPENING_BALANCES) },
                             onBack = { viewModel.navigateBack() }
                         )
                     }

@@ -603,6 +603,20 @@ fun HomeScreen(
                             onClick = { onNavigate(AppScreen.CASH_DRAWER) }
                         )
                     }
+
+                    // Row 3: الأرصدة الافتتاحية الشاملة للمحل
+                    QuickEntityButton(
+                        title = "الأرصدة الافتتاحية للمحل (صندوق، بضاعة، عملاء، موردين، عمال)",
+                        subtitle = "إدخال ما بالمحل بالكامل كرصيد افتتاحي بدون أي خصم من الصندوق",
+                        icon = Icons.Default.Verified,
+                        color = PdfHeaderNavy,
+                        bg = Color(0xFFEEF2FF),
+                        border = Color(0xFFC7D2FE),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_home_opening_balances"),
+                        onClick = { onNavigate(AppScreen.OPENING_BALANCES) }
+                    )
                 }
             }
 
@@ -709,6 +723,20 @@ fun HomeScreen(
                     )
 
                     Spacer(modifier = Modifier.height(4.dp))
+
+                    // 00. الأرصدة الافتتاحية الشاملة للمحل
+                    QuickSheetActionRow(
+                        title = "إدخال الأرصدة الافتتاحية الشاملة للمحل",
+                        subtitle = "الصندوق، الصرافين، المخزن، العملاء، الموردين، والعمال بدون خصم من الصندوق",
+                        icon = Icons.Default.Verified,
+                        iconColor = PdfHeaderNavy,
+                        iconBg = Color(0xFFEEF2FF),
+                        modifier = Modifier.testTag("sheet_opening_balances"),
+                        onClick = {
+                            showQuickAddSheet = false
+                            onNavigate(AppScreen.OPENING_BALANCES)
+                        }
+                    )
 
                     // 0. تحصيل زلط / سند قبض
                     QuickSheetActionRow(
@@ -1201,10 +1229,11 @@ fun QuickSheetActionRow(
     icon: ImageVector,
     iconColor: Color,
     iconBg: Color,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     Surface(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable { onClick() },
         shape = RoundedCornerShape(14.dp),

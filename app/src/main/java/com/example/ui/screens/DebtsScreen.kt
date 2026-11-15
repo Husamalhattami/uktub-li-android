@@ -1359,6 +1359,7 @@ fun PartyAccountCard(
 ) {
     val context = LocalContext.current
     val hasDebt = remainingDebt > 0.01
+    val advanceCredit = if (!hasDebt && party.initialBalance < -0.01) kotlin.math.abs(party.initialBalance) else 0.0
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -1423,10 +1424,11 @@ fun PartyAccountCard(
                 // Balance Badge
                 Surface(
                     shape = RoundedCornerShape(10.dp),
-                    color = if (hasDebt) {
-                        if (isCustomer) GoldContainer else RubyLight
-                    } else {
-                        EmeraldLight
+                    color = when {
+                        hasDebt && isCustomer -> GoldContainer
+                        hasDebt && !isCustomer -> RubyLight
+                        advanceCredit > 0.01 -> Color(0xFFEFF6FF)
+                        else -> EmeraldLight
                     }
                 ) {
                     Column(
@@ -1434,17 +1436,20 @@ fun PartyAccountCard(
                         horizontalAlignment = Alignment.End
                     ) {
                         Text(
-                            text = if (hasDebt) {
-                                if (isCustomer) "عليه زلط" else "عليا زلط له"
-                            } else {
-                                "الحساب خالص"
+                            text = when {
+                                hasDebt && isCustomer -> "عليه زلط"
+                                hasDebt && !isCustomer -> "عليا زلط له"
+                                advanceCredit > 0.01 && isCustomer -> "له رصيد فائض"
+                                advanceCredit > 0.01 && !isCustomer -> "لنا رصيد مقدم"
+                                else -> "الحساب خالص"
                             },
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontWeight = FontWeight.Bold,
-                                color = if (hasDebt) {
-                                    if (isCustomer) LuxuryGold else RubyExpense
-                                } else {
-                                    EmeraldProfit
+                                color = when {
+                                    hasDebt && isCustomer -> LuxuryGold
+                                    hasDebt && !isCustomer -> RubyExpense
+                                    advanceCredit > 0.01 -> BrandBlue
+                                    else -> EmeraldProfit
                                 }
                             )
                         )
@@ -1454,6 +1459,14 @@ fun PartyAccountCard(
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = FontWeight.Bold,
                                     color = if (isCustomer) LuxuryGold else RubyExpense
+                                )
+                            )
+                        } else if (advanceCredit > 0.01) {
+                            Text(
+                                text = FormatUtils.formatCurrency(advanceCredit),
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = BrandBlue
                                 )
                             )
                         }

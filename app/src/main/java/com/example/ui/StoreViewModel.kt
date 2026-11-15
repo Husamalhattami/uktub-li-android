@@ -29,6 +29,7 @@ enum class AppScreen {
     EXCHANGE_ACCOUNTS,
     TRANSACTIONS_LOG,
     STORE_AUDIT,
+    OPENING_BALANCES,
     SETTINGS,
     AUDIT_LOGS
 }
@@ -1335,6 +1336,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         accountTypes: List<String>,
         colors: List<String>,
         roles: List<String>,
+        targetScreenAfterSetup: AppScreen = AppScreen.HOME,
         onCompleted: () -> Unit = {}
     ) {
         viewModelScope.launch {
@@ -1363,11 +1365,160 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                     colors = colors,
                     roles = roles
                 )
-                _currentScreen.value = AppScreen.HOME
+                _currentScreen.value = targetScreenAfterSetup
                 _userMessage.value = "تم حفظ تهيئة «${settings.shopNameAr}» وبدء تشغيل النظام بنجاح"
                 onCompleted()
             } catch (e: Exception) {
                 reportError(e.message ?: "تعذر حفظ تهيئة المحل")
+            }
+        }
+    }
+
+    // ====================================================================
+    // Opening Balances (الأرصدة الافتتاحية الشاملة للمحل بدون خصم من الصندوق)
+    // ====================================================================
+
+    fun setOpeningCashBalance(
+        amount: Double,
+        replaceExistingBalance: Boolean,
+        notes: String = "",
+        timestamp: Long = System.currentTimeMillis(),
+        onSuccess: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.setOpeningCashBalance(
+                    amount = amount,
+                    replaceExistingBalance = replaceExistingBalance,
+                    notes = notes,
+                    timestamp = timestamp
+                )
+                _userMessage.value = if (replaceExistingBalance) {
+                    "تم اعتماد الرصيد الافتتاحي الفعلي للصندوق بنجاح"
+                } else {
+                    "تمت إضافة الرصيد الافتتاحي إلى الصندوق بنجاح"
+                }
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر حفظ الرصيد الافتتاحي للصندوق")
+            }
+        }
+    }
+
+    fun saveOpeningExchangeAccount(
+        accountId: Long = 0L,
+        name: String,
+        type: String,
+        accountNumber: String = "",
+        phone: String = "",
+        openingBalance: Double,
+        replaceExistingBalance: Boolean = false,
+        notes: String = "",
+        timestamp: Long = System.currentTimeMillis(),
+        onSuccess: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.saveOpeningExchangeAccount(
+                    accountId = accountId,
+                    name = name,
+                    type = type,
+                    accountNumber = accountNumber,
+                    phone = phone,
+                    openingBalance = openingBalance,
+                    replaceExistingBalance = replaceExistingBalance,
+                    notes = notes,
+                    timestamp = timestamp
+                )
+                _userMessage.value = "تم حفظ الرصيد الافتتاحي لـ «${name.trim()}» دون خصم من الصندوق"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر حفظ الرصيد الافتتاحي للصراف أو المحفظة")
+            }
+        }
+    }
+
+    fun addOpeningInventoryItems(
+        items: List<CartPurchaseItem>,
+        timestamp: Long = System.currentTimeMillis(),
+        onSuccess: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            try {
+                val count = repository.addOpeningInventoryItems(items = items, timestamp = timestamp)
+                _userMessage.value = "تمت إضافة $count صنف/أصناف إلى المخزن كرصيد افتتاحي دون خصم من الصندوق"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر إضافة بضاعة المخزن الافتتاحية")
+            }
+        }
+    }
+
+    fun recordPartyOpeningBalance(
+        type: String,
+        name: String,
+        phone: String = "",
+        address: String = "",
+        amount: Double,
+        isNormalDebtDirection: Boolean = true,
+        notes: String = "",
+        timestamp: Long = System.currentTimeMillis(),
+        onSuccess: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.recordPartyOpeningBalance(
+                    type = type,
+                    name = name,
+                    phone = phone,
+                    address = address,
+                    amount = amount,
+                    isNormalDebtDirection = isNormalDebtDirection,
+                    notes = notes,
+                    timestamp = timestamp
+                )
+                val partyLabel = if (type == "CUSTOMER") "العميل" else "المورد"
+                _userMessage.value = "تم تسجيل الرصيد الافتتاحي لـ$partyLabel «${name.trim()}» بنجاح"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر حفظ الرصيد الافتتاحي")
+            }
+        }
+    }
+
+    fun recordEmployeeOpeningBalance(
+        employeeId: Long = 0L,
+        name: String,
+        phone: String = "",
+        role: String = "بائع",
+        salaryType: String = "شهري",
+        baseSalary: Double = 0.0,
+        commissionPercent: Double = 0.0,
+        openingAmount: Double = 0.0,
+        isOwedToEmployee: Boolean = true,
+        notes: String = "",
+        timestamp: Long = System.currentTimeMillis(),
+        onSuccess: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.recordEmployeeOpeningBalance(
+                    employeeId = employeeId,
+                    name = name,
+                    phone = phone,
+                    role = role,
+                    salaryType = salaryType,
+                    baseSalary = baseSalary,
+                    commissionPercent = commissionPercent,
+                    openingAmount = openingAmount,
+                    isOwedToEmployee = isOwedToEmployee,
+                    notes = notes,
+                    timestamp = timestamp
+                )
+                _userMessage.value = "تم تسجيل بيانات والرصيد الافتتاحي للعامل «${name.trim()}» بدون خصم من الصندوق"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر تسجيل بيانات العامل")
             }
         }
     }
