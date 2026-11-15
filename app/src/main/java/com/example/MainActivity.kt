@@ -12,16 +12,19 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ui.theme.FintechRose
 import com.example.ui.AppScreen
 import com.example.ui.StoreViewModel
 import com.example.ui.components.CollectionSuccessDialog
@@ -56,6 +59,7 @@ fun MainAppContent(viewModel: StoreViewModel) {
     val completedSupplierPaymentReceipt by viewModel.completedSupplierPaymentReceipt.collectAsStateWithLifecycle()
     val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
     val userMessage by viewModel.userMessage.collectAsStateWithLifecycle()
+    val errorDialogMessage by viewModel.errorDialogMessage.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
     if (!isInitialized) {
@@ -215,6 +219,39 @@ fun MainAppContent(viewModel: StoreViewModel) {
             receipt = receipt,
             settings = storeSettings,
             onDismiss = { viewModel.dismissSupplierPaymentReceipt() }
+        )
+    }
+
+    // Persistent Error Dialog for critical rejections and accounting guards
+    errorDialogMessage?.let { errMsg ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissErrorDialog() },
+            modifier = Modifier.testTag("global_error_dialog"),
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.ErrorOutline,
+                    contentDescription = "خطأ",
+                    tint = FintechRose
+                )
+            },
+            title = {
+                Text(
+                    text = "تنبيه — تعذر إتمام العملية",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(text = errMsg)
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.dismissErrorDialog() },
+                    colors = ButtonDefaults.buttonColors(containerColor = FintechRose),
+                    modifier = Modifier.testTag("dismiss_error_dialog_button")
+                ) {
+                    Text("موافق", fontWeight = FontWeight.Bold)
+                }
+            }
         )
     }
 }

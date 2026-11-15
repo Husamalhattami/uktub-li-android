@@ -29,6 +29,7 @@ import com.example.data.model.ProductItem
 import com.example.ui.StoreViewModel
 import com.example.ui.components.DialogInfoBanner
 import com.example.ui.components.DialogSectionHeader
+import com.example.ui.components.PinVerificationDialog
 import com.example.ui.components.StoreOperationDialog
 import com.example.ui.components.StoreTopBar
 import com.example.ui.components.storeDialogTextFieldColors
@@ -47,14 +48,14 @@ fun StoreAuditScreen(
 
     // State for Cash Drawer Audit
     var actualCashDrawerStr by remember(currentCashBalance) {
-        mutableStateOf(currentCashBalance.toInt().coerceAtLeast(0).toString())
+        mutableStateOf(FormatUtils.formatInputNumber(currentCashBalance.coerceAtLeast(0.0)))
     }
 
     // State for Exchange Accounts Audit (AccountId -> String value)
     val exchangeBalancesState = remember(exchangeAccounts) {
         mutableStateMapOf<Long, String>().apply {
             exchangeAccounts.forEach { acc ->
-                put(acc.id, acc.balance.toInt().toString())
+                put(acc.id, FormatUtils.formatInputNumber(acc.balance.coerceAtLeast(0.0)))
             }
         }
     }
@@ -65,6 +66,7 @@ fun StoreAuditScreen(
 
     // Dialog confirmation state
     var showConfirmDialog by remember { mutableStateOf(false) }
+    var showPinForAudit by remember { mutableStateOf(false) }
     var confirmWordInput by remember { mutableStateOf("") }
     var showAddAccountDialog by remember { mutableStateOf(false) }
 
@@ -520,7 +522,20 @@ fun StoreAuditScreen(
             // Confirm Button
             item {
                 Button(
-                    onClick = { showConfirmDialog = true },
+                    onClick = {
+                        val cashParsed = actualCashDrawerStr.toDoubleOrNull()
+                        val hasNegativeExchange = exchangeAccounts.any { acc ->
+                            val v = exchangeBalancesState[acc.id]?.toDoubleOrNull()
+                            v == null || v < 0.0
+                        }
+                        if (cashParsed == null || cashParsed < 0.0) {
+                            viewModel.showMessage("لا يمكن إدخال رصيد صندوق سالب أو غير صالح!")
+                        } else if (hasNegativeExchange) {
+                            viewModel.showMessage("لا يمكن إدخال أرصدة صرافة سالبة أو غير صالحة!")
+                        } else {
+                            showConfirmDialog = true
+                        }
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(54.dp)
@@ -560,19 +575,8 @@ fun StoreAuditScreen(
             confirmTestTag = "confirm_finalize_audit_button",
             dismissText = "إلغاء وتعديل",
             onConfirm = {
-                val exchangeMap = exchangeAccounts.associate { acc ->
-                    acc.id to (exchangeBalancesState[acc.id]?.toDoubleOrNull() ?: 0.0)
-                }
-                viewModel.executeStoreFullAudit(
-                    actualDrawerCash = actualCash,
-                    exchangeBalances = exchangeMap,
-                    resetTransactions = resetTransactionsFromZero,
-                    notes = auditNotes,
-                    onSuccess = {
-                        showConfirmDialog = false
-                        onBack()
-                    }
-                )
+                showConfirmDialog = false
+                showPinForAudit = true
             }
         ) {
             DialogInfoBanner(
@@ -743,5 +747,27 @@ fun StoreAuditScreen(
                 colors = storeDialogTextFieldColors(Color(0xFF0D9488))
             )
         }
+    }
+
+    if (showPinForAudit) {
+        PinVerificationDialog(
+            viewModel = viewModel,
+            title = "تحقق رمز المدير للجرد",
+            subtitle = if (resetTransactionsFromZero) "تأكيد تصفير الحركات واعتماد الأرصدة الافتتاحية" else "تأكيد اعتماد تسوية الجرد الفعلي",
+            onDismiss = { showPinForAudit = false },
+            onVerified = {
+                showPinForAudit = false
+                val exchangeMap = exchangeAccounts.associate { acc ->
+                    acc.id to (exchangeBalancesState[acc.id]?.toDoubleOrNull() ?: 0.0)
+                }
+                viewModel.executeStoreFullAudit(
+                    actualDrawerCash = actualCash,
+                    exchangeBalances = exchangeMap,
+                    resetTransactions = resetTransactionsFromZero,
+                    notes = auditNotes,
+                    onSuccess = { onBack() }
+                )
+            }
+        )
     }
 }

@@ -7,6 +7,8 @@ import androidx.room.RoomDatabase
 import com.example.data.dao.StoreDao
 import com.example.data.model.*
 
+import com.example.ui.util.PinSecurityManager
+
 @Database(
     entities = [
         ProductItem::class,
@@ -26,7 +28,7 @@ import com.example.data.model.*
         StoreSettings::class,
         StoreConfigItem::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -43,9 +45,48 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "hesabi_store.db"
-                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9).fallbackToDestructiveMigration().build()
+                ).addMigrations(*ALL_MIGRATIONS).build()
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        val MIGRATION_9_10 = object : androidx.room.migration.Migration(9, 10) {
+            override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE expenses ADD COLUMN linkedEmployeeTxId INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE employee_transactions ADD COLUMN linkedExpenseId INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE exchange_accounts ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE parties ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE exchange_transfers ADD COLUMN referenceType TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE exchange_transfers ADD COLUMN referenceId INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE exchange_transfers ADD COLUMN isReversed INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE exchange_transfers ADD COLUMN reversedByTransferId INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE exchange_transfers ADD COLUMN isReversalEntry INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE store_settings ADD COLUMN managerPinHash TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE store_settings ADD COLUMN managerPinSalt TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE store_settings ADD COLUMN mustChangePin INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE store_settings ADD COLUMN pinFailedAttempts INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE store_settings ADD COLUMN pinLockUntilTimestamp INTEGER NOT NULL DEFAULT 0")
+
+                database.query("SELECT id, managerPin FROM store_settings").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getInt(0)
+                        val legacyPin = cursor.getString(1)?.trim() ?: ""
+                        if (legacyPin.isNotBlank() && PinSecurityManager.validatePinStrength(legacyPin) == null) {
+                            val salt = PinSecurityManager.generateSalt()
+                            val hash = PinSecurityManager.hashPin(legacyPin, salt)
+                            database.execSQL(
+                                "UPDATE store_settings SET managerPin = '', managerPinHash = ?, managerPinSalt = ?, mustChangePin = 0 WHERE id = ?",
+                                arrayOf<Any>(hash, salt, id)
+                            )
+                        } else if (legacyPin.isNotBlank()) {
+                            database.execSQL(
+                                "UPDATE store_settings SET managerPin = '', managerPinHash = '', managerPinSalt = '', mustChangePin = 1 WHERE id = ?",
+                                arrayOf<Any>(id)
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -67,25 +108,6 @@ abstract class AppDatabase : RoomDatabase() {
         private val MIGRATION_7_8 = object : androidx.room.migration.Migration(7, 8) {
             override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
                 database.execSQL("ALTER TABLE debt_payments ADD COLUMN voucherNumber TEXT NOT NULL DEFAULT ''")
-                val tablesToWipe = listOf(
-                    "products",
-                    "sales",
-                    "purchases",
-                    "expenses",
-                    "employees",
-                    "employee_transactions",
-                    "debts",
-                    "debt_payments",
-                    "shifts",
-                    "cash_movements",
-                    "exchange_accounts",
-                    "exchange_transfers",
-                    "parties",
-                    "audit_logs"
-                )
-                tablesToWipe.forEach { table ->
-                    database.execSQL("DELETE FROM `$table`")
-                }
             }
         }
 
@@ -155,6 +177,19 @@ abstract class AppDatabase : RoomDatabase() {
                     )
                 """.trimIndent())
             }
+        }
+
+        val ALL_MIGRATIONS: Array<androidx.room.migration.Migration> by lazy {
+            arrayOf(
+                MIGRATION_2_3,
+                MIGRATION_3_4,
+                MIGRATION_4_5,
+                MIGRATION_5_6,
+                MIGRATION_6_7,
+                MIGRATION_7_8,
+                MIGRATION_8_9,
+                MIGRATION_9_10
+            )
         }
     }
 }

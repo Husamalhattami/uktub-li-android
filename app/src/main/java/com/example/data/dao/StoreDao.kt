@@ -11,6 +11,9 @@ interface StoreDao {
     @Query("SELECT * FROM products ORDER BY id DESC")
     fun getAllProducts(): Flow<List<ProductItem>>
 
+    @Query("SELECT * FROM products ORDER BY id ASC")
+    suspend fun getAllProductsDirect(): List<ProductItem>
+
     @Query("SELECT * FROM products WHERE id = :id")
     suspend fun getProductById(id: Long): ProductItem?
 
@@ -33,11 +36,26 @@ interface StoreDao {
     @Query("SELECT * FROM sales ORDER BY timestamp DESC")
     fun getAllSales(): Flow<List<SaleTransaction>>
 
+    @Query("SELECT * FROM sales ORDER BY id ASC")
+    suspend fun getAllSalesDirect(): List<SaleTransaction>
+
     @Query("SELECT * FROM sales WHERE timestamp >= :startTime AND timestamp <= :endTime ORDER BY timestamp DESC")
     fun getSalesBetween(startTime: Long, endTime: Long): Flow<List<SaleTransaction>>
 
     @Query("SELECT * FROM sales WHERE id = :id")
     suspend fun getSaleById(id: Long): SaleTransaction?
+
+    @Query("SELECT * FROM sales WHERE invoiceNumber = :invoiceNumber ORDER BY id ASC")
+    suspend fun getSalesByInvoiceNumber(invoiceNumber: String): List<SaleTransaction>
+
+    @Query("SELECT COUNT(*) FROM sales WHERE LOWER(TRIM(invoiceNumber)) = LOWER(TRIM(:invoiceNumber))")
+    suspend fun countSalesByInvoiceNumber(invoiceNumber: String): Int
+
+    @Query("SELECT COUNT(*) FROM sales WHERE LOWER(TRIM(invoiceNumber)) = LOWER(TRIM(:invoiceNumber)) AND LOWER(TRIM(invoiceNumber)) != LOWER(TRIM(:excludeInvoiceNumber))")
+    suspend fun countOtherSalesByInvoiceNumber(invoiceNumber: String, excludeInvoiceNumber: String): Int
+
+    @Query("SELECT invoiceNumber FROM sales WHERE invoiceNumber != ''")
+    suspend fun getAllSaleInvoiceNumbers(): List<String>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSale(sale: SaleTransaction): Long
@@ -55,8 +73,23 @@ interface StoreDao {
     @Query("SELECT * FROM purchases ORDER BY timestamp DESC")
     fun getAllPurchases(): Flow<List<PurchaseRecord>>
 
+    @Query("SELECT * FROM purchases ORDER BY id ASC")
+    suspend fun getAllPurchasesDirect(): List<PurchaseRecord>
+
     @Query("SELECT * FROM purchases WHERE id = :id")
     suspend fun getPurchaseById(id: Long): PurchaseRecord?
+
+    @Query("SELECT * FROM purchases WHERE invoiceNumber = :invoiceNumber ORDER BY id ASC")
+    suspend fun getPurchasesByInvoiceNumber(invoiceNumber: String): List<PurchaseRecord>
+
+    @Query("SELECT COUNT(*) FROM purchases WHERE LOWER(TRIM(invoiceNumber)) = LOWER(TRIM(:invoiceNumber))")
+    suspend fun countPurchasesByInvoiceNumber(invoiceNumber: String): Int
+
+    @Query("SELECT COUNT(*) FROM purchases WHERE LOWER(TRIM(invoiceNumber)) = LOWER(TRIM(:invoiceNumber)) AND LOWER(TRIM(invoiceNumber)) != LOWER(TRIM(:excludeInvoiceNumber))")
+    suspend fun countOtherPurchasesByInvoiceNumber(invoiceNumber: String, excludeInvoiceNumber: String): Int
+
+    @Query("SELECT invoiceNumber FROM purchases WHERE invoiceNumber != ''")
+    suspend fun getAllPurchaseInvoiceNumbers(): List<String>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPurchase(purchase: PurchaseRecord): Long
@@ -74,11 +107,20 @@ interface StoreDao {
     @Query("SELECT * FROM expenses ORDER BY timestamp DESC")
     fun getAllExpenses(): Flow<List<ExpenseRecord>>
 
+    @Query("SELECT * FROM expenses ORDER BY id ASC")
+    suspend fun getAllExpensesDirect(): List<ExpenseRecord>
+
     @Query("SELECT * FROM expenses WHERE timestamp >= :startTime AND timestamp <= :endTime ORDER BY timestamp DESC")
     fun getExpensesBetween(startTime: Long, endTime: Long): Flow<List<ExpenseRecord>>
 
     @Query("SELECT * FROM expenses WHERE id = :id")
     suspend fun getExpenseById(id: Long): ExpenseRecord?
+
+    @Query("SELECT COUNT(*) FROM expenses WHERE LOWER(TRIM(receiptNumber)) = LOWER(TRIM(:receiptNumber))")
+    suspend fun countExpensesByReceiptNumber(receiptNumber: String): Int
+
+    @Query("SELECT receiptNumber FROM expenses WHERE receiptNumber != ''")
+    suspend fun getAllExpenseReceiptNumbers(): List<String>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertExpense(expense: ExpenseRecord): Long
@@ -96,8 +138,20 @@ interface StoreDao {
     @Query("SELECT * FROM employees WHERE active = 1 ORDER BY name ASC")
     fun getAllEmployees(): Flow<List<Employee>>
 
+    @Query("SELECT * FROM employees ORDER BY name ASC")
+    fun getAllEmployeesIncludingArchived(): Flow<List<Employee>>
+
+    @Query("SELECT * FROM employees ORDER BY id ASC")
+    suspend fun getAllEmployeesIncludingArchivedDirect(): List<Employee>
+
     @Query("SELECT * FROM employees WHERE id = :id")
     suspend fun getEmployeeById(id: Long): Employee?
+
+    @Query("SELECT COUNT(*) FROM employee_transactions WHERE employeeId = :employeeId")
+    suspend fun countEmployeeTxByEmployee(employeeId: Long): Int
+
+    @Query("SELECT COUNT(*) FROM sales WHERE employeeId = :employeeId OR LOWER(TRIM(employeeName)) = LOWER(TRIM(:employeeName))")
+    suspend fun countSalesByEmployee(employeeId: Long, employeeName: String): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEmployee(employee: Employee): Long
@@ -114,6 +168,9 @@ interface StoreDao {
     // --- Employee Transactions ---
     @Query("SELECT * FROM employee_transactions ORDER BY timestamp DESC")
     fun getAllEmployeeTransactions(): Flow<List<EmployeeTransaction>>
+
+    @Query("SELECT * FROM employee_transactions ORDER BY id ASC")
+    suspend fun getAllEmployeeTransactionsDirect(): List<EmployeeTransaction>
 
     @Query("SELECT * FROM employee_transactions WHERE employeeId = :employeeId ORDER BY timestamp DESC")
     fun getTransactionsForEmployee(employeeId: Long): Flow<List<EmployeeTransaction>>
@@ -137,6 +194,9 @@ interface StoreDao {
     @Query("SELECT * FROM debts ORDER BY isSettled ASC, createdAt DESC")
     fun getAllDebts(): Flow<List<DebtRecord>>
 
+    @Query("SELECT * FROM debts ORDER BY id ASC")
+    suspend fun getAllDebtsDirect(): List<DebtRecord>
+
     @Query("SELECT * FROM debts WHERE type = :type ORDER BY isSettled ASC, createdAt DESC")
     fun getDebtsByType(type: String): Flow<List<DebtRecord>>
 
@@ -148,6 +208,12 @@ interface StoreDao {
 
     @Query("SELECT * FROM debts WHERE referencePurchaseId = :purchaseId LIMIT 1")
     suspend fun getDebtByPurchaseId(purchaseId: Long): DebtRecord?
+
+    @Query("SELECT * FROM debts WHERE referenceSaleId IN (:saleIds)")
+    suspend fun getDebtsBySaleIds(saleIds: List<Long>): List<DebtRecord>
+
+    @Query("SELECT * FROM debts WHERE referencePurchaseId IN (:purchaseIds)")
+    suspend fun getDebtsByPurchaseIds(purchaseIds: List<Long>): List<DebtRecord>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDebt(debt: DebtRecord): Long
@@ -165,8 +231,20 @@ interface StoreDao {
     @Query("SELECT * FROM debt_payments ORDER BY timestamp DESC")
     fun getAllDebtPayments(): Flow<List<DebtPayment>>
 
+    @Query("SELECT * FROM debt_payments ORDER BY id ASC")
+    suspend fun getAllDebtPaymentsDirect(): List<DebtPayment>
+
     @Query("SELECT * FROM debt_payments WHERE debtId = :debtId ORDER BY timestamp DESC")
     fun getPaymentsForDebt(debtId: Long): Flow<List<DebtPayment>>
+
+    @Query("SELECT COUNT(*) FROM debt_payments WHERE debtId = :debtId")
+    suspend fun countPaymentsForDebt(debtId: Long): Int
+
+    @Query("SELECT COUNT(*) FROM debt_payments WHERE LOWER(TRIM(voucherNumber)) = LOWER(TRIM(:voucherNumber))")
+    suspend fun countPaymentsByVoucherNumber(voucherNumber: String): Int
+
+    @Query("SELECT voucherNumber FROM debt_payments WHERE voucherNumber != ''")
+    suspend fun getAllPaymentVoucherNumbers(): List<String>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDebtPayment(payment: DebtPayment): Long
@@ -181,6 +259,9 @@ interface StoreDao {
     @Query("SELECT * FROM shifts ORDER BY id DESC")
     fun getAllShifts(): Flow<List<CashDrawerShift>>
 
+    @Query("SELECT * FROM shifts ORDER BY id ASC")
+    suspend fun getAllShiftsDirect(): List<CashDrawerShift>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertShift(shift: CashDrawerShift): Long
 
@@ -194,6 +275,12 @@ interface StoreDao {
     @Query("SELECT * FROM cash_movements ORDER BY timestamp DESC")
     fun getAllCashMovements(): Flow<List<CashDrawerMovement>>
 
+    @Query("SELECT * FROM cash_movements ORDER BY id ASC")
+    suspend fun getAllCashMovementsDirect(): List<CashDrawerMovement>
+
+    @Query("SELECT COALESCE(SUM(CASE WHEN isIncome = 1 THEN amount ELSE -amount END), 0.0) FROM cash_movements")
+    suspend fun getAvailableCashBalance(): Double
+
     @Query("SELECT * FROM cash_movements WHERE shiftId = :shiftId ORDER BY timestamp DESC")
     fun getMovementsForShift(shiftId: Long): Flow<List<CashDrawerMovement>>
 
@@ -203,8 +290,14 @@ interface StoreDao {
     @Query("DELETE FROM cash_movements WHERE referenceSaleId = :saleId")
     suspend fun deleteCashMovementsForSale(saleId: Long)
 
+    @Query("DELETE FROM cash_movements WHERE referenceSaleId IN (:saleIds)")
+    suspend fun deleteCashMovementsForSales(saleIds: List<Long>)
+
     @Query("DELETE FROM cash_movements WHERE referencePurchaseId = :purchaseId")
     suspend fun deleteCashMovementsForPurchase(purchaseId: Long)
+
+    @Query("DELETE FROM cash_movements WHERE referencePurchaseId IN (:purchaseIds)")
+    suspend fun deleteCashMovementsForPurchases(purchaseIds: List<Long>)
 
     @Query("DELETE FROM cash_movements WHERE referenceExpenseId = :expenseId")
     suspend fun deleteCashMovementsForExpense(expenseId: Long)
@@ -216,8 +309,14 @@ interface StoreDao {
     suspend fun deleteAllCashMovements()
 
     // --- Exchange Accounts & Wallets ---
-    @Query("SELECT * FROM exchange_accounts ORDER BY balance DESC, name ASC")
+    @Query("SELECT * FROM exchange_accounts WHERE isArchived = 0 ORDER BY balance DESC, name ASC")
     fun getAllExchangeAccounts(): Flow<List<ExchangeAccount>>
+
+    @Query("SELECT * FROM exchange_accounts ORDER BY balance DESC, name ASC")
+    fun getAllExchangeAccountsIncludingArchived(): Flow<List<ExchangeAccount>>
+
+    @Query("SELECT * FROM exchange_accounts ORDER BY id ASC")
+    suspend fun getAllExchangeAccountsIncludingArchivedDirect(): List<ExchangeAccount>
 
     @Query("SELECT * FROM exchange_accounts WHERE id = :id")
     suspend fun getExchangeAccountById(id: Long): ExchangeAccount?
@@ -240,12 +339,48 @@ interface StoreDao {
     @Query("DELETE FROM exchange_accounts")
     suspend fun deleteAllExchangeAccounts()
 
+    @Query("SELECT COUNT(*) FROM exchange_transfers WHERE accountId = :accountId")
+    suspend fun countTransfersByAccount(accountId: Long): Int
+
+    @Query("SELECT COUNT(*) FROM sales WHERE exchangeAccountId = :accountId")
+    suspend fun countSalesByAccount(accountId: Long): Int
+
+    @Query("SELECT COUNT(*) FROM purchases WHERE exchangeAccountId = :accountId")
+    suspend fun countPurchasesByAccount(accountId: Long): Int
+
+    @Query("SELECT COUNT(*) FROM expenses WHERE exchangeAccountId = :accountId")
+    suspend fun countExpensesByAccount(accountId: Long): Int
+
+    @Query("SELECT COUNT(*) FROM employee_transactions WHERE exchangeAccountId = :accountId")
+    suspend fun countEmployeeTxByAccount(accountId: Long): Int
+
+    @Query("SELECT COUNT(*) FROM debt_payments WHERE exchangeAccountId = :accountId")
+    suspend fun countDebtPaymentsByAccount(accountId: Long): Int
+
     // --- Exchange Transfers ---
-    @Query("SELECT * FROM exchange_transfers ORDER BY timestamp DESC")
+    @Query("SELECT * FROM exchange_transfers WHERE isReversed = 0 AND isReversalEntry = 0 ORDER BY timestamp DESC")
     fun getAllExchangeTransfers(): Flow<List<ExchangeTransfer>>
 
-    @Query("SELECT * FROM exchange_transfers WHERE accountId = :accountId ORDER BY timestamp DESC")
+    @Query("SELECT * FROM exchange_transfers ORDER BY timestamp DESC")
+    fun getAllExchangeTransfersIncludingReversed(): Flow<List<ExchangeTransfer>>
+
+    @Query("SELECT * FROM exchange_transfers ORDER BY id ASC")
+    suspend fun getAllExchangeTransfersDirect(): List<ExchangeTransfer>
+
+    @Query("SELECT * FROM exchange_transfers WHERE accountId = :accountId AND isReversed = 0 AND isReversalEntry = 0 ORDER BY timestamp DESC")
     fun getTransfersForAccount(accountId: Long): Flow<List<ExchangeTransfer>>
+
+    @Query("SELECT * FROM exchange_transfers WHERE referenceType = :refType AND referenceId = :refId AND isReversed = 0 AND isReversalEntry = 0 ORDER BY id ASC")
+    suspend fun getActiveTransfersByReference(refType: String, refId: Long): List<ExchangeTransfer>
+
+    @Query("SELECT * FROM exchange_transfers WHERE referenceType = :refType AND referenceId IN (:refIds) AND isReversed = 0 AND isReversalEntry = 0 ORDER BY id ASC")
+    suspend fun getActiveTransfersByReferences(refType: String, refIds: List<Long>): List<ExchangeTransfer>
+
+    @Query("SELECT * FROM exchange_transfers WHERE referenceNumber = :refNum AND isReversed = 0 AND isReversalEntry = 0 ORDER BY id ASC")
+    suspend fun getActiveTransfersByReferenceNumber(refNum: String): List<ExchangeTransfer>
+
+    @Query("UPDATE exchange_transfers SET isReversed = 1, reversedByTransferId = :reversalId WHERE id = :transferId")
+    suspend fun markTransferReversed(transferId: Long, reversalId: Long)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertExchangeTransfer(transfer: ExchangeTransfer): Long
@@ -257,11 +392,17 @@ interface StoreDao {
     suspend fun deleteAllExchangeTransfers()
 
     // --- Parties (Customers & Suppliers) ---
-    @Query("SELECT * FROM parties ORDER BY name ASC")
+    @Query("SELECT * FROM parties WHERE isArchived = 0 ORDER BY name ASC")
     fun getAllParties(): Flow<List<PartyAccount>>
 
-    @Query("SELECT * FROM parties WHERE type = :type ORDER BY name ASC")
+    @Query("SELECT * FROM parties WHERE type = :type AND isArchived = 0 ORDER BY name ASC")
     fun getPartiesByType(type: String): Flow<List<PartyAccount>>
+
+    @Query("SELECT * FROM parties ORDER BY name ASC")
+    fun getAllPartiesIncludingArchived(): Flow<List<PartyAccount>>
+
+    @Query("SELECT * FROM parties ORDER BY id ASC")
+    suspend fun getAllPartiesIncludingArchivedDirect(): List<PartyAccount>
 
     @Query("SELECT * FROM parties WHERE id = :id")
     suspend fun getPartyById(id: Long): PartyAccount?
@@ -280,6 +421,18 @@ interface StoreDao {
 
     @Query("DELETE FROM parties")
     suspend fun deleteAllParties()
+
+    @Query("SELECT COUNT(*) FROM debts WHERE LOWER(TRIM(partyName)) = LOWER(TRIM(:partyName))")
+    suspend fun countDebtsByPartyName(partyName: String): Int
+
+    @Query("SELECT COUNT(*) FROM debt_payments WHERE LOWER(TRIM(partyName)) = LOWER(TRIM(:partyName))")
+    suspend fun countPaymentsByPartyName(partyName: String): Int
+
+    @Query("SELECT COUNT(*) FROM sales WHERE LOWER(TRIM(customerName)) = LOWER(TRIM(:partyName))")
+    suspend fun countSalesByCustomerName(partyName: String): Int
+
+    @Query("SELECT COUNT(*) FROM purchases WHERE LOWER(TRIM(supplierName)) = LOWER(TRIM(:partyName))")
+    suspend fun countPurchasesBySupplierName(partyName: String): Int
 
     @Query("SELECT * FROM debts WHERE partyName = :partyName ORDER BY createdAt DESC")
     fun getDebtsByPartyName(partyName: String): Flow<List<DebtRecord>>
@@ -304,6 +457,9 @@ interface StoreDao {
     @Query("SELECT * FROM audit_logs ORDER BY timestamp DESC")
     fun getAllAuditLogs(): Flow<List<AuditLogRecord>>
 
+    @Query("SELECT * FROM audit_logs ORDER BY id ASC")
+    suspend fun getAllAuditLogsDirect(): List<AuditLogRecord>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAuditLog(log: AuditLogRecord): Long
 
@@ -326,6 +482,9 @@ interface StoreDao {
     // --- Store Config Dictionaries (Categories, Sizes, Expense Types, Account Types, Colors, Roles) ---
     @Query("SELECT * FROM store_config_items ORDER BY id ASC")
     fun getAllConfigItems(): Flow<List<StoreConfigItem>>
+
+    @Query("SELECT * FROM store_config_items ORDER BY id ASC")
+    suspend fun getAllConfigItemsDirect(): List<StoreConfigItem>
 
     @Query("SELECT * FROM store_config_items WHERE type = :type ORDER BY id ASC")
     fun getConfigItemsByType(type: String): Flow<List<StoreConfigItem>>

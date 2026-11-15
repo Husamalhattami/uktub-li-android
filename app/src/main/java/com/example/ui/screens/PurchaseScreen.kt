@@ -164,18 +164,20 @@ fun PurchaseScreen(
         purchaseCartItems.sumOf { it.lineCost }
     }
 
-    // Auto-update split values when totalCartCost or paymentMethod changes
-    LaunchedEffect(totalCartCost, paymentMethod) {
+    // Initialize split defaults only when fields are empty or switching mode cleanly (preserve user manual edits)
+    LaunchedEffect(paymentMethod) {
         if (paymentMethod == "نصف كاش ونصف حوالة") {
-            val half = (totalCartCost / 2).toLong()
-            cashPaidPartStr = half.toString()
-            transferPaidPartStr = (totalCartCost.toLong() - half).toString()
+            val half = kotlin.math.round((totalCartCost / 2.0) * 100.0) / 100.0
+            val remainder = kotlin.math.round((totalCartCost - half) * 100.0) / 100.0
+            cashPaidPartStr = FormatUtils.formatInputNumber(half)
+            transferPaidPartStr = FormatUtils.formatInputNumber(remainder)
             debtPartStr = "0"
         } else if (paymentMethod == "مختلط (كاش + حوالة + آجل)" && cashPaidPartStr.isBlank() && transferPaidPartStr.isBlank() && debtPartStr.isBlank()) {
-            val third = (totalCartCost / 3).toLong()
-            cashPaidPartStr = third.toString()
-            transferPaidPartStr = third.toString()
-            debtPartStr = (totalCartCost.toLong() - (third * 2)).toString()
+            val third = kotlin.math.round((totalCartCost / 3.0) * 100.0) / 100.0
+            val remainder = kotlin.math.round((totalCartCost - (third * 2.0)) * 100.0) / 100.0
+            cashPaidPartStr = FormatUtils.formatInputNumber(third)
+            transferPaidPartStr = FormatUtils.formatInputNumber(third)
+            debtPartStr = FormatUtils.formatInputNumber(remainder)
         }
     }
 
@@ -259,8 +261,17 @@ fun PurchaseScreen(
                     viewModel.showMessage("يرجى اختيار حساب الصراف أو المحفظة للدفعة المحولة!")
                     return
                 }
-                val c = cashPaidPartStr.toDoubleOrNull() ?: (totalCartCost / 2.0)
-                val t = transferPaidPartStr.toDoubleOrNull() ?: (totalCartCost - c)
+                val c = cashPaidPartStr.toDoubleOrNull() ?: 0.0
+                val t = transferPaidPartStr.toDoubleOrNull() ?: 0.0
+                if (c < 0 || t < 0) {
+                    viewModel.showMessage("لا يمكن إدخال قيم سالبة في توزيع الدفع!")
+                    return
+                }
+                val sumParts = c + t
+                if (kotlin.math.abs(sumParts - totalCartCost) > 0.01) {
+                    viewModel.showMessage("مجموع الكاش والتحويل (${FormatUtils.formatCurrency(sumParts)}) يجب أن يعادل إجمالي الفاتورة (${FormatUtils.formatCurrency(totalCartCost)})!")
+                    return
+                }
                 actualCash = c
                 actualTransfer = t
                 actualDebt = 0.0
@@ -278,16 +289,20 @@ fun PurchaseScreen(
                 val c = cashPaidPartStr.toDoubleOrNull() ?: 0.0
                 val t = transferPaidPartStr.toDoubleOrNull() ?: 0.0
                 val d = debtPartStr.toDoubleOrNull() ?: 0.0
+                if (c < 0 || t < 0 || d < 0) {
+                    viewModel.showMessage("لا يمكن إدخال قيم سالبة في توزيع الدفع المختلط!")
+                    return
+                }
                 val sumParts = c + t + d
-                if (kotlin.math.abs(sumParts - totalCartCost) > 1.0) {
+                if (kotlin.math.abs(sumParts - totalCartCost) > 0.01) {
                     viewModel.showMessage("مجموع المبالغ (${FormatUtils.formatCurrency(sumParts)}) لا يعادل إجمالي الفاتورة (${FormatUtils.formatCurrency(totalCartCost)})!")
                     return
                 }
-                if (t > 0 && selectedExchangeAccount == null) {
+                if (t > 0.001 && selectedExchangeAccount == null) {
                     viewModel.showMessage("يرجى اختيار حساب الصراف أو المحفظة للمبلغ المحول ($t ريال)!")
                     return
                 }
-                if (d > 0 && supplierName.trim().isBlank()) {
+                if (d > 0.001 && supplierName.trim().isBlank()) {
                     viewModel.showMessage("يرجى إدخال اسم المورد لتسجيل المبلغ الآجل ($d ريال)!")
                     return
                 }
@@ -1058,7 +1073,7 @@ fun PurchaseScreen(
                                     val t = transferPaidPartStr.toDoubleOrNull() ?: 0.0
                                     val d = if (paymentMethod == "مختلط (كاش + حوالة + آجل)") debtPartStr.toDoubleOrNull() ?: 0.0 else 0.0
                                     val sum = c + t + d
-                                    val isMatch = kotlin.math.abs(sum - totalCartCost) <= 1.0
+                                    val isMatch = c >= 0.0 && t >= 0.0 && d >= 0.0 && kotlin.math.abs(sum - totalCartCost) <= 0.01
 
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                         Text("المجموع: ${FormatUtils.formatCurrency(sum)}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (isMatch) Color(0xFF16A34A) else Color(0xFFDC2626))

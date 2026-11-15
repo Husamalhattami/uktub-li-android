@@ -168,10 +168,11 @@ fun SaleScreen(
     // Sync custom split defaults if split chosen
     LaunchedEffect(paymentType, totalAmount) {
         if (paymentType == PaymentMethods.CUSTOM_SPLIT && cashPartInput.isBlank() && transferPartInput.isBlank() && debtPartInput.isBlank()) {
-            val third = (totalAmount / 3).toLong()
-            cashPartInput = third.toString()
-            transferPartInput = third.toString()
-            debtPartInput = (totalAmount.toLong() - (third * 2)).toString()
+            val third = kotlin.math.round((totalAmount / 3.0) * 100.0) / 100.0
+            val remainder = kotlin.math.round((totalAmount - (third * 2.0)) * 100.0) / 100.0
+            cashPartInput = FormatUtils.formatInputNumber(third)
+            transferPartInput = FormatUtils.formatInputNumber(third)
+            debtPartInput = FormatUtils.formatInputNumber(remainder)
         }
     }
 
@@ -236,25 +237,29 @@ fun SaleScreen(
                     viewModel.showMessage("يرجى اختيار حساب الصراف أو المحفظة للدفعة المحولة.")
                     return
                 }
-                val half = (totalAmount / 2).toLong().toDouble()
+                val half = kotlin.math.round((totalAmount / 2.0) * 100.0) / 100.0
                 actualCash = half
-                actualTransfer = totalAmount - half
+                actualTransfer = kotlin.math.round((totalAmount - half) * 100.0) / 100.0
                 actualDebt = 0.0
             }
             PaymentMethods.CUSTOM_SPLIT, "مختلط (كاش + حوالة + آجل)" -> {
                 val c = cashPartInput.toDoubleOrNull() ?: 0.0
                 val t = transferPartInput.toDoubleOrNull() ?: 0.0
                 val d = debtPartInput.toDoubleOrNull() ?: 0.0
-                val sumParts = c + t + d
-                if (kotlin.math.abs(sumParts - totalAmount) > 1.0) {
-                    viewModel.showMessage("مجموع الكاش ($c) والتحويل ($t) والآجل ($d) يجب أن يعادل صافي الفاتورة ($totalAmount ريال)!")
+                if (c < 0 || t < 0 || d < 0) {
+                    viewModel.showMessage("لا يمكن إدخال قيم سالبة في توزيع الدفع المختلط!")
                     return
                 }
-                if (t > 0 && selectedExchangeAccount == null) {
+                val sumParts = c + t + d
+                if (kotlin.math.abs(sumParts - totalAmount) > 0.01) {
+                    viewModel.showMessage("مجموع الكاش (${FormatUtils.formatNumber(c)}) والتحويل (${FormatUtils.formatNumber(t)}) والآجل (${FormatUtils.formatNumber(d)}) يجب أن يعادل صافي الفاتورة (${FormatUtils.formatCurrency(totalAmount)})!")
+                    return
+                }
+                if (t > 0.001 && selectedExchangeAccount == null) {
                     viewModel.showMessage("يرجى اختيار حساب الصراف أو المحفظة لمبلغ التحويل ($t ريال).")
                     return
                 }
-                if (d > 0 && customerName.trim().isBlank()) {
+                if (d > 0.001 && customerName.trim().isBlank()) {
                     viewModel.showMessage("يرجى كتابة أو اختيار اسم العميل لتسجيل المبلغ الآجل ($d ريال).")
                     return
                 }
@@ -793,6 +798,29 @@ fun SaleScreen(
                                                         shape = RoundedCornerShape(8.dp)
                                                     )
                                                 }
+                                                val cWide = cashPartInput.toDoubleOrNull() ?: 0.0
+                                                val tWide = transferPartInput.toDoubleOrNull() ?: 0.0
+                                                val dWide = debtPartInput.toDoubleOrNull() ?: 0.0
+                                                val sumWide = cWide + tWide + dWide
+                                                val isMatchWide = cWide >= 0.0 && tWide >= 0.0 && dWide >= 0.0 && kotlin.math.abs(sumWide - totalAmount) <= 0.01
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        text = "المجموع المدخل: ${FormatUtils.formatCurrency(sumWide)}",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (isMatchWide) Color(0xFF16A34A) else Color(0xFFDC2626)
+                                                    )
+                                                    Text(
+                                                        text = if (isMatchWide) "متطابق مع الإجمالي ✓" else "الفارق: ${FormatUtils.formatCurrency(totalAmount - sumWide)}",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (isMatchWide) Color(0xFF16A34A) else Color(0xFFDC2626)
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -1291,7 +1319,7 @@ fun SaleScreen(
                                     val tVal = transferPartInput.toDoubleOrNull() ?: 0.0
                                     val dVal = debtPartInput.toDoubleOrNull() ?: 0.0
                                     val sumVal = cVal + tVal + dVal
-                                    val isMatch = kotlin.math.abs(sumVal - totalAmount) <= 1.0
+                                    val isMatch = cVal >= 0.0 && tVal >= 0.0 && dVal >= 0.0 && kotlin.math.abs(sumVal - totalAmount) <= 0.01
 
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -1835,7 +1863,9 @@ fun SaleScreen(
     // Edit Item Price Dialog (مراعاة الزبون / تعديل سعر صنف)
     if (editingCartItemPrice != null) {
         val targetItem = editingCartItemPrice!!
-        var newPriceStr by remember { mutableStateOf(targetItem.unitPrice.toLong().toString()) }
+        var newPriceStr by remember(targetItem.product.id, targetItem.unit) {
+            mutableStateOf(FormatUtils.formatInputNumber(targetItem.unitPrice))
+        }
         StoreOperationDialog(
             onDismissRequest = { editingCartItemPrice = null },
             title = "تعديل سعر البيع للصنف",

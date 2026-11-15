@@ -102,7 +102,7 @@ fun CashDrawerScreen(
             )
         }
 
-        exchangeTransfers.forEach { t ->
+        exchangeTransfers.filter { !it.isReversed && !it.isReversalEntry }.forEach { t ->
             list.add(
                 StatementRow(
                     dateStr = FormatUtils.formatDate(t.timestamp),
@@ -779,6 +779,19 @@ fun CashDrawerScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
+            val wAmt = withdrawAmountStr.toDoubleOrNull() ?: 0.0
+            if (wAmt > 0.0) {
+                val cashAfter = cashBalance - wAmt
+                val ok = cashAfter >= -0.001
+                DialogInfoBanner(
+                    title = "رصيد الصندوق بعد السحب:",
+                    value = FormatUtils.formatCurrency(cashAfter),
+                    containerColor = if (ok) Color(0xFFFFF7ED) else Color(0xFFFFF1F2),
+                    contentColor = if (ok) Color(0xFFB45309) else FintechRose,
+                    borderColor = if (ok) Color(0xFFFED7AA) else Color(0xFFFECDD3),
+                    icon = if (ok) Icons.Default.Calculate else Icons.Default.Warning
+                )
+            }
             OutlinedTextField(
                 value = withdrawReason,
                 onValueChange = { withdrawReason = it },
@@ -842,6 +855,17 @@ fun CashDrawerScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
+            val dAmt = depositAmountStr.toDoubleOrNull() ?: 0.0
+            if (dAmt > 0.0) {
+                DialogInfoBanner(
+                    title = "رصيد الصندوق بعد الإيداع:",
+                    value = FormatUtils.formatCurrency(cashBalance + dAmt),
+                    containerColor = FintechEmeraldBg,
+                    contentColor = FintechEmerald,
+                    borderColor = FintechEmerald.copy(alpha = 0.35f),
+                    icon = Icons.Default.Calculate
+                )
+            }
             OutlinedTextField(
                 value = depositReason,
                 onValueChange = { depositReason = it },
@@ -968,6 +992,21 @@ fun CashDrawerScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
+            val tAmt = transferAmountStr.toDoubleOrNull() ?: 0.0
+            val selAcc = selectedAcc
+            if (tAmt > 0.0 && selAcc != null) {
+                val cashAfter = if (fromCashToExchange) cashBalance - tAmt else cashBalance + tAmt
+                val accAfter = if (fromCashToExchange) selAcc.balance + tAmt else selAcc.balance - tAmt
+                val ok = cashAfter >= -0.001 && accAfter >= -0.001
+                DialogInfoBanner(
+                    title = "الأرصدة بعد الترحيل:",
+                    value = "الصندوق: ${FormatUtils.formatCurrency(cashAfter)} | ${selAcc.name}: ${FormatUtils.formatCurrency(accAfter)}",
+                    containerColor = if (ok) FintechEmeraldBg else Color(0xFFFFF1F2),
+                    contentColor = if (ok) FintechEmerald else FintechRose,
+                    borderColor = if (ok) FintechEmerald.copy(alpha = 0.35f) else Color(0xFFFECDD3),
+                    icon = if (ok) Icons.Default.Calculate else Icons.Default.Warning
+                )
+            }
 
             OutlinedTextField(
                 value = transferRefNumber,

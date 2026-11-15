@@ -32,6 +32,7 @@ import com.example.ui.StoreViewModel
 import com.example.ui.components.DialogInfoBanner
 import com.example.ui.components.DialogSectionHeader
 import com.example.ui.components.DialogSegmentedChoice
+import com.example.ui.components.PinVerificationDialog
 import com.example.ui.components.StoreOperationDialog
 import com.example.ui.components.StoreTopBar
 import com.example.ui.components.TransactionDatePickerField
@@ -54,6 +55,7 @@ fun ExchangeAccountsScreen(
     var showAddEditDialog by remember { mutableStateOf<ExchangeAccount?>(null) }
     var showTransferDialog by remember { mutableStateOf<ExchangeAccount?>(null) }
     var accountToDelete by remember { mutableStateOf<ExchangeAccount?>(null) }
+    var pendingPinAction by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
 
     Scaffold(
         topBar = {
@@ -267,12 +269,14 @@ fun ExchangeAccountsScreen(
 
     // Add / Edit Account Dialog
     showAddEditDialog?.let { currentAcc ->
-        var name by remember { mutableStateOf(currentAcc.name) }
-        var accType by remember { mutableStateOf(currentAcc.type.ifBlank { accountTypes.firstOrNull() ?: "صراف" }) }
-        var accNumber by remember { mutableStateOf(currentAcc.accountNumber) }
-        var phone by remember { mutableStateOf(currentAcc.phone) }
-        var initialBalanceStr by remember { mutableStateOf(if (currentAcc.id == 0L) "0" else currentAcc.balance.toLong().toString()) }
-        var notes by remember { mutableStateOf(currentAcc.notes) }
+        var name by remember(currentAcc.id) { mutableStateOf(currentAcc.name) }
+        var accType by remember(currentAcc.id) { mutableStateOf(currentAcc.type.ifBlank { accountTypes.firstOrNull() ?: "صراف" }) }
+        var accNumber by remember(currentAcc.id) { mutableStateOf(currentAcc.accountNumber) }
+        var phone by remember(currentAcc.id) { mutableStateOf(currentAcc.phone) }
+        var initialBalanceStr by remember(currentAcc.id) {
+            mutableStateOf(if (currentAcc.id == 0L) "0" else FormatUtils.formatInputNumber(currentAcc.balance))
+        }
+        var notes by remember(currentAcc.id) { mutableStateOf(currentAcc.notes) }
 
         val commonPresets = listOf("الكريمي إكسبرس", "النجم للصرافة", "العمقي للصرافة", "محفظة جوالي", "محفظة كاش", "ون كاش", "محفظة فلوسك")
 
@@ -288,17 +292,21 @@ fun ExchangeAccountsScreen(
             confirmTestTag = "confirm_save_exchange_account_button",
             onConfirm = {
                 val initBal = initialBalanceStr.toDoubleOrNull() ?: 0.0
-                viewModel.saveExchangeAccount(
-                    account = currentAcc.copy(
-                        name = name,
-                        type = accType,
-                        accountNumber = accNumber,
-                        phone = phone,
-                        balance = if (currentAcc.id == 0L) initBal else currentAcc.balance,
-                        notes = notes
-                    ),
-                    onSuccess = { showAddEditDialog = null }
-                )
+                if (currentAcc.id == 0L && initBal < 0.0) {
+                    viewModel.showMessage("لا يمكن إنشاء حساب برصيد افتتاحي سالب!")
+                } else {
+                    viewModel.saveExchangeAccount(
+                        account = currentAcc.copy(
+                            name = name,
+                            type = accType,
+                            accountNumber = accNumber,
+                            phone = phone,
+                            balance = if (currentAcc.id == 0L) initBal else currentAcc.balance,
+                            notes = notes
+                        ),
+                        onSuccess = { showAddEditDialog = null }
+                    )
+                }
             }
         ) {
             DialogSectionHeader(title = "أسماء شائعة سريعة", icon = Icons.Default.Star, accentColor = PdfGoldPrimary)
@@ -420,14 +428,21 @@ fun ExchangeAccountsScreen(
             confirmTestTag = "confirm_transfer_button",
             onConfirm = {
                 val amt = amountStr.toDoubleOrNull() ?: 0.0
-                viewModel.transferBetweenCashAndExchange(
-                    accountId = acc.id,
-                    amount = amt,
-                    fromCashToExchange = fromCashToExchange,
-                    notes = transferNotes,
-                    timestamp = transferTimestamp,
-                    onSuccess = { showTransferDialog = null }
-                )
+                val available = if (fromCashToExchange) cashBalance else acc.balance
+                if (amt <= 0) {
+                    viewModel.showMessage("يرجى إدخال مبلغ تحويل صحيح أكبر من الصفر!")
+                } else if (amt > available + 0.001) {
+                    viewModel.showMessage("المبلغ يتجاوز الرصيد المتاح (${FormatUtils.formatCurrency(available)})!")
+                } else {
+                    viewModel.transferBetweenCashAndExchange(
+                        accountId = acc.id,
+                        amount = amt,
+                        fromCashToExchange = fromCashToExchange,
+                        notes = transferNotes,
+                        timestamp = transferTimestamp,
+                        onSuccess = { showTransferDialog = null }
+                    )
+                }
             }
         ) {
             DialogSectionHeader(title = "اختر اتجاه المناقلة", icon = Icons.Default.SwapHoriz, accentColor = FintechIndigo)
@@ -476,6 +491,21 @@ fun ExchangeAccountsScreen(
                 singleLine = true
             )
 
+            val transferAmtPreview = amountStr.toDoubleOrNull() ?: 0.0
+            if (transferAmtPreview > 0.0) {
+                val cashAfter = if (fromCashToExchange) cashBalance - transferAmtPreview else cashBalance + transferAmtPreview
+                val accAfter = if (fromCashToExchange) acc.balance + transferAmtPreview else acc.balance - transferAmtPreview
+                val ok = cashAfter >= -0.001 && accAfter >= -0.001
+                DialogInfoBanner(
+                    title = "الرصيد المتوقع بعد المناقلة:",
+                    value = "الصندوق: ${FormatUtils.formatCurrency(cashAfter)} | ${acc.name}: ${FormatUtils.formatCurrency(accAfter)}",
+                    containerColor = if (ok) FintechEmeraldBg else FintechRoseBg,
+                    contentColor = if (ok) FintechEmerald else FintechRose,
+                    borderColor = if (ok) FintechEmeraldBorder else FintechRoseBorder,
+                    icon = if (ok) Icons.Default.Calculate else Icons.Default.Warning
+                )
+            }
+
             OutlinedTextField(
                 value = transferNotes,
                 onValueChange = { transferNotes = it },
@@ -499,17 +529,21 @@ fun ExchangeAccountsScreen(
     accountToDelete?.let { acc ->
         StoreOperationDialog(
             onDismissRequest = { accountToDelete = null },
-            title = "تأكيد حذف حساب الصراف",
+            title = "تأكيد حذف / أرشفة حساب الصراف",
             subtitle = acc.name,
             icon = Icons.Default.Warning,
             accentColor = FintechRose,
-            confirmText = "تأكيد الحذف",
+            confirmText = "متابعة",
             confirmIcon = Icons.Default.DeleteOutline,
             confirmColor = FintechRose,
             confirmTestTag = "confirm_delete_account_button",
             onConfirm = {
-                viewModel.deleteExchangeAccount(acc.id)
+                val accId = acc.id
+                val accName = acc.name
                 accountToDelete = null
+                pendingPinAction = "تأكيد رمز المدير لحذف/أرشفة حساب ($accName)" to {
+                    viewModel.deleteExchangeAccount(accId)
+                }
             }
         ) {
             DialogInfoBanner(
@@ -521,12 +555,25 @@ fun ExchangeAccountsScreen(
                 icon = Icons.Default.Warning
             )
             Text(
-                text = "هل أنت متأكد من حذف حساب (${acc.name})؟ سيتم إزالة بيانات الحساب من قائمة الحسابات.",
+                text = "سيتم حذف حساب (${acc.name}) نهائياً فقط إذا لم يكن مرتبطاً بأي تحويلات أو فواتير سابقة. في حال وجود عمليات سابقة سيتم أرشفة الحساب وإخفاؤه من الاختيارات الجديدة مع بقاء سجلاته التاريخية.",
                 fontSize = 13.sp,
                 color = SlateTextPrimary,
                 lineHeight = 20.sp
             )
         }
+    }
+
+    pendingPinAction?.let { (title, action) ->
+        PinVerificationDialog(
+            viewModel = viewModel,
+            title = "تحقق صلاحية المدير",
+            subtitle = title,
+            onDismiss = { pendingPinAction = null },
+            onVerified = {
+                pendingPinAction = null
+                action()
+            }
+        )
     }
 }
 

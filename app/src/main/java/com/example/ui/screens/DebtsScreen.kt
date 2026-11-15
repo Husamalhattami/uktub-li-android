@@ -41,6 +41,7 @@ import com.example.ui.components.CollectionReceiptDialog
 import com.example.ui.components.DialogInfoBanner
 import com.example.ui.components.DialogSectionHeader
 import com.example.ui.components.DialogSegmentedChoice
+import com.example.ui.components.PinVerificationDialog
 import com.example.ui.components.StoreOperationDialog
 import com.example.ui.components.StoreTopBar
 import com.example.ui.components.SupplierPaymentDialog
@@ -65,6 +66,7 @@ fun DebtsScreen(
     val purchases by viewModel.purchases.collectAsStateWithLifecycle()
     val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
     val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
+    val cashBalance by viewModel.currentCashBalance.collectAsStateWithLifecycle()
 
     var selectedTab by remember { mutableStateOf(0) } // 0: Customers, 1: Suppliers, 2: Direct Debts Log
 
@@ -75,6 +77,9 @@ fun DebtsScreen(
     var statementParty by remember { mutableStateOf<PartyAccount?>(null) }
     var payingForParty by remember { mutableStateOf<Pair<PartyAccount, Double>?>(null) }
     var addingDebtForParty by remember { mutableStateOf<PartyAccount?>(null) }
+    var partyToDelete by remember { mutableStateOf<PartyAccount?>(null) }
+    var debtToDelete by remember { mutableStateOf<DebtRecord?>(null) }
+    var pendingPinAction by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
 
     // Direct debt item payment & editing
     var payingDirectDebt by remember { mutableStateOf<DebtRecord?>(null) }
@@ -480,7 +485,7 @@ fun DebtsScreen(
                             },
                             onAddDebt = { addingDebtForParty = party },
                             onEdit = { editingParty = party },
-                            onDelete = { viewModel.deleteParty(party.id) }
+                            onDelete = { partyToDelete = party }
                         )
                     }
                 }
@@ -560,7 +565,7 @@ fun DebtsScreen(
                             },
                             onAddDebt = { addingDebtForParty = party },
                             onEdit = { editingParty = party },
-                            onDelete = { viewModel.deleteParty(party.id) }
+                            onDelete = { partyToDelete = party }
                         )
                     }
                 }
@@ -596,7 +601,7 @@ fun DebtsScreen(
                             debt = debt,
                             onRecordPayment = { payingDirectDebt = debt },
                             onEdit = { editingDirectDebt = debt },
-                            onDelete = { viewModel.deleteDebt(debt.id) }
+                            onDelete = { debtToDelete = debt }
                         )
                     }
                 }
@@ -648,8 +653,10 @@ fun DebtsScreen(
         PartyPaymentDialog(
             party = party,
             totalDebt = totalDebt,
+            cashBalance = cashBalance,
             exchangeAccounts = exchangeAccounts,
             onDismiss = { payingForParty = null },
+            onValidationError = { msg -> viewModel.showMessage(msg) },
             onConfirm = { amount, paymentMethod, exchangeAcc, notes, transferRef, paymentTimestamp ->
                 viewModel.recordPartyPayment(
                     partyName = party.name,
@@ -762,7 +769,7 @@ fun DebtsScreen(
 
     // --- DIALOG: Direct Single Debt Payment ---
     payingDirectDebt?.let { debt ->
-        var paymentAmountStr by remember { mutableStateOf(debt.remainingAmount.toLong().toString()) }
+        var paymentAmountStr by remember(debt.id) { mutableStateOf(FormatUtils.formatInputNumber(debt.remainingAmount)) }
         var paymentNotes by remember { mutableStateOf("دفعة سداد") }
         var paymentMethod by remember { mutableStateOf("نقداً") }
         var selectedExchangeAcc by remember { mutableStateOf<ExchangeAccount?>(null) }
@@ -770,6 +777,14 @@ fun DebtsScreen(
         var paymentTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
         val isCustomerDebt = debt.type == "CUSTOMER"
+        val enteredAmt = paymentAmountStr.toDoubleOrNull() ?: 0.0
+        val remainingAfter = (debt.remainingAmount - enteredAmt).coerceAtLeast(0.0)
+        val sourceBefore = if (paymentMethod == "نقداً") cashBalance else (selectedExchangeAcc?.balance ?: 0.0)
+        val sourceAfter = if (isCustomerDebt) sourceBefore + enteredAmt else sourceBefore - enteredAmt
+        val hasExchangeError = paymentMethod != "نقداً" && selectedExchangeAcc == null
+        val exceedsDebt = enteredAmt > debt.remainingAmount + 0.01
+        val exceedsSource = !isCustomerDebt && enteredAmt > sourceBefore + 0.01
+
         StoreOperationDialog(
             onDismissRequest = { payingDirectDebt = null },
             title = if (isCustomerDebt) "استلام دفعة من العميل" else "تسديد دفعة للمورد",
@@ -782,6 +797,25 @@ fun DebtsScreen(
             confirmTestTag = "confirm_direct_debt_payment_btn",
             onConfirm = {
                 val amount = paymentAmountStr.toDoubleOrNull() ?: 0.0
+                if (amount <= 0.0) {
+                    viewModel.showMessage("يرجى إدخال مبلغ دفعة صحيح أكبر من الصفر!")
+                    return@StoreOperationDialog
+                }
+                if (amount > debt.remainingAmount + 0.01) {
+                    viewModel.showMessage("مبلغ الدفعة (${FormatUtils.formatCurrency(amount)}) يتجاوز المتبقي من الدين (${FormatUtils.formatCurrency(debt.remainingAmount)})!")
+                    return@StoreOperationDialog
+                }
+                if (paymentMethod != "نقداً" && selectedExchangeAcc == null) {
+                    viewModel.showMessage("يرجى اختيار حساب الصراف أو المحفظة أولاً!")
+                    return@StoreOperationDialog
+                }
+                if (!isCustomerDebt) {
+                    val available = if (paymentMethod == "نقداً") cashBalance else (selectedExchangeAcc?.balance ?: 0.0)
+                    if (amount > available + 0.01) {
+                        viewModel.showMessage("الرصيد المتاح (${FormatUtils.formatCurrency(available)}) لا يكفي لتغطية دفعة المورد!")
+                        return@StoreOperationDialog
+                    }
+                }
                 viewModel.recordDebtPayment(
                     debt = debt,
                     amount = amount,
@@ -815,6 +849,17 @@ fun DebtsScreen(
                 modifier = Modifier.fillMaxWidth().testTag("direct_debt_payment_input")
             )
 
+            if (enteredAmt > 0.0) {
+                DialogInfoBanner(
+                    title = if (exceedsDebt) "تنبيه: المبلغ يتجاوز المتبقي" else "المتبقي من الدين بعد الدفعة:",
+                    value = if (exceedsDebt) "الحد الأقصى ${FormatUtils.formatCurrency(debt.remainingAmount)}" else FormatUtils.formatCurrency(remainingAfter),
+                    containerColor = if (exceedsDebt) Color(0xFFFFF1F2) else Color(0xFFF0FDF4),
+                    contentColor = if (exceedsDebt) RubyExpense else EmeraldProfit,
+                    borderColor = if (exceedsDebt) Color(0xFFFECDD3) else Color(0xFFBBF7D0),
+                    icon = Icons.Default.Calculate
+                )
+            }
+
             DialogSectionHeader(title = "طريقة استلام/سداد المبلغ", icon = Icons.Default.AccountBalanceWallet, accentColor = PdfHeaderNavy)
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -843,24 +888,44 @@ fun DebtsScreen(
                 )
             }
 
-            if (paymentMethod == "صرافة/محفظة" && exchangeAccounts.isNotEmpty()) {
-                DialogSectionHeader(title = "اختر حساب الصراف / المحفظة", icon = Icons.Default.AccountBalance, accentColor = FintechIndigo)
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(exchangeAccounts) { acc ->
-                        FilterChip(
-                            selected = selectedExchangeAcc?.id == acc.id,
-                            onClick = { selectedExchangeAcc = acc },
-                            label = { Text(acc.name, fontSize = 11.sp, maxLines = 1) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = FintechIndigo,
-                                selectedLabelColor = Color.White
+            if (paymentMethod == "صرافة/محفظة") {
+                if (exchangeAccounts.isEmpty()) {
+                    Text(
+                        text = "تنبيه: لا يوجد حساب صراف مضاف! يرجى إضافة حساب صراف أولاً.",
+                        color = RubyExpense,
+                        fontSize = 11.sp
+                    )
+                } else {
+                    DialogSectionHeader(title = "اختر حساب الصراف / المحفظة", icon = Icons.Default.AccountBalance, accentColor = FintechIndigo)
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(exchangeAccounts) { acc ->
+                            FilterChip(
+                                selected = selectedExchangeAcc?.id == acc.id,
+                                onClick = { selectedExchangeAcc = acc },
+                                label = { Text("${acc.name} (${FormatUtils.formatNumber(acc.balance)})", fontSize = 11.sp, maxLines = 1) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = FintechIndigo,
+                                    selectedLabelColor = Color.White
+                                )
                             )
-                        )
+                        }
                     }
                 }
+            }
+
+            if (enteredAmt > 0.0 && !hasExchangeError) {
+                val targetName = if (paymentMethod == "نقداً") "الصندوق النقدي" else (selectedExchangeAcc?.name ?: "الصراف")
+                DialogInfoBanner(
+                    title = "رصيد $targetName بعد العملية:",
+                    value = FormatUtils.formatCurrency(sourceAfter),
+                    containerColor = if (exceedsSource) Color(0xFFFFF1F2) else SlateBg,
+                    contentColor = if (exceedsSource) RubyExpense else PdfHeaderNavy,
+                    borderColor = if (exceedsSource) Color(0xFFFECDD3) else SlateBorder,
+                    icon = Icons.Default.AccountBalance
+                )
             }
 
             OutlinedTextField(
@@ -896,10 +961,10 @@ fun DebtsScreen(
 
     // --- DIALOG: Edit Direct Debt Record ---
     editingDirectDebt?.let { debt ->
-        var partyName by remember { mutableStateOf(debt.partyName) }
-        var phone by remember { mutableStateOf(debt.phone) }
-        var amountStr by remember { mutableStateOf(debt.originalAmount.toLong().toString()) }
-        var details by remember { mutableStateOf(debt.details) }
+        var partyName by remember(debt.id) { mutableStateOf(debt.partyName) }
+        var phone by remember(debt.id) { mutableStateOf(debt.phone) }
+        var amountStr by remember(debt.id) { mutableStateOf(FormatUtils.formatInputNumber(debt.originalAmount)) }
+        var details by remember(debt.id) { mutableStateOf(debt.details) }
         var createdAtTimestamp by remember(debt.id) { mutableLongStateOf(debt.createdAt) }
 
         StoreOperationDialog(
@@ -912,9 +977,11 @@ fun DebtsScreen(
             confirmIcon = Icons.Default.Check,
             confirmColor = PdfHeaderNavy,
             onConfirm = {
-                val newOriginal = amountStr.toDoubleOrNull() ?: debt.originalAmount
-                if (newOriginal <= 0) {
+                val newOriginal = amountStr.toDoubleOrNull() ?: 0.0
+                if (newOriginal <= 0.0) {
                     viewModel.showMessage("يرجى إدخال مبلغ دين صحيح أكبر من صفر!")
+                } else if (newOriginal + 0.01 < debt.paidAmount) {
+                    viewModel.showMessage("لا يمكن تخفيض قيمة الدين لأقل من المدفوع مسبقاً (${FormatUtils.formatCurrency(debt.paidAmount)})!")
                 } else {
                     val newRemaining = (newOriginal - debt.paidAmount).coerceAtLeast(0.0)
                     viewModel.updateDebt(
@@ -932,6 +999,16 @@ fun DebtsScreen(
                 }
             }
         ) {
+            if (debt.paidAmount > 0.01) {
+                DialogInfoBanner(
+                    title = "المبلغ المسدد مسبقاً:",
+                    value = FormatUtils.formatCurrency(debt.paidAmount),
+                    containerColor = Color(0xFFF0FDF4),
+                    contentColor = EmeraldProfit,
+                    borderColor = Color(0xFFBBF7D0),
+                    icon = Icons.Default.Payments
+                )
+            }
             OutlinedTextField(
                 value = partyName,
                 onValueChange = { partyName = it },
@@ -1153,6 +1230,113 @@ fun DebtsScreen(
                     showSupplierPaymentDialog = false
                     supplierPayInitialParty = null
                 }
+            }
+        )
+    }
+
+    // Delete / Archive Party Confirmation Dialog
+    partyToDelete?.let { party ->
+        val isCust = party.type == "CUSTOMER"
+        val partyDebts = debts.filter {
+            it.type == party.type &&
+                it.partyName.trim().equals(party.name.trim(), ignoreCase = true) &&
+                !it.isSettled
+        }
+        val remaining = partyDebts.sumOf { it.remainingAmount }
+        StoreOperationDialog(
+            onDismissRequest = { partyToDelete = null },
+            title = if (isCust) "تأكيد حذف / أرشفة حساب العميل" else "تأكيد حذف / أرشفة حساب المورد",
+            subtitle = party.name,
+            icon = Icons.Default.Warning,
+            accentColor = RubyExpense,
+            confirmText = "متابعة",
+            confirmIcon = Icons.Default.DeleteOutline,
+            confirmColor = RubyExpense,
+            confirmTestTag = "confirm_delete_party_button",
+            onConfirm = {
+                val targetId = party.id
+                val targetName = party.name
+                partyToDelete = null
+                pendingPinAction = "تأكيد رمز المدير لحذف/أرشفة حساب ($targetName)" to {
+                    viewModel.deleteParty(targetId)
+                }
+            }
+        ) {
+            if (remaining > 0.01) {
+                DialogInfoBanner(
+                    title = if (isCust) "الرصيد المتبقي عليه:" else "الرصيد المستحق له:",
+                    value = FormatUtils.formatCurrency(remaining),
+                    containerColor = Color(0xFFFFF1F2),
+                    contentColor = RubyExpense,
+                    borderColor = Color(0xFFFECDD3),
+                    icon = Icons.Default.AccountBalanceWallet
+                )
+            }
+            Text(
+                text = "سيتم حذف الحساب نهائياً فقط إذا لم تكن له فواتير أو ديون أو سندات قبض/صرف؛ أما إذا كان مرتبطاً بحركات فسيتم أرشفته للحفاظ على كشف الحساب التاريخي والتقارير.",
+                fontSize = 13.sp,
+                color = SlateTextPrimary,
+                lineHeight = 20.sp
+            )
+        }
+    }
+
+    // Delete Debt Confirmation Dialog
+    debtToDelete?.let { debt ->
+        StoreOperationDialog(
+            onDismissRequest = { debtToDelete = null },
+            title = "تأكيد حذف سجل الدين",
+            subtitle = debt.partyName,
+            icon = Icons.Default.Warning,
+            accentColor = RubyExpense,
+            confirmText = "متابعة الحذف",
+            confirmIcon = Icons.Default.DeleteOutline,
+            confirmColor = RubyExpense,
+            confirmTestTag = "confirm_delete_debt_button",
+            onConfirm = {
+                val targetId = debt.id
+                val targetName = debt.partyName
+                debtToDelete = null
+                pendingPinAction = "تأكيد رمز المدير لحذف سجل دين ($targetName)" to {
+                    viewModel.deleteDebt(targetId)
+                }
+            }
+        ) {
+            DialogInfoBanner(
+                title = "المتبقي في سجل الدين:",
+                value = FormatUtils.formatCurrency(debt.remainingAmount),
+                containerColor = Color(0xFFFFF1F2),
+                contentColor = RubyExpense,
+                borderColor = Color(0xFFFECDD3),
+                icon = Icons.Default.ReceiptLong
+            )
+            Text(
+                text = buildString {
+                    appendLine("ملاحظة أمان الحسابات:")
+                    if (debt.referenceSaleId != null || debt.referencePurchaseId != null) {
+                        appendLine("• هذا الدين مرتبط بفاتورة بيع أو شراء، ولحماية المحاسبة سيُمنع حذفه مباشرة؛ عدّل أو احذف الفاتورة الأصلية.")
+                    } else if (debt.paidAmount > 0.01) {
+                        appendLine("• توجد دفعات مسددة (${FormatUtils.formatCurrency(debt.paidAmount)}) على هذا الدين وسيُمنع الحذف لحماية السندات.")
+                    } else {
+                        appendLine("• سيتم حذف سجل الدين المفتوح فقط بدون التأثير على الصندوق النقدي.")
+                    }
+                }.trimEnd(),
+                fontSize = 13.sp,
+                color = SlateTextPrimary,
+                lineHeight = 20.sp
+            )
+        }
+    }
+
+    pendingPinAction?.let { (title, action) ->
+        PinVerificationDialog(
+            viewModel = viewModel,
+            title = "تحقق صلاحية المدير",
+            subtitle = title,
+            onDismiss = { pendingPinAction = null },
+            onVerified = {
+                pendingPinAction = null
+                action()
             }
         )
     }
@@ -1569,12 +1753,14 @@ fun AddOrEditPartyDialog(
 fun PartyPaymentDialog(
     party: PartyAccount,
     totalDebt: Double,
+    cashBalance: Double = 0.0,
     exchangeAccounts: List<ExchangeAccount>,
     onDismiss: () -> Unit,
+    onValidationError: (String) -> Unit = {},
     onConfirm: (amount: Double, paymentMethod: String, exchangeAccount: ExchangeAccount?, notes: String, transferRef: String, timestamp: Long) -> Unit
 ) {
     val isCustomer = party.type == "CUSTOMER"
-    var amountStr by remember { mutableStateOf(totalDebt.toLong().toString()) }
+    var amountStr by remember(party.id, totalDebt) { mutableStateOf(FormatUtils.formatInputNumber(totalDebt)) }
     var paymentMethod by remember { mutableStateOf("نقداً") } // "نقداً" or "صرافة/محفظة"
     var selectedExchangeAcc by remember { mutableStateOf(exchangeAccounts.firstOrNull()) }
     var transferRef by remember { mutableStateOf("") }
@@ -1582,6 +1768,14 @@ fun PartyPaymentDialog(
         mutableStateOf(if (isCustomer) "قبض زلط نقدية من العميل" else "سداد دفعة للمورد")
     }
     var paymentTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    val enteredAmt = amountStr.toDoubleOrNull() ?: 0.0
+    val remainingAfter = (totalDebt - enteredAmt).coerceAtLeast(0.0)
+    val sourceBefore = if (paymentMethod == "نقداً") cashBalance else (selectedExchangeAcc?.balance ?: 0.0)
+    val sourceAfter = if (isCustomer) sourceBefore + enteredAmt else sourceBefore - enteredAmt
+    val hasExchangeError = paymentMethod != "نقداً" && selectedExchangeAcc == null
+    val exceedsDebt = enteredAmt > totalDebt + 0.01
+    val exceedsSource = !isCustomer && enteredAmt > sourceBefore + 0.01
 
     StoreOperationDialog(
         onDismissRequest = onDismiss,
@@ -1595,6 +1789,25 @@ fun PartyPaymentDialog(
         confirmTestTag = "btn_confirm_party_payment",
         onConfirm = {
             val amount = amountStr.toDoubleOrNull() ?: 0.0
+            if (amount <= 0.0) {
+                onValidationError("يرجى إدخال مبلغ صحيح أكبر من الصفر!")
+                return@StoreOperationDialog
+            }
+            if (amount > totalDebt + 0.01) {
+                onValidationError("المبلغ المدخل يتجاوز إجمالي الديون المفتوحة (${FormatUtils.formatCurrency(totalDebt)})!")
+                return@StoreOperationDialog
+            }
+            if (paymentMethod != "نقداً" && selectedExchangeAcc == null) {
+                onValidationError("يرجى اختيار حساب الصراف أو المحفظة أولاً!")
+                return@StoreOperationDialog
+            }
+            if (!isCustomer) {
+                val available = if (paymentMethod == "نقداً") cashBalance else (selectedExchangeAcc?.balance ?: 0.0)
+                if (amount > available + 0.01) {
+                    onValidationError("الرصيد المتاح (${FormatUtils.formatCurrency(available)}) لا يكفي لتغطية الدفعة!")
+                    return@StoreOperationDialog
+                }
+            }
             onConfirm(amount, paymentMethod, selectedExchangeAcc, notes, transferRef, paymentTimestamp)
         }
     ) {
@@ -1618,6 +1831,17 @@ fun PartyPaymentDialog(
             shape = RoundedCornerShape(12.dp),
             singleLine = true
         )
+
+        if (enteredAmt > 0.0) {
+            DialogInfoBanner(
+                title = if (exceedsDebt) "تنبيه: يتجاوز إجمالي الديون" else "المتبقي بعد هذه الدفعة:",
+                value = if (exceedsDebt) "الحد الأقصى ${FormatUtils.formatCurrency(totalDebt)}" else FormatUtils.formatCurrency(remainingAfter),
+                containerColor = if (exceedsDebt) Color(0xFFFFF1F2) else Color(0xFFF0FDF4),
+                contentColor = if (exceedsDebt) RubyExpense else EmeraldProfit,
+                borderColor = if (exceedsDebt) Color(0xFFFECDD3) else Color(0xFFBBF7D0),
+                icon = Icons.Default.Calculate
+            )
+        }
 
         DialogSectionHeader(
             title = if (isCustomer) "طريقة إيداع الزلط" else "طريقة صرف الزلط للمورد",
@@ -1668,7 +1892,7 @@ fun PartyPaymentDialog(
                         FilterChip(
                             selected = selectedExchangeAcc?.id == acc.id,
                             onClick = { selectedExchangeAcc = acc },
-                            label = { Text(acc.name, fontSize = 11.sp, maxLines = 1) },
+                            label = { Text("${acc.name} (${FormatUtils.formatNumber(acc.balance)})", fontSize = 11.sp, maxLines = 1) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = FintechIndigo,
                                 selectedLabelColor = Color.White
@@ -1677,6 +1901,18 @@ fun PartyPaymentDialog(
                     }
                 }
             }
+        }
+
+        if (enteredAmt > 0.0 && !hasExchangeError) {
+            val targetName = if (paymentMethod == "نقداً") "الصندوق النقدي" else (selectedExchangeAcc?.name ?: "الصراف")
+            DialogInfoBanner(
+                title = "رصيد $targetName بعد العملية:",
+                value = FormatUtils.formatCurrency(sourceAfter),
+                containerColor = if (exceedsSource) Color(0xFFFFF1F2) else SlateBg,
+                contentColor = if (exceedsSource) RubyExpense else PdfHeaderNavy,
+                borderColor = if (exceedsSource) Color(0xFFFECDD3) else SlateBorder,
+                icon = Icons.Default.AccountBalance
+            )
         }
 
         OutlinedTextField(

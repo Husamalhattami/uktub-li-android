@@ -109,7 +109,7 @@ object StatementHelper {
 
             // Group cart sales by invoiceNumber (when non-blank), otherwise individual sale id
             val groupedSales = matchingSales.groupBy { sale ->
-                if (sale.invoiceNumber.isNotBlank()) "INV:${sale.invoiceNumber.trim()}" else "ID:${sale.id}"
+                if (sale.invoiceNumber.isNotBlank()) "INV:${sale.invoiceNumber.trim()}|${sale.customerName.trim().lowercase()}" else "ID:${sale.id}"
             }
 
             groupedSales.values.forEach { group ->
@@ -153,6 +153,24 @@ object StatementHelper {
                 it.type == "CUSTOMER" && it.partyName.trim().equals(normalizedName, ignoreCase = true)
             }
             val partyDebtIds = partyDebts.map { it.id }.toSet()
+
+            val hasOpeningDebtRecord = partyDebts.any { d ->
+                d.referenceSaleId == null && d.referencePurchaseId == null &&
+                    (d.details.contains("رصيد افتتاحي") || kotlin.math.abs(d.originalAmount - party.initialBalance) <= 0.01)
+            }
+            if (party.initialBalance > 0.01 && !hasOpeningDebtRecord) {
+                rawRows.add(
+                    PartyLedgerEntry(
+                        timestamp = party.createdAt,
+                        title = "رصيد افتتاحي عند فتح الحساب",
+                        subDetails = "رصيد مستحق سابق مسجل في ملف العميل",
+                        debit = party.initialBalance,
+                        credit = 0.0,
+                        runningBalance = 0.0,
+                        kind = "DEBT"
+                    )
+                )
+            }
 
             // Include only unlinked/opening debts (avoid double-counting debts created alongside a sale already listed above)
             partyDebts.filter { d ->
@@ -233,7 +251,7 @@ object StatementHelper {
             val purchaseIdsSet = matchingPurchases.map { it.id }.toSet()
 
             val groupedPurchases = matchingPurchases.groupBy { p ->
-                if (p.invoiceNumber.isNotBlank()) "PUR:${p.invoiceNumber.trim()}" else "ID:${p.id}"
+                if (p.invoiceNumber.isNotBlank()) "PUR:${p.invoiceNumber.trim()}|${p.supplierName.trim().lowercase()}" else "ID:${p.id}"
             }
 
             groupedPurchases.values.forEach { group ->
@@ -277,6 +295,24 @@ object StatementHelper {
                 it.type == "SUPPLIER" && it.partyName.trim().equals(normalizedName, ignoreCase = true)
             }
             val partyDebtIds = partyDebts.map { it.id }.toSet()
+
+            val hasOpeningDebtRecord = partyDebts.any { d ->
+                d.referenceSaleId == null && d.referencePurchaseId == null &&
+                    (d.details.contains("رصيد افتتاحي") || kotlin.math.abs(d.originalAmount - party.initialBalance) <= 0.01)
+            }
+            if (party.initialBalance > 0.01 && !hasOpeningDebtRecord) {
+                rawRows.add(
+                    PartyLedgerEntry(
+                        timestamp = party.createdAt,
+                        title = "رصيد افتتاحي عند فتح الحساب",
+                        subDetails = "رصيد مستحق سابق مسجل في ملف المورد",
+                        debit = 0.0,
+                        credit = party.initialBalance,
+                        runningBalance = 0.0,
+                        kind = "DEBT"
+                    )
+                )
+            }
 
             partyDebts.filter { d ->
                 d.referencePurchaseId == null || d.referencePurchaseId !in purchaseIdsSet
@@ -475,7 +511,10 @@ object StatementHelper {
 
         val expensesTotal = filteredExpenses.sumOf { it.amount }
         val salariesAndAdvancesTotal = filteredEmployeeTx
-            .filter { it.type == "صرف راتب" || it.type == "سلفة" || it.type == "مكافأة" }
+            .filter {
+                it.type == "صرف راتب" || it.type == "سلفة" || it.type == "مكافأة" ||
+                    (it.type == "صرفة يومية" && it.linkedExpenseId == 0L)
+            }
             .sumOf { it.amount }
 
         val netProfit = grossProfit - expensesTotal - salariesAndAdvancesTotal
@@ -486,14 +525,18 @@ object StatementHelper {
         return DailyReportSummary(
             periodTitle = periodTitle,
             generatedAt = System.currentTimeMillis(),
-            salesCount = filteredSales.map { if (it.invoiceNumber.isNotBlank()) it.invoiceNumber else "S-${it.id}" }.distinct().size,
+            salesCount = filteredSales.map {
+                if (it.invoiceNumber.isNotBlank()) "INV:${it.invoiceNumber.trim()}|${it.customerName.trim().lowercase()}" else "S:${it.id}"
+            }.distinct().size,
             totalSales = totalSales,
             cashSales = cashSales,
             transferSales = transferSales,
             debtSales = debtSales,
             cogs = cogs,
             grossProfit = grossProfit,
-            purchasesCount = filteredPurchases.map { if (it.invoiceNumber.isNotBlank()) it.invoiceNumber else "P-${it.id}" }.distinct().size,
+            purchasesCount = filteredPurchases.map {
+                if (it.invoiceNumber.isNotBlank()) "PUR:${it.invoiceNumber.trim()}|${it.supplierName.trim().lowercase()}" else "P:${it.id}"
+            }.distinct().size,
             totalPurchases = totalPurchases,
             purchasesCash = purchasesCash,
             purchasesTransfer = purchasesTransfer,

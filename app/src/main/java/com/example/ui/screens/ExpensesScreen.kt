@@ -30,8 +30,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.ExchangeAccount
 import com.example.data.model.ExpenseRecord
 import com.example.ui.StoreViewModel
+import com.example.ui.components.DialogInfoBanner
 import com.example.ui.components.DialogSectionHeader
 import com.example.ui.components.DialogSegmentedChoice
+import com.example.ui.components.PinVerificationDialog
 import com.example.ui.components.StoreOperationDialog
 import com.example.ui.components.StoreTopBar
 import com.example.ui.components.TransactionDatePickerField
@@ -46,12 +48,16 @@ fun ExpensesScreen(
 ) {
     val expenses by viewModel.expenses.collectAsStateWithLifecycle()
     val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
+    val exchangeAccountsAll by viewModel.exchangeAccountsIncludingArchived.collectAsStateWithLifecycle()
+    val currentCashBalance by viewModel.currentCashBalance.collectAsStateWithLifecycle()
     val employees by viewModel.employees.collectAsStateWithLifecycle()
     val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
     val dynamicExpenseCategories by viewModel.expenseCategories.collectAsStateWithLifecycle()
 
     var showAddDialog by remember { mutableStateOf(false) }
     var expenseToEdit by remember { mutableStateOf<ExpenseRecord?>(null) }
+    var expenseToDelete by remember { mutableStateOf<ExpenseRecord?>(null) }
+    var pendingPinAction by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
     var selectedFilterCategory by remember { mutableStateOf("الكل") }
 
     val presetCategories = remember(dynamicExpenseCategories, expenses) {
@@ -264,7 +270,7 @@ fun ExpensesScreen(
                     ExpenseItemCard(
                         expense = expense,
                         onEdit = { expenseToEdit = expense },
-                        onDelete = { viewModel.deleteExpense(expense.id) }
+                        onDelete = { expenseToDelete = expense }
                     )
                 }
             }
@@ -301,6 +307,8 @@ fun ExpensesScreen(
                     viewModel.showMessage("يرجى اختيار العامل لتسجيل الصرفة اليومية!")
                 } else if (amount <= 0) {
                     viewModel.showMessage("يرجى إدخال مبلغ صحيح أكبر من صفر!")
+                } else if (!isCash && selectedExchangeAcc == null) {
+                    viewModel.showMessage("يجب اختيار حساب الصراف أو المحفظة للمصروف غير النقدي!")
                 } else {
                     viewModel.recordExpense(
                         category = selectedCat,
@@ -449,18 +457,38 @@ fun ExpensesScreen(
                     }
                 }
             }
+
+            val addAmountPreview = amountStr.toDoubleOrNull() ?: 0.0
+            if (addAmountPreview > 0.0) {
+                val isCash = paymentSource == "كاش"
+                val targetBalAfter = if (isCash) currentCashBalance - addAmountPreview else (selectedExchangeAcc?.balance ?: 0.0) - addAmountPreview
+                if (isCash || selectedExchangeAcc != null) {
+                    val ok = targetBalAfter >= -0.001
+                    DialogInfoBanner(
+                        title = if (isCash) "رصيد الصندوق بعد المصروف:" else "رصيد (${selectedExchangeAcc?.name}) بعد المصروف:",
+                        value = FormatUtils.formatCurrency(targetBalAfter),
+                        containerColor = if (ok) FintechEmeraldBg else FintechRoseBg,
+                        contentColor = if (ok) FintechEmerald else FintechRose,
+                        borderColor = if (ok) FintechEmeraldBorder else FintechRoseBorder,
+                        icon = if (ok) Icons.Default.Calculate else Icons.Default.Warning
+                    )
+                }
+            }
         }
     }
 
     // Edit Expense Dialog
     expenseToEdit?.let { exp ->
-        var cat by remember { mutableStateOf(exp.category) }
-        var amountStr by remember { mutableStateOf(exp.amount.toLong().toString()) }
-        var notes by remember { mutableStateOf(exp.notes) }
-        var receiptNo by remember { mutableStateOf(exp.receiptNumber) }
-        var paymentSource by remember { mutableStateOf(if (exp.paidFromCash) "كاش" else "صراف") }
-        var selectedExchangeAcc by remember {
-            mutableStateOf(exchangeAccounts.firstOrNull { it.id == exp.exchangeAccountId } ?: exchangeAccounts.firstOrNull())
+        var cat by remember(exp.id) { mutableStateOf(exp.category) }
+        var amountStr by remember(exp.id) { mutableStateOf(FormatUtils.formatInputNumber(exp.amount)) }
+        var notes by remember(exp.id) { mutableStateOf(exp.notes) }
+        var receiptNo by remember(exp.id) { mutableStateOf(exp.receiptNumber) }
+        var paymentSource by remember(exp.id) { mutableStateOf(if (exp.paidFromCash) "كاش" else "صراف") }
+        var selectedExchangeAcc by remember(exp.id) {
+            mutableStateOf(
+                exchangeAccountsAll.firstOrNull { it.id == exp.exchangeAccountId }
+                    ?: exchangeAccounts.firstOrNull()
+            )
         }
         var editTimestamp by remember(exp.id) { mutableLongStateOf(exp.timestamp) }
 
@@ -474,11 +502,13 @@ fun ExpensesScreen(
             confirmIcon = Icons.Default.Check,
             confirmColor = PdfHeaderNavy,
             onConfirm = {
-                val newAmount = amountStr.toDoubleOrNull() ?: exp.amount
+                val newAmount = amountStr.toDoubleOrNull() ?: 0.0
+                val isCash = paymentSource == "كاش"
                 if (newAmount <= 0) {
                     viewModel.showMessage("يرجى إدخال مبلغ صحيح أكبر من الصفر!")
+                } else if (!isCash && selectedExchangeAcc == null) {
+                    viewModel.showMessage("يجب اختيار حساب الصراف أو المحفظة للمصروف غير النقدي!")
                 } else {
-                    val isCash = paymentSource == "كاش"
                     viewModel.updateExpense(
                         exp.copy(
                             category = cat,
@@ -547,20 +577,30 @@ fun ExpensesScreen(
                 )
             }
 
-            if (paymentSource == "صراف" && exchangeAccounts.isNotEmpty()) {
-                DialogSectionHeader(title = "اختر حساب الصراف أو المحفظة", icon = Icons.Default.AccountBalance, accentColor = FintechIndigo)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(exchangeAccounts) { acc ->
-                        val isSel = selectedExchangeAcc?.id == acc.id
-                        FilterChip(
-                            selected = isSel,
-                            onClick = { selectedExchangeAcc = acc },
-                            label = { Text(acc.name, fontSize = 11.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = FintechIndigo,
-                                selectedLabelColor = Color.White
+            if (paymentSource == "صراف") {
+                val accChoices = remember(exchangeAccounts, selectedExchangeAcc) {
+                    val list = exchangeAccounts.toMutableList()
+                    val sel = selectedExchangeAcc
+                    if (sel != null && list.none { it.id == sel.id }) list.add(0, sel)
+                    list
+                }
+                if (accChoices.isEmpty()) {
+                    Text("لا توجد حسابات صرافة متاحة. اختر الدفع نقداً أو أضف حساب صرافة.", color = FintechRose, fontSize = 11.sp)
+                } else {
+                    DialogSectionHeader(title = "اختر حساب الصراف أو المحفظة *", icon = Icons.Default.AccountBalance, accentColor = FintechIndigo)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(accChoices) { acc ->
+                            val isSel = selectedExchangeAcc?.id == acc.id
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedExchangeAcc = acc },
+                                label = { Text("${acc.name}${if (acc.isArchived) " (مؤرشف)" else ""}", fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = FintechIndigo,
+                                    selectedLabelColor = Color.White
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }
@@ -593,6 +633,66 @@ fun ExpensesScreen(
                 testTag = "edit_expense_date_picker"
             )
         }
+    }
+
+    expenseToDelete?.let { exp ->
+        StoreOperationDialog(
+            onDismissRequest = { expenseToDelete = null },
+            title = "تأكيد حذف المصروف",
+            subtitle = "${exp.category} • ${FormatUtils.formatCurrency(exp.amount)}",
+            icon = Icons.Default.Warning,
+            accentColor = FintechRose,
+            confirmText = "حذف المصروف",
+            confirmIcon = Icons.Default.DeleteOutline,
+            confirmColor = FintechRose,
+            confirmTestTag = "confirm_delete_expense_button",
+            onConfirm = {
+                val id = exp.id
+                val catLabel = exp.category
+                expenseToDelete = null
+                pendingPinAction = "تأكيد رمز المدير لحذف مصروف ($catLabel)" to {
+                    viewModel.deleteExpense(id)
+                }
+            }
+        ) {
+            DialogInfoBanner(
+                title = "المبلغ المسترد:",
+                value = FormatUtils.formatCurrency(exp.amount),
+                containerColor = FintechRoseBg,
+                contentColor = FintechRose,
+                borderColor = FintechRoseBorder,
+                icon = Icons.Default.ReceiptLong
+            )
+            Text(
+                text = buildString {
+                    appendLine("سيتم حذف هذا المصروف وتنفيذ الأثر المالي التالي:")
+                    if (exp.paidFromCash) {
+                        appendLine("• استرداد ${FormatUtils.formatCurrency(exp.amount)} إلى الصندوق النقدي.")
+                    } else {
+                        appendLine("• استرداد ${FormatUtils.formatCurrency(exp.amount)} إلى حساب (${exp.exchangeAccountName.ifBlank { "الصراف" }}) وعكس قيد التحويل.")
+                    }
+                    if (exp.linkedEmployeeTxId > 0L) {
+                        appendLine("• حذف الصرفة اليومية المرتبطة من كشف حساب العامل تلقائياً.")
+                    }
+                }.trimEnd(),
+                fontSize = 13.sp,
+                color = SlateTextPrimary,
+                lineHeight = 20.sp
+            )
+        }
+    }
+
+    pendingPinAction?.let { (title, action) ->
+        PinVerificationDialog(
+            viewModel = viewModel,
+            title = "تحقق صلاحية المدير",
+            subtitle = title,
+            onDismiss = { pendingPinAction = null },
+            onVerified = {
+                pendingPinAction = null
+                action()
+            }
+        )
     }
 }
 

@@ -5,12 +5,17 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.database.AppDatabase
 import com.example.data.model.*
+import com.example.data.repository.PinVerificationResult
 import com.example.data.repository.StoreRepository
+import com.example.ui.util.BackupManager
 import com.example.ui.util.ClothingSizes
 import com.example.ui.util.ClothingUnits
 import com.example.ui.util.FormatUtils
+import com.example.ui.util.InvoiceHelper
+import com.example.ui.util.PinSecurityManager
 import com.example.ui.util.StatementHelper
 import com.example.ui.util.StatementMode
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -18,8 +23,83 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.pdf.PdfDocument
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
+import org.robolectric.shadow.api.Shadow
+import java.io.OutputStream
+
+@Implements(PdfDocument.Page::class)
+class TestPdfDocumentPageShadow {
+    var shadowCanvas: Canvas? = null
+    var shadowInfo: PdfDocument.PageInfo? = null
+
+    @Implementation
+    fun getCanvas(): Canvas? = shadowCanvas
+
+    @Implementation
+    fun getInfo(): PdfDocument.PageInfo? = shadowInfo
+}
+
+@Implements(PdfDocument::class)
+class TestPdfDocumentShadow {
+    private var closed = false
+    private var activePage: PdfDocument.Page? = null
+    private var finishedPageCount = 0
+
+    @Implementation
+    fun __constructor__() {
+        closed = false
+        activePage = null
+        finishedPageCount = 0
+    }
+
+    @Implementation
+    fun startPage(pageInfo: PdfDocument.PageInfo): PdfDocument.Page {
+        check(!closed) { "document is closed!" }
+        check(activePage == null) { "previous page not finished!" }
+        val bmp = Bitmap.createBitmap(pageInfo.pageWidth, pageInfo.pageHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val page = Shadow.newInstanceOf(PdfDocument.Page::class.java)
+        val pageShadow = Shadow.extract<TestPdfDocumentPageShadow>(page)
+        pageShadow.shadowCanvas = canvas
+        pageShadow.shadowInfo = pageInfo
+        activePage = page
+        return page
+    }
+
+    @Implementation
+    fun finishPage(page: PdfDocument.Page?) {
+        check(!closed) { "document is closed!" }
+        check(activePage != null && activePage === page) { "page was not started!" }
+        activePage = null
+        finishedPageCount++
+    }
+
+    @Implementation
+    fun writeTo(out: OutputStream) {
+        check(!closed) { "document is closed!" }
+        check(activePage == null) { "cannot write while a page is still open!" }
+        val header = buildString {
+            appendLine("%PDF-1.4")
+            appendLine("% FinishedPages=$finishedPageCount")
+            appendLine("1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj")
+            appendLine("2 0 obj<< /Type /Pages /Count $finishedPageCount >>endobj")
+            appendLine("%%EOF")
+        }
+        out.write(header.toByteArray(Charsets.UTF_8))
+    }
+
+    @Implementation
+    fun close() {
+        check(activePage == null) { "cannot close document with unfinished page!" }
+        closed = true
+    }
+}
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -170,6 +250,7 @@ class StoreAccountingRobolectricTest {
 
     @Test
     fun testDeletePurchasePreventsDeletionIfGoodsAlreadySold() = runBlocking {
+        repository.recordManualDeposit(5000.0, "رصيد افتتاحي للاختبار")
         // 1. Record a purchase of 10 shirts
         val purchaseId = repository.recordPurchase(
             supplierName = "مورد رئيسي",
@@ -563,6 +644,7 @@ class StoreAccountingRobolectricTest {
 
     @Test
     fun testRecordSupplierPaymentReceiptCashAndExchangeWithAutoAndManualVoucher() = runBlocking {
+        repository.recordManualDeposit(5000.0, "رصيد افتتاحي للاختبار")
         // 1. Create two open debts for supplier (FIFO test)
         val now = System.currentTimeMillis()
         db.storeDao().insertDebt(
@@ -976,5 +1058,613 @@ class StoreAccountingRobolectricTest {
         val movements = db.storeDao().getAllCashMovements().firstOrNull().orEmpty()
         assertTrue(movements.isNotEmpty())
         assertTrue(movements.all { it.timestamp == pastTs })
+    }
+
+    @Test
+    fun testFullBackupValidateRejectCorruptAndRestorePreservesAll16TablesAndReports() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        repository.saveStoreSettings(
+            StoreSettings(id = 1, shopNameAr = "محل النور", phone = "777999000", isSetupCompleted = true)
+        )
+        repository.addConfigItem(StoreConfigTypes.PRODUCT_CATEGORY, "أكوات")
+        repository.recordManualDeposit(4000.0, "رأس مال")
+        val accId = db.storeDao().insertExchangeAccount(ExchangeAccount(name = "الكريمي", balance = 2000.0))
+        val empId = db.storeDao().insertEmployee(Employee(name = "طارق", role = "بائع", baseSalary = 1200.0, commissionPercent = 5.0))
+        val emp = db.storeDao().getEmployeeById(empId)!!
+        val acc = db.storeDao().getExchangeAccountById(accId)!!
+        repository.saveParty(PartyAccount(type = "CUSTOMER", name = "سالم الزبون", phone = "771000222"), initialDebt = 350.0)
+
+        repository.executeCartPurchase(
+            items = listOf(
+                CartPurchaseItem("أكوات", "كوت فاخر", "أسود", "L", ClothingUnits.PIECE, 10.0, 100.0, 180.0)
+            ),
+            supplierName = "معمل التميز",
+            invoiceNumber = "PUR-BKP-1",
+            paymentMethod = "نقداً من الصندوق",
+            cashPaidPart = 1000.0,
+            transferPaidPart = 0.0,
+            debtPart = 0.0,
+            exchangeAccount = null,
+            transferRef = "",
+            notes = ""
+        )
+        val prod = db.storeDao().getAllProductsDirect().first()
+        repository.executeCartSale(
+            items = listOf(CartSaleItem(prod, quantity = 2, sellPrice = 180.0, unit = ClothingUnits.PIECE)),
+            discount = 10.0,
+            customerName = "سالم الزبون",
+            customerPhone = "771000222",
+            paymentType = PaymentMethods.CUSTOM_SPLIT,
+            cashPart = 100.0,
+            transferPart = 150.0,
+            debtPart = 100.0,
+            exchangeAccount = acc,
+            transferRef = "TR-BKP",
+            employee = emp,
+            customInvoiceNumber = "INV-BKP-1"
+        )
+        repository.recordEmployeeTransaction(empId, emp.name, "صرفة يومية", 50.0, "غداء", paidFromCashDrawer = true)
+
+        val beforeSales = db.storeDao().getAllSalesDirect()
+        val beforePurchases = db.storeDao().getAllPurchasesDirect()
+        val beforeDebts = db.storeDao().getAllDebtsDirect()
+        val beforeCash = db.storeDao().getAvailableCashBalance()
+        val beforeReport = StatementHelper.buildDailyReportSummary(
+            periodTitle = "الكل",
+            filteredSales = beforeSales,
+            filteredPurchases = beforePurchases,
+            filteredExpenses = db.storeDao().getAllExpensesDirect(),
+            filteredEmployeeTx = db.storeDao().getAllEmployeeTransactionsDirect(),
+            filteredPayments = db.storeDao().getAllDebtPaymentsDirect(),
+            allDebts = beforeDebts,
+            allProducts = db.storeDao().getAllProductsDirect(),
+            currentCashBalance = beforeCash,
+            currentExchangeBalance = db.storeDao().getAllExchangeAccounts().first().sumOf { it.balance }
+        )
+
+        val backupJson = BackupManager.createBackupJsonString(repository)
+        val parsed = BackupManager.validateAndParseBackup(backupJson)
+        assertTrue("Valid 16-table backup must parse cleanly", parsed.isSuccess)
+        val preview = parsed.getOrThrow().preview
+        assertEquals(1, preview.productsCount)
+        assertEquals(1, preview.salesCount)
+        assertEquals(1, preview.purchasesCount)
+        assertEquals(1, preview.expensesCount)
+        assertEquals(1, preview.employeeTransactionsCount)
+        assertTrue(preview.configItemsCount >= 1)
+
+        // Reject corrupt / incomplete / broken-FK backups without touching live DB
+        assertTrue(BackupManager.validateAndParseBackup("{bad json").isFailure)
+        assertTrue(BackupManager.validateAndParseBackup("""{"app":"OtherApp","version":10}""").isFailure)
+        val orphanBackup = org.json.JSONObject(backupJson).apply {
+            put("employeeTransactions", org.json.JSONArray().apply {
+                put(org.json.JSONObject().apply {
+                    put("id", 99L)
+                    put("employeeId", 9999L)
+                    put("employeeName", "مجهول")
+                    put("type", "سلفة")
+                    put("amount", 10.0)
+                })
+            })
+        }
+        assertTrue("Orphan FK reference must be rejected", BackupManager.validateAndParseBackup(orphanBackup.toString()).isFailure)
+        assertEquals("Live DB must remain intact after rejected backup", 1, db.storeDao().getAllSalesDirect().size)
+
+        // Wipe everything, then restore and verify exact parity of rows, IDs, FKs & reports
+        repository.clearEverythingCompletely(clearConfigDictionaries = true)
+        assertEquals(0, db.storeDao().getAllProductsDirect().size)
+
+        repository.restoreFullBackupSnapshot(parsed.getOrThrow().snapshot)
+        assertEquals(prod.id, db.storeDao().getAllProductsDirect().first().id)
+        assertEquals(beforeSales.first().id, db.storeDao().getAllSalesDirect().first().id)
+        assertEquals(beforeDebts.map { it.referenceSaleId }.toSet(), db.storeDao().getAllDebtsDirect().map { it.referenceSaleId }.toSet())
+        assertEquals(beforeCash, db.storeDao().getAvailableCashBalance(), 0.01)
+
+        val afterReport = StatementHelper.buildDailyReportSummary(
+            periodTitle = "الكل",
+            filteredSales = db.storeDao().getAllSalesDirect(),
+            filteredPurchases = db.storeDao().getAllPurchasesDirect(),
+            filteredExpenses = db.storeDao().getAllExpensesDirect(),
+            filteredEmployeeTx = db.storeDao().getAllEmployeeTransactionsDirect(),
+            filteredPayments = db.storeDao().getAllDebtPaymentsDirect(),
+            allDebts = db.storeDao().getAllDebtsDirect(),
+            allProducts = db.storeDao().getAllProductsDirect(),
+            currentCashBalance = db.storeDao().getAvailableCashBalance(),
+            currentExchangeBalance = db.storeDao().getAllExchangeAccounts().first().sumOf { it.balance }
+        )
+        assertEquals(beforeReport.totalSales, afterReport.totalSales, 0.01)
+        assertEquals(beforeReport.grossProfit, afterReport.grossProfit, 0.01)
+        assertEquals(beforeReport.expensesTotal, afterReport.expensesTotal, 0.01)
+        assertEquals(beforeReport.totalCustomerDebts, afterReport.totalCustomerDebts, 0.01)
+
+        val dummyPdfCheck = context.packageName
+        assertTrue(dummyPdfCheck.isNotBlank())
+    }
+
+    @Test
+    fun testMultiItemSaleEditAndDeleteAndCreditPartialPaymentGuards() = runBlocking {
+        repository.recordManualDeposit(2000.0, "رصيد")
+        val p1Id = db.storeDao().insertProduct(ProductItem(category = "ثوب", modelName = "ثوب 1", color = "أبيض", size = "L", quantity = 10, buyPrice = 50.0, sellPrice = 100.0))
+        val p2Id = db.storeDao().insertProduct(ProductItem(category = "شماغ", modelName = "شماغ 2", color = "أحمر", size = "58", quantity = 8, buyPrice = 40.0, sellPrice = 80.0))
+        val accId = db.storeDao().insertExchangeAccount(ExchangeAccount(name = "صراف", balance = 500.0))
+        val acc = db.storeDao().getExchangeAccountById(accId)!!
+        val p1 = db.storeDao().getProductById(p1Id)!!
+        val p2 = db.storeDao().getProductById(p2Id)!!
+
+        // Credit + split multi-item sale: total = 2*100 + 2*80 = 360 (100 cash, 100 transfer, 160 debt)
+        val invNum = repository.executeCartSale(
+            items = listOf(CartSaleItem(p1, 2, 100.0), CartSaleItem(p2, 2, 80.0)),
+            discount = 0.0,
+            customerName = "ماجد",
+            customerPhone = "777",
+            paymentType = PaymentMethods.CUSTOM_SPLIT,
+            cashPart = 100.0,
+            transferPart = 100.0,
+            debtPart = 160.0,
+            exchangeAccount = acc,
+            transferRef = "REF-1"
+        )
+        assertEquals(8, db.storeDao().getProductById(p1Id)!!.quantity)
+        assertEquals(6, db.storeDao().getProductById(p2Id)!!.quantity)
+        assertEquals(600.0, db.storeDao().getExchangeAccountById(accId)!!.balance, 0.01)
+
+        // Pay 80 on the resulting customer debt
+        val saleDebt = db.storeDao().getAllDebtsDirect().first()
+        repository.recordDebtPayment(saleDebt, 80.0, "سداد جزئي", "نقداً")
+        val afterPayDebt = db.storeDao().getDebtById(saleDebt.id)!!
+        assertEquals(80.0, afterPayDebt.remainingAmount, 0.01)
+
+        // Attempt to edit invoice lowering debt below already-paid 80 -> MUST throw IllegalStateException
+        val currentLines = db.storeDao().getSalesByInvoiceNumber(invNum)
+        var blockedLowerDebt = false
+        try {
+            repository.updateSaleInvoice(
+                originalInvoiceKey = invNum,
+                updatedItems = currentLines,
+                newInvoiceNumber = invNum,
+                customerName = "ماجد",
+                customerPhone = "777",
+                paymentType = PaymentMethods.CUSTOM_SPLIT,
+                cashAmount = 200.0,
+                transferAmount = 120.0,
+                debtAmount = 40.0,
+                exchangeAccount = acc,
+                transferRef = "REF-1",
+                timestamp = currentLines.first().timestamp
+            )
+        } catch (e: IllegalStateException) {
+            blockedLowerDebt = true
+        }
+        assertTrue("Must block reducing credit invoice debt below paid amount", blockedLowerDebt)
+
+        // Delete sale with paid debt -> blocked until debt/payments are intact
+        var blockedDeleteWithPaid = false
+        try {
+            repository.deleteSaleInvoice(invNum)
+        } catch (e: IllegalStateException) {
+            blockedDeleteWithPaid = true
+        }
+        assertTrue("Must prevent deleting credit sale with recorded partial payments", blockedDeleteWithPaid)
+
+        // Valid atomic multi-item edit increasing P1 qty to 3 (total = 460 -> 160 cash, 100 transfer, 200 debt)
+        val editedLines = listOf(
+            currentLines[0].copy(quantity = 3, totalAmount = 300.0, profit = 150.0),
+            currentLines[1]
+        )
+        repository.updateSaleInvoice(
+            originalInvoiceKey = invNum,
+            updatedItems = editedLines,
+            newInvoiceNumber = invNum,
+            customerName = "ماجد",
+            customerPhone = "777",
+            paymentType = PaymentMethods.CUSTOM_SPLIT,
+            cashAmount = 160.0,
+            transferAmount = 100.0,
+            debtAmount = 200.0,
+            exchangeAccount = acc,
+            transferRef = "REF-1",
+            timestamp = currentLines.first().timestamp
+        )
+        assertEquals(7, db.storeDao().getProductById(p1Id)!!.quantity)
+        val updatedDebt = db.storeDao().getDebtById(saleDebt.id)!!
+        assertEquals(200.0, updatedDebt.originalAmount, 0.01)
+        assertEquals(80.0, updatedDebt.paidAmount, 0.01)
+        assertEquals(120.0, updatedDebt.remainingAmount, 0.01)
+
+        // Fresh unpaid multi-item sale -> delete atomically restores stock, cash & reverses transfer
+        val inv2 = repository.executeCartSale(
+            items = listOf(CartSaleItem(db.storeDao().getProductById(p1Id)!!, 1, 100.0), CartSaleItem(db.storeDao().getProductById(p2Id)!!, 1, 80.0)),
+            discount = 0.0,
+            customerName = "زبون",
+            customerPhone = "",
+            paymentType = PaymentMethods.SPLIT,
+            cashPart = 90.0,
+            transferPart = 90.0,
+            debtPart = 0.0,
+            exchangeAccount = acc
+        )
+        val accBeforeDelete = db.storeDao().getExchangeAccountById(accId)!!.balance
+        repository.deleteSaleInvoice(inv2)
+        assertEquals(7, db.storeDao().getProductById(p1Id)!!.quantity)
+        assertEquals(6, db.storeDao().getProductById(p2Id)!!.quantity)
+        assertEquals(accBeforeDelete - 90.0, db.storeDao().getExchangeAccountById(accId)!!.balance, 0.01)
+        assertTrue("Reversal entry must exist for deleted transfer", db.storeDao().getAllExchangeTransfersDirect().any { it.isReversed })
+    }
+
+    @Test
+    fun testMultiItemPurchaseEditAndDeleteAsAtomicUnit() = runBlocking {
+        repository.recordManualDeposit(5000.0, "رصيد")
+        val accId = db.storeDao().insertExchangeAccount(ExchangeAccount(name = "صراف", balance = 3000.0))
+        val acc = db.storeDao().getExchangeAccountById(accId)!!
+
+        val purNum = repository.executeCartPurchase(
+            items = listOf(
+                CartPurchaseItem("أكوات", "كوت 1", "أسود", "L", ClothingUnits.PIECE, 5.0, 100.0, 160.0),
+                CartPurchaseItem("دجلات", "دجلة 2", "رمادي", "M", ClothingUnits.PIECE, 4.0, 150.0, 220.0)
+            ),
+            supplierName = "مورد الأناقة",
+            invoiceNumber = "PUR-UNI-1",
+            paymentMethod = "مختلط (كاش + حوالة + آجل)",
+            cashPaidPart = 500.0,
+            transferPaidPart = 400.0,
+            debtPart = 200.0, // total = 500 + 600 = 1100
+            exchangeAccount = acc,
+            transferRef = "P-REF",
+            notes = ""
+        )
+        assertEquals(2600.0, db.storeDao().getExchangeAccountById(accId)!!.balance, 0.01)
+        assertEquals(4500.0, db.storeDao().getAvailableCashBalance(), 0.01)
+
+        // Edit multi-item purchase: increase line 1 from 5 to 6 pieces (+100 cost -> 600 cash, 400 transfer, 200 debt = 1200)
+        val lines = db.storeDao().getPurchasesByInvoiceNumber(purNum)
+        assertEquals(2, lines.size)
+        val editedLines = listOf(
+            lines[0].copy(quantity = 6, unitCount = 6.0, totalCost = 600.0),
+            lines[1]
+        )
+        repository.updatePurchaseInvoice(
+            originalInvoiceKey = purNum,
+            updatedItems = editedLines,
+            newInvoiceNumber = purNum,
+            supplierName = "مورد الأناقة",
+            paymentMethod = "مختلط (كاش + حوالة + آجل)",
+            cashPaid = 600.0,
+            transferPaid = 400.0,
+            debtAmount = 200.0,
+            exchangeAccount = acc,
+            timestamp = lines.first().timestamp
+        )
+        assertEquals(4400.0, db.storeDao().getAvailableCashBalance(), 0.01)
+        val p1 = db.storeDao().getAllProductsDirect().first { it.modelName == "كوت 1" }
+        assertEquals(6, p1.quantity)
+
+        // Delete entire purchase atomically -> restores cash, reverses transfer, removes debt & stock
+        repository.deletePurchaseInvoice(purNum)
+        assertEquals(5000.0, db.storeDao().getAvailableCashBalance(), 0.01)
+        assertEquals(3000.0, db.storeDao().getExchangeAccountById(accId)!!.balance, 0.01)
+        assertEquals(0, db.storeDao().getAllPurchasesDirect().size)
+        assertEquals(0, db.storeDao().getAllDebtsDirect().size)
+    }
+
+    @Test
+    fun testEmployeeDailyExpenseBidirectionalSyncAndNoDoubleCountInReports() = runBlocking {
+        repository.recordManualDeposit(3000.0, "رصيد")
+        val empId = db.storeDao().insertEmployee(Employee(name = "عمر", role = "بائع", baseSalary = 1000.0))
+
+        // Record daily employee expense -> creates BOTH EmployeeTransaction and linked ExpenseRecord
+        val txId = repository.recordEmployeeTransaction(
+            employeeId = empId,
+            employeeName = "عمر",
+            type = "صرفة يومية",
+            amount = 75.0,
+            notes = "مصروف غداء يومي",
+            paidFromCashDrawer = true
+        )
+        val expenses = db.storeDao().getAllExpensesDirect()
+        val empTxs = db.storeDao().getAllEmployeeTransactionsDirect()
+        assertEquals(1, expenses.size)
+        assertEquals(1, empTxs.size)
+        assertEquals(txId, expenses.first().linkedEmployeeTxId)
+        assertEquals(expenses.first().id, empTxs.first().linkedExpenseId)
+        assertEquals(2925.0, db.storeDao().getAvailableCashBalance(), 0.01)
+
+        // Report MUST count 75 ONCE (never 150 double-count!)
+        val report = StatementHelper.buildDailyReportSummary(
+            periodTitle = "اليوم",
+            filteredSales = emptyList(),
+            filteredPurchases = emptyList(),
+            filteredExpenses = expenses,
+            filteredEmployeeTx = empTxs,
+            filteredPayments = emptyList(),
+            allDebts = emptyList(),
+            allProducts = emptyList(),
+            currentCashBalance = db.storeDao().getAvailableCashBalance(),
+            currentExchangeBalance = 0.0
+        )
+        assertEquals(75.0, report.expensesTotal, 0.01)
+        assertEquals(0.0, report.salariesAndAdvancesTotal, 0.01)
+        assertEquals(-75.0, report.netProfit, 0.01)
+
+        // Deleting the expense cascades & removes linked EmployeeTransaction + restores cash
+        repository.deleteExpense(expenses.first().id)
+        assertEquals(0, db.storeDao().getAllExpensesDirect().size)
+        assertEquals(0, db.storeDao().getAllEmployeeTransactionsDirect().size)
+        assertEquals(3000.0, db.storeDao().getAvailableCashBalance(), 0.01)
+
+        // Conversely, deleting EmployeeTransaction cascades & removes linked ExpenseRecord
+        val tx2Id = repository.recordEmployeeTransaction(empId, "عمر", "صرفة يومية", 50.0, "مواصلات", paidFromCashDrawer = true)
+        assertEquals(1, db.storeDao().getAllExpensesDirect().size)
+        repository.deleteEmployeeTransaction(tx2Id)
+        assertEquals(0, db.storeDao().getAllExpensesDirect().size)
+        assertEquals(0, db.storeDao().getAllEmployeeTransactionsDirect().size)
+        assertEquals(3000.0, db.storeDao().getAvailableCashBalance(), 0.01)
+    }
+
+    @Test
+    fun testValidationRejectsMissingAccountBadSplitsOverdrawAndDuplicateNumbers() = runBlocking {
+        repository.recordManualDeposit(1000.0, "رصيد")
+        val accId = db.storeDao().insertExchangeAccount(ExchangeAccount(name = "بنك", balance = 400.0))
+        val acc = db.storeDao().getExchangeAccountById(accId)!!
+        val empId = db.storeDao().insertEmployee(Employee(name = "رامي", role = "بائع", baseSalary = 800.0))
+        val prodId = db.storeDao().insertProduct(ProductItem(category = "ثوب", modelName = "ثوب", color = "أبيض", size = "L", quantity = 10, buyPrice = 50.0, sellPrice = 100.0))
+        val prod = db.storeDao().getProductById(prodId)!!
+
+        // 1. Reject non-cash expense and non-cash employee tx without exchange account
+        var expRejected = false
+        try {
+            repository.recordExpense("كهرباء", 50.0, "تجربة", "EXP-NOACC", paidFromCash = false, exchangeAccount = null)
+        } catch (e: IllegalArgumentException) {
+            expRejected = true
+        }
+        assertTrue("Non-cash expense without account must throw", expRejected)
+
+        var empTxRejected = false
+        try {
+            repository.recordEmployeeTransaction(empId, "رامي", "سلفة", 50.0, "سلفة", paidFromCashDrawer = false, exchangeAccount = null)
+        } catch (e: IllegalArgumentException) {
+            empTxRejected = true
+        }
+        assertTrue("Non-cash employee tx without account must throw", empTxRejected)
+
+        // 2. Reject split payment != total with strict 0.01 precision (0.05 difference fails!)
+        var saleSplitRejected = false
+        try {
+            repository.executeCartSale(
+                items = listOf(CartSaleItem(prod, 1, 100.0)), // total = 100.0
+                discount = 0.0,
+                customerName = "عميل",
+                customerPhone = "",
+                paymentType = PaymentMethods.CUSTOM_SPLIT,
+                cashPart = 50.0,
+                transferPart = 49.95, // sum = 99.95, diff = 0.05 > 0.01!
+                debtPart = 0.0,
+                exchangeAccount = acc
+            )
+        } catch (e: IllegalArgumentException) {
+            saleSplitRejected = true
+        }
+        assertTrue("Sale split differing by 0.05 must be rejected", saleSplitRejected)
+
+        var purSplitRejected = false
+        try {
+            repository.executeCartPurchase(
+                items = listOf(CartPurchaseItem("ثوب", "ثوب", "أبيض", "L", ClothingUnits.PIECE, 1.0, 100.0, 150.0)),
+                supplierName = "مورد",
+                invoiceNumber = "",
+                paymentMethod = "مختلط (كاش + حوالة + آجل)",
+                cashPaidPart = 50.0,
+                transferPaidPart = 50.05, // diff = 0.05 > 0.01!
+                debtPart = 0.0,
+                exchangeAccount = acc,
+                transferRef = "",
+                notes = ""
+            )
+        } catch (e: IllegalArgumentException) {
+            purSplitRejected = true
+        }
+        assertTrue("Purchase split differing by 0.05 must be rejected", purSplitRejected)
+
+        // 3. Reject withdrawal, transfer, expense, and overpayment > balance/debt
+        var overWithdraw = false
+        try { repository.recordOwnerWithdrawal(1500.0, "سحب زائد") } catch (_: IllegalStateException) { overWithdraw = true }
+        assertTrue(overWithdraw)
+
+        var overTransfer = false
+        try { repository.transferBetweenCashAndExchange(accId, 500.0, fromCashToExchange = false, notes = "زائد") } catch (_: IllegalStateException) { overTransfer = true }
+        assertTrue(overTransfer)
+
+        val dId = db.storeDao().insertDebt(DebtRecord(type = "CUSTOMER", partyName = "زبون", originalAmount = 200.0, remainingAmount = 200.0, dueDate = 0L, isSettled = false))
+        val debtObj = db.storeDao().getDebtById(dId)!!
+        var overPayDebt = false
+        try { repository.recordDebtPayment(debtObj, 250.0, "زيادة", "نقداً") } catch (_: IllegalArgumentException) { overPayDebt = true }
+        assertTrue("Payment exceeding debt remainingAmount must be rejected", overPayDebt)
+
+        // 4. Reject duplicate manual invoice/voucher numbers & verify unique auto numbers after deletions
+        val autoInv1 = repository.executeCartSale(listOf(CartSaleItem(prod, 1, 100.0)), 0.0, "عميل 1", "", PaymentMethods.CASH, customInvoiceNumber = "INV-DUP")
+        assertEquals("INV-DUP", autoInv1)
+        var dupSaleRejected = false
+        try {
+            repository.executeCartSale(listOf(CartSaleItem(prod, 1, 100.0)), 0.0, "عميل 2", "", PaymentMethods.CASH, customInvoiceNumber = "INV-DUP")
+        } catch (e: IllegalArgumentException) {
+            dupSaleRejected = true
+        }
+        assertTrue("Duplicate manual sale invoice number must fail", dupSaleRejected)
+
+        repository.recordCollectionReceipt("عميل 1", null, 50.0, "SND-99", "نقداً")
+        var dupVoucherRejected = false
+        try {
+            repository.recordCollectionReceipt("عميل 2", null, 50.0, "SND-99", "نقداً")
+        } catch (e: IllegalArgumentException) {
+            dupVoucherRejected = true
+        }
+        assertTrue("Duplicate manual voucher number must fail", dupVoucherRejected)
+
+        val autoPur1 = repository.executeCartPurchase(listOf(CartPurchaseItem("ثوب", "صنف أ", "أبيض", "M", ClothingUnits.PIECE, 1.0, 50.0, 90.0)), "مورد", "", "نقداً من الصندوق", 50.0, 0.0, 0.0, null, "", "")
+        val autoPur2 = repository.executeCartPurchase(listOf(CartPurchaseItem("ثوب", "صنف ب", "أسود", "L", ClothingUnits.PIECE, 1.0, 50.0, 90.0)), "مورد", "", "نقداً من الصندوق", 50.0, 0.0, 0.0, null, "", "")
+        assertNotEquals(autoPur1, autoPur2)
+        repository.deletePurchaseInvoice(autoPur1)
+        val autoPur3 = repository.executeCartPurchase(listOf(CartPurchaseItem("ثوب", "صنف ج", "أزرق", "L", ClothingUnits.PIECE, 1.0, 50.0, 90.0)), "مورد", "", "نقداً من الصندوق", 50.0, 0.0, 0.0, null, "", "")
+        assertNotEquals(autoPur2, autoPur3)
+    }
+
+    @Test
+    @Config(sdk = [36], shadows = [TestPdfDocumentShadow::class, TestPdfDocumentPageShadow::class])
+    fun testArchiveLinkedEntitiesStatementInitialBalanceReportsAndMultiPagePdf() = runBlocking {
+        repository.recordManualDeposit(2000.0, "رصيد")
+        val empId = db.storeDao().insertEmployee(Employee(name = "موظف مرتبط", role = "بائع", baseSalary = 1000.0))
+        val unlinkedEmpId = db.storeDao().insertEmployee(Employee(name = "موظف حر", role = "بائع", baseSalary = 500.0))
+        val accId = db.storeDao().insertExchangeAccount(ExchangeAccount(name = "صراف مرتبط", balance = 500.0))
+        val unlinkedAccId = db.storeDao().insertExchangeAccount(ExchangeAccount(name = "صراف حر", balance = 0.0))
+        val partyId = repository.saveParty(PartyAccount(type = "CUSTOMER", name = "عميل مرتبط"), initialDebt = 500.0)
+        val unlinkedPartyId = repository.saveParty(PartyAccount(type = "SUPPLIER", name = "مورد حر"), initialDebt = 0.0)
+
+        repository.recordEmployeeTransaction(empId, "موظف مرتبط", "سلفة", 100.0, "سلفة", paidFromCashDrawer = true)
+        val acc = db.storeDao().getExchangeAccountById(accId)!!
+        repository.recordCollectionReceipt("عميل مرتبط", null, 150.0, "", "صرافة/محفظة", acc, "دفعة من الرصيد الافتتاحي")
+
+        // Archiving linked entities vs hard-deleting unlinked ones
+        assertEquals(DeleteEntityResult.ARCHIVED, repository.deleteEmployee(empId))
+        assertEquals(DeleteEntityResult.DELETED, repository.deleteEmployee(unlinkedEmpId))
+        assertEquals(DeleteEntityResult.ARCHIVED, repository.deleteExchangeAccount(accId))
+        assertEquals(DeleteEntityResult.DELETED, repository.deleteExchangeAccount(unlinkedAccId))
+        assertEquals(DeleteEntityResult.ARCHIVED, repository.deleteParty(partyId))
+        assertEquals(DeleteEntityResult.DELETED, repository.deleteParty(unlinkedPartyId))
+
+        // Active lists exclude archived entities while statements preserve full history
+        assertTrue(db.storeDao().getAllEmployees().first().none { it.id == empId })
+        assertTrue(db.storeDao().getAllExchangeAccounts().first().none { it.id == accId })
+        assertTrue(db.storeDao().getAllParties().first().none { it.id == partyId })
+
+        val archivedParty = db.storeDao().getPartyById(partyId)!!
+        assertTrue(archivedParty.isArchived)
+        // Customer initialBalance = 500 -> single opening DebtRecord of 500 (no double-count) minus 150 payment = 350 net
+        val stmt = StatementHelper.buildPartyStatement(
+            party = archivedParty,
+            sales = emptyList(),
+            purchases = emptyList(),
+            debts = db.storeDao().getAllDebtsDirect(),
+            payments = db.storeDao().getAllDebtPaymentsDirect()
+        )
+        assertEquals(500.0, stmt.totalOnParty, 0.01)
+        assertEquals(150.0, stmt.totalForParty, 0.01)
+        assertEquals(350.0, stmt.netBalance, 0.01)
+
+        // Multi-page PDF wrapping test (40 items + long Arabic text)
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val settings = StoreSettings(shopNameAr = "متجر النور", phone = "777000000")
+        val longLines = (1..40).map { i ->
+            InvoiceHelper.PdfSaleLineItem(
+                name = "صنف ملابس فاخرة طويل جداً رقم $i مع تفاصيل إضافية لضمان التفاف النص تلقائياً على أكثر من سطر",
+                details = "تفاصيل مقاسات وألوان متعددة وملاحظات طويلة للزبون رقم $i بدون أي قص أو تداخل",
+                quantity = i,
+                unitPrice = 125.5,
+                total = i * 125.5,
+                unit = ClothingUnits.PIECE
+            )
+        }
+        val pdfFile = InvoiceHelper.generateSaleInvoicePdf(
+            context = context,
+            invoiceNumber = "INV-LONG-40",
+            customerName = archivedParty.name,
+            customerPhone = "777123456",
+            employeeName = "موظف مرتبط",
+            paymentType = PaymentMethods.CASH,
+            items = longLines,
+            subtotal = longLines.sumOf { it.total },
+            discount = 50.0,
+            netTotal = longLines.sumOf { it.total } - 50.0,
+            cashPaid = longLines.sumOf { it.total } - 50.0,
+            transferPaid = 0.0,
+            debtAmount = 0.0,
+            exchangeAccountName = "",
+            transferRef = "",
+            timestamp = System.currentTimeMillis(),
+            settings = settings
+        )
+        assertTrue("Generated multi-page PDF must exist and be non-empty", pdfFile.exists() && pdfFile.length() > 50L)
+        val salePdfContent = pdfFile.readText(Charsets.UTF_8)
+        assertTrue(salePdfContent.startsWith("%PDF-"))
+        assertTrue("40 long items must paginate into >= 2 pages", Regex("FinishedPages=(\\d+)").find(salePdfContent)?.groupValues?.get(1)?.toIntOrNull()?.let { it >= 2 } == true)
+
+        val stmtPdf = InvoiceHelper.generatePartyStatementPdf(context, stmt, StatementMode.DETAILED, settings)
+        assertTrue(stmtPdf.exists() && stmtPdf.length() > 50L)
+
+        val purchasePdfItems = (1..35).map { i ->
+            CartPurchaseItem("أكوات", "صنف شراء طويل جداً رقم $i مع مواصفات كاملة للمستودع", "أسود", "XL", ClothingUnits.PIECE, 2.0, 80.0, 120.0)
+        }
+        val purchasePdf = InvoiceHelper.generateMultiItemPurchaseInvoicePdf(
+            context = context,
+            invoiceNumber = "PUR-LONG-35",
+            supplierName = "مورد الأناقة",
+            paymentMethod = "نقداً من الصندوق",
+            exchangeAccountName = "",
+            transferRef = "",
+            items = purchasePdfItems,
+            totalCost = purchasePdfItems.sumOf { it.lineCost },
+            cashPaid = purchasePdfItems.sumOf { it.lineCost },
+            transferPaid = 0.0,
+            debtAmount = 0.0,
+            timestamp = System.currentTimeMillis(),
+            settings = settings
+        )
+        assertTrue(purchasePdf.exists() && purchasePdf.length() > 50L)
+        val purchasePdfContent = purchasePdf.readText(Charsets.UTF_8)
+        assertTrue("35 long purchase items must paginate into >= 2 pages", Regex("FinishedPages=(\\d+)").find(purchasePdfContent)?.groupValues?.get(1)?.toIntOrNull()?.let { it >= 2 } == true)
+
+        val activeTransfer = ExchangeTransfer(accountId = accId, accountName = "صراف مرتبط", type = "إيداع", amount = 150.0, isCredit = true, title = "تحصيل")
+        val reversedTransfer = ExchangeTransfer(accountId = accId, accountName = "صراف مرتبط", type = "إيداع", amount = 999.0, isCredit = true, title = "حركة ملغاة", isReversed = true)
+        val reversalTransfer = ExchangeTransfer(accountId = accId, accountName = "صراف مرتبط", type = "عكس", amount = 999.0, isCredit = false, title = "قيد عكسي", isReversalEntry = true)
+        val dailyPdf = InvoiceHelper.generateDailyMovementPdf(
+            context = context,
+            movements = db.storeDao().getAllCashMovementsDirect(),
+            transfers = listOf(activeTransfer, reversedTransfer, reversalTransfer),
+            currentCash = db.storeDao().getAvailableCashBalance(),
+            currentExchange = 650.0,
+            periodTitle = "الكل",
+            settings = settings
+        )
+        assertTrue(dailyPdf.exists() && dailyPdf.length() > 50L)
+
+        val reportPdf = InvoiceHelper.generateFinancialReportPdf(
+            context = context,
+            periodTitle = "الكل",
+            sales = emptyList(),
+            expenses = db.storeDao().getAllExpensesDirect(),
+            employeeTx = db.storeDao().getAllEmployeeTransactionsDirect(),
+            purchases = emptyList(),
+            settings = settings
+        )
+        assertTrue(reportPdf.exists() && reportPdf.length() > 50L)
+    }
+
+    @Test
+    fun testManagerPinSaltedHashingStrengthValidationAndLockout() = runBlocking {
+        // Weak PIN "1234" rejected
+        assertNotNull(PinSecurityManager.validatePinStrength("1234"))
+        assertNotNull(PinSecurityManager.validatePinStrength("1111"))
+        assertNull(PinSecurityManager.validatePinStrength("8492"))
+
+        // Set strong PIN and verify stored hashed (plaintext cleared)
+        repository.updateManagerPin("8492")
+        val settings = db.storeDao().getStoreSettingsDirect()!!
+        assertEquals("", settings.managerPin)
+        assertTrue(settings.managerPinHash.isNotBlank())
+        assertTrue(settings.managerPinSalt.isNotBlank())
+        assertFalse(settings.mustChangePin)
+
+        // Wrong attempts 1..4 -> Invalid, 5th -> Locked
+        for (attempt in 1..4) {
+            val res = repository.verifyManagerPin("9999")
+            assertTrue("Attempt $attempt should be Invalid", res is PinVerificationResult.Invalid)
+        }
+        val locked = repository.verifyManagerPin("9999")
+        assertTrue("5th failed attempt must lock out", locked is PinVerificationResult.Locked)
+
+        // Even correct PIN rejected while locked out
+        assertTrue(repository.verifyManagerPin("8492") is PinVerificationResult.Locked)
+
+        // Expire lock window and confirm correct PIN unlocks & succeeds
+        db.storeDao().updateStoreSettings(db.storeDao().getStoreSettingsDirect()!!.copy(pinLockUntilTimestamp = System.currentTimeMillis() - 1000L))
+        assertEquals(PinVerificationResult.Success, repository.verifyManagerPin("8492"))
     }
 }

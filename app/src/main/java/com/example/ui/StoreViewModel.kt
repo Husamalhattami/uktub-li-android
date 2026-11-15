@@ -6,8 +6,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.database.AppDatabase
 import com.example.data.model.*
+import com.example.data.repository.PinVerificationResult
 import com.example.data.repository.StoreRepository
+import com.example.ui.util.BackupManager
+import com.example.ui.util.BackupPreview
 import com.example.ui.util.FormatUtils
+import com.example.ui.util.PinSecurityManager
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -52,10 +56,6 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             val prefs = application.getSharedPreferences("hesabi_prefs", Context.MODE_PRIVATE)
-            if (!prefs.getBoolean("initial_wipe_v8_done", false)) {
-                repository.clearEverythingCompletely(clearConfigDictionaries = false)
-                prefs.edit().putBoolean("initial_wipe_v8_done", true).apply()
-            }
             if (!prefs.getBoolean("config_dicts_seeded_v9", false)) {
                 if (repository.getConfigItemsCount() == 0) {
                     repository.seedRecommendedDictionaries(includeSampleCategories = false)
@@ -242,6 +242,9 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     val employees: StateFlow<List<Employee>> = repository.allEmployees
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val employeesIncludingArchived: StateFlow<List<Employee>> = repository.allEmployeesIncludingArchived
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val employeeTransactions: StateFlow<List<EmployeeTransaction>> = repository.allEmployeeTransactions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -263,10 +266,16 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     val exchangeAccounts: StateFlow<List<ExchangeAccount>> = repository.allExchangeAccounts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val exchangeAccountsIncludingArchived: StateFlow<List<ExchangeAccount>> = repository.allExchangeAccountsIncludingArchived
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val exchangeTransfers: StateFlow<List<ExchangeTransfer>> = repository.allExchangeTransfers
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val parties: StateFlow<List<PartyAccount>> = repository.allParties
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val partiesIncludingArchived: StateFlow<List<PartyAccount>> = repository.allPartiesIncludingArchived
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val customerParties: StateFlow<List<PartyAccount>> = parties.map { list ->
@@ -277,11 +286,27 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         list.filter { it.type == "SUPPLIER" }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val customerPartiesIncludingArchived: StateFlow<List<PartyAccount>> = partiesIncludingArchived.map { list ->
+        list.filter { it.type == "CUSTOMER" }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val supplierPartiesIncludingArchived: StateFlow<List<PartyAccount>> = partiesIncludingArchived.map { list ->
+        list.filter { it.type == "SUPPLIER" }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val auditLogs: StateFlow<List<AuditLogRecord>> = repository.allAuditLogs
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val storeSettings: StateFlow<StoreSettings?> = repository.storeSettings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val isPinConfigured: StateFlow<Boolean> = storeSettings.map { settings ->
+        settings != null && PinSecurityManager.isPinConfigured(settings)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val mustChangePin: StateFlow<Boolean> = storeSettings.map { settings ->
+        settings?.mustChangePin == true || (settings != null && !PinSecurityManager.isPinConfigured(settings))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     // --- Completed Receipt Dialog Event ---
     private val _completedReceipt = MutableStateFlow<CompletedSaleReceipt?>(null)
@@ -334,7 +359,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "تم التحصيل بنجاح • رقم السند: ${result.voucherNumber}"
                 onSuccess(result)
             } catch (e: Exception) {
-                _userMessage.value = e.message ?: "تعذر تنفيذ عملية التحصيل"
+                reportError(e.message ?: "تعذر تنفيذ عملية التحصيل")
             }
         }
     }
@@ -382,21 +407,54 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "تم تسديد المورد بنجاح • رقم السند: ${result.voucherNumber}"
                 onSuccess(result)
             } catch (e: Exception) {
-                _userMessage.value = e.message ?: "تعذر تنفيذ عملية التسديد للمورد"
+                reportError(e.message ?: "تعذر تنفيذ عملية التسديد للمورد")
             }
         }
     }
 
-    // --- Toast / Feedback Message ---
+    // --- Toast / Feedback & Persistent Error Dialog ---
     private val _userMessage = MutableStateFlow<String?>(null)
     val userMessage: StateFlow<String?> = _userMessage.asStateFlow()
+
+    private val _errorDialogMessage = MutableStateFlow<String?>(null)
+    val errorDialogMessage: StateFlow<String?> = _errorDialogMessage.asStateFlow()
 
     fun clearUserMessage() {
         _userMessage.value = null
     }
 
+    fun dismissErrorDialog() {
+        _errorDialogMessage.value = null
+    }
+
     fun showMessage(msg: String) {
         _userMessage.value = msg
+    }
+
+    private fun reportError(msg: String) {
+        _userMessage.value = msg
+        _errorDialogMessage.value = msg
+    }
+
+    fun verifyManagerPin(pin: String, onResult: (PinVerificationResult) -> Unit) {
+        viewModelScope.launch {
+            val result = repository.verifyManagerPin(pin)
+            onResult(result)
+        }
+    }
+
+    fun updateManagerPin(currentPin: String?, newPin: String, onResult: (Boolean, String?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                repository.updateManagerPin(newPin = newPin, currentPin = currentPin)
+                _userMessage.value = "تم تحديث رمز المدير (PIN) وتأمينه بنجاح"
+                onResult(true, null)
+            } catch (e: Exception) {
+                val err = e.message ?: "تعذر تحديث رمز المدير"
+                reportError(err)
+                onResult(false, err)
+            }
+        }
     }
 
     // --- Computed Live Metrics ---
@@ -486,7 +544,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "تم إتمام عملية البيع بنجاح!"
                 onSuccess()
             } catch (e: Exception) {
-                _userMessage.value = e.message ?: "تعذر إتمام عملية البيع"
+                reportError(e.message ?: "تعذر إتمام عملية البيع")
             }
         }
     }
@@ -527,7 +585,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "تم حفظ فاتورة البيع ($invoiceNumber) بنجاح!"
                 onSuccess(invoiceNumber)
             } catch (e: Exception) {
-                _userMessage.value = e.message ?: "تعذر إتمام عملية البيع"
+                reportError(e.message ?: "تعذر إتمام عملية البيع")
             }
         }
     }
@@ -564,7 +622,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "تم حفظ وتأكيد فاتورة الشراء ($finalInvoiceNum) بنجاح!"
                 onSuccess(finalInvoiceNum)
             } catch (e: Exception) {
-                _userMessage.value = e.message ?: "تعذر إتمام فاتورة الشراء"
+                reportError(e.message ?: "تعذر إتمام فاتورة الشراء")
             }
         }
     }
@@ -575,18 +633,70 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 repository.deleteSale(saleId)
                 _userMessage.value = "تم حذف فاتورة البيع واسترجاع البضاعة والمبالغ"
             } catch (e: Exception) {
-                _userMessage.value = e.message ?: "فشل إلغاء فاتورة البيع"
+                reportError(e.message ?: "فشل إلغاء فاتورة البيع")
             }
         }
     }
 
-    fun updateSale(sale: SaleTransaction) {
+    fun deleteSaleInvoice(invoiceNumber: String) {
+        viewModelScope.launch {
+            try {
+                repository.deleteSaleInvoice(invoiceNumber)
+                _userMessage.value = "تم إلغاء فاتورة البيع ($invoiceNumber) وعكس كامل الأصناف والحسابات"
+            } catch (e: Exception) {
+                reportError(e.message ?: "فشل إلغاء فاتورة البيع")
+            }
+        }
+    }
+
+    fun updateSale(sale: SaleTransaction, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
             try {
                 repository.updateSale(sale)
                 _userMessage.value = "تم تحديث بيانات فاتورة البيع"
+                onSuccess()
             } catch (e: Exception) {
-                _userMessage.value = e.message ?: "فشل تحديث فاتورة البيع"
+                reportError(e.message ?: "فشل تحديث فاتورة البيع")
+            }
+        }
+    }
+
+    fun updateSaleInvoice(
+        originalInvoiceKey: String,
+        updatedItems: List<SaleTransaction>,
+        newInvoiceNumber: String,
+        customerName: String,
+        customerPhone: String,
+        paymentType: String,
+        cashAmount: Double,
+        transferAmount: Double,
+        debtAmount: Double,
+        exchangeAccount: ExchangeAccount?,
+        transferRef: String,
+        timestamp: Long,
+        onSuccess: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.updateSaleInvoice(
+                    originalInvoiceKey = originalInvoiceKey,
+                    updatedItems = updatedItems,
+                    newInvoiceNumber = newInvoiceNumber,
+                    customerName = customerName,
+                    customerPhone = customerPhone,
+                    paymentType = paymentType,
+                    cashAmount = cashAmount,
+                    transferAmount = transferAmount,
+                    debtAmount = debtAmount,
+                    exchangeAccount = exchangeAccount,
+                    transferRef = transferRef,
+                    timestamp = timestamp
+                )
+                val label = newInvoiceNumber.ifBlank { originalInvoiceKey }
+                _userMessage.value = "تم تحديث فاتورة البيع ($label) وإعادة احتساب المخزون والأرصدة"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "فشل تحديث فاتورة البيع")
             }
         }
     }
@@ -641,7 +751,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "تم تسجيل شراء البضاعة وإضافتها إلى المخزون!"
                 onSuccess()
             } catch (e: Exception) {
-                _userMessage.value = e.message ?: "فشل تسجيل فاتورة الشراء"
+                reportError(e.message ?: "فشل تسجيل فاتورة الشراء")
             }
         }
     }
@@ -652,15 +762,67 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 repository.deletePurchase(purchaseId)
                 _userMessage.value = "تم حذف فاتورة الشراء وخصم الكمية واسترداد الدفعات"
             } catch (e: Exception) {
-                _userMessage.value = e.message ?: "تعذر حذف فاتورة الشراء"
+                reportError(e.message ?: "تعذر حذف فاتورة الشراء")
             }
         }
     }
 
-    fun updatePurchase(purchase: PurchaseRecord) {
+    fun deletePurchaseInvoice(invoiceNumber: String) {
         viewModelScope.launch {
-            repository.updatePurchase(purchase)
-            _userMessage.value = "تم تحديث بيانات فاتورة الشراء"
+            try {
+                repository.deletePurchaseInvoice(invoiceNumber)
+                _userMessage.value = "تم إلغاء فاتورة الشراء ($invoiceNumber) وعكس كامل الأصناف والحسابات"
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر حذف فاتورة الشراء")
+            }
+        }
+    }
+
+    fun updatePurchase(purchase: PurchaseRecord, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                repository.updatePurchase(purchase)
+                _userMessage.value = "تم تحديث بيانات فاتورة الشراء"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "فشل تحديث فاتورة الشراء")
+            }
+        }
+    }
+
+    fun updatePurchaseInvoice(
+        originalInvoiceKey: String,
+        updatedItems: List<PurchaseRecord>,
+        newInvoiceNumber: String,
+        supplierName: String,
+        paymentMethod: String,
+        cashPaid: Double,
+        transferPaid: Double,
+        debtAmount: Double,
+        exchangeAccount: ExchangeAccount?,
+        timestamp: Long,
+        onSuccess: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.updatePurchaseInvoice(
+                    originalInvoiceKey = originalInvoiceKey,
+                    updatedItems = updatedItems,
+                    newInvoiceNumber = newInvoiceNumber,
+                    supplierName = supplierName,
+                    paymentMethod = paymentMethod,
+                    cashPaid = cashPaid,
+                    transferPaid = transferPaid,
+                    debtAmount = debtAmount,
+                    exchangeAccount = exchangeAccount,
+                    timestamp = timestamp
+                )
+                val label = newInvoiceNumber.ifBlank { originalInvoiceKey }
+                _userMessage.value = "تم تحديث فاتورة الشراء ($label) وإعادة احتساب المخزون والأرصدة"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "فشل تحديث فاتورة الشراء")
+            }
         }
     }
 
@@ -692,36 +854,52 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             if (amount <= 0) {
-                _userMessage.value = "يرجى إدخال مبلغ المصروف"
+                reportError("يرجى إدخال مبلغ المصروف")
                 return@launch
             }
-            repository.recordExpense(
-                category = category,
-                amount = amount,
-                notes = notes,
-                receiptNumber = receiptNumber,
-                paidFromCash = paidFromCash,
-                exchangeAccount = exchangeAccount,
-                employee = employee,
-                timestamp = timestamp
-            )
-            _userMessage.value = if (employee != null) "تم تسجيل صرفة يومية للعامل (${employee.name}) بنجاح" else "تم تسجيل المصروف بنجاح"
-            onSuccess()
+            if (!paidFromCash && exchangeAccount == null) {
+                reportError("اختر الصراف أو المحفظة التي سيُخصم منها المصروف")
+                return@launch
+            }
+            try {
+                repository.recordExpense(
+                    category = category,
+                    amount = amount,
+                    notes = notes,
+                    receiptNumber = receiptNumber,
+                    paidFromCash = paidFromCash,
+                    exchangeAccount = exchangeAccount,
+                    employee = employee,
+                    timestamp = timestamp
+                )
+                _userMessage.value = if (employee != null) "تم تسجيل صرفة يومية للعامل (${employee.name}) بنجاح" else "تم تسجيل المصروف بنجاح"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر تسجيل المصروف")
+            }
         }
     }
 
     fun updateExpense(expense: ExpenseRecord, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
-            repository.updateExpense(expense)
-            _userMessage.value = "تم تعديل بيانات المصروف بنجاح"
-            onSuccess()
+            try {
+                repository.updateExpense(expense)
+                _userMessage.value = "تم تعديل بيانات المصروف بنجاح"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر تعديل المصروف")
+            }
         }
     }
 
     fun deleteExpense(id: Long) {
         viewModelScope.launch {
-            repository.deleteExpense(id)
-            _userMessage.value = "تم حذف المصروف واسترجاع الرصيد"
+            try {
+                repository.deleteExpense(id)
+                _userMessage.value = "تم حذف المصروف واسترجاع الرصيد"
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر حذف المصروف")
+            }
         }
     }
 
@@ -731,16 +909,33 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "يرجى إدخال اسم العامل"
                 return@launch
             }
-            repository.saveEmployee(employee)
-            _userMessage.value = "تم حفظ بيانات العامل بنجاح"
-            onSuccess()
+            try {
+                repository.saveEmployee(employee)
+                _userMessage.value = "تم حفظ بيانات العامل بنجاح"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر حفظ بيانات العامل")
+            }
         }
     }
 
     fun deleteEmployee(employeeId: Long) {
         viewModelScope.launch {
-            repository.deleteEmployee(employeeId)
-            _userMessage.value = "تم حذف بيانات العامل من المحل"
+            try {
+                when (repository.deleteEmployee(employeeId)) {
+                    DeleteEntityResult.ARCHIVED -> {
+                        _userMessage.value = "تمت أرشفة العامل لوجود حركات مالية أو مبيعات مرتبطة به (تم الحفاظ على كشوفاته)"
+                    }
+                    DeleteEntityResult.DELETED -> {
+                        _userMessage.value = "تم حذف بيانات العامل من المحل"
+                    }
+                    DeleteEntityResult.NOT_FOUND -> {
+                        _userMessage.value = "لم يتم العثور على سجل العامل"
+                    }
+                }
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر حذف بيانات العامل")
+            }
         }
     }
 
@@ -758,41 +953,53 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             if (amount <= 0) {
-                _userMessage.value = "يرجى إدخال المبلغ"
+                reportError("يرجى إدخال المبلغ")
                 return@launch
             }
             if (!paidFromCashDrawer && exchangeAccount == null && type != "خصم غياب") {
-                _userMessage.value = "اختر الصراف أو المحفظة التي سيُخصم منها المبلغ"
+                reportError("اختر الصراف أو المحفظة التي سيُخصم منها المبلغ")
                 return@launch
             }
-            repository.recordEmployeeTransaction(
-                employeeId = employeeId,
-                employeeName = employeeName,
-                type = type,
-                amount = amount,
-                notes = notes,
-                paidFromCashDrawer = paidFromCashDrawer,
-                exchangeAccount = exchangeAccount,
-                referenceNumber = referenceNumber,
-                timestamp = timestamp
-            )
-            _userMessage.value = "تم تسجيل $type للعامل $employeeName بنجاح"
-            onSuccess()
+            try {
+                repository.recordEmployeeTransaction(
+                    employeeId = employeeId,
+                    employeeName = employeeName,
+                    type = type,
+                    amount = amount,
+                    notes = notes,
+                    paidFromCashDrawer = paidFromCashDrawer,
+                    exchangeAccount = exchangeAccount,
+                    referenceNumber = referenceNumber,
+                    timestamp = timestamp
+                )
+                _userMessage.value = "تم تسجيل $type للعامل $employeeName بنجاح"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر تسجيل حركة العامل")
+            }
         }
     }
 
     fun updateEmployeeTransaction(transaction: EmployeeTransaction, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
-            repository.updateEmployeeTransaction(transaction)
-            _userMessage.value = "تم تعديل حركة العامل بنجاح"
-            onSuccess()
+            try {
+                repository.updateEmployeeTransaction(transaction)
+                _userMessage.value = "تم تعديل حركة العامل بنجاح"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر تعديل حركة العامل")
+            }
         }
     }
 
     fun deleteEmployeeTransaction(txId: Long) {
         viewModelScope.launch {
-            repository.deleteEmployeeTransaction(txId)
-            _userMessage.value = "تم حذف حركة العامل بنجاح"
+            try {
+                repository.deleteEmployeeTransaction(txId)
+                _userMessage.value = "تم حذف حركة العامل بنجاح"
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر حذف حركة العامل")
+            }
         }
     }
 
@@ -802,16 +1009,33 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "يرجى إدخال اسم الصراف أو المحفظة"
                 return@launch
             }
-            repository.saveExchangeAccount(account)
-            _userMessage.value = "تم حفظ بيانات حساب الصراف/المحفظة"
-            onSuccess()
+            try {
+                repository.saveExchangeAccount(account)
+                _userMessage.value = "تم حفظ بيانات حساب الصراف/المحفظة"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر حفظ بيانات الحساب")
+            }
         }
     }
 
     fun deleteExchangeAccount(id: Long) {
         viewModelScope.launch {
-            repository.deleteExchangeAccount(id)
-            _userMessage.value = "تم حذف حساب الصراف"
+            try {
+                when (repository.deleteExchangeAccount(id)) {
+                    DeleteEntityResult.ARCHIVED -> {
+                        _userMessage.value = "تمت أرشفة حساب الصرافة لوجود عمليات مرتبطة به (تم الحفاظ على كشف الحساب)"
+                    }
+                    DeleteEntityResult.DELETED -> {
+                        _userMessage.value = "تم حذف حساب الصراف"
+                    }
+                    DeleteEntityResult.NOT_FOUND -> {
+                        _userMessage.value = "لم يتم العثور على الحساب"
+                    }
+                }
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر حذف حساب الصراف")
+            }
         }
     }
 
@@ -826,13 +1050,17 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             if (amount <= 0) {
-                _userMessage.value = "يرجى تحديد مبلغ التحويل"
+                reportError("يرجى تحديد مبلغ التحويل")
                 return@launch
             }
-            repository.transferBetweenCashAndExchange(accountId, amount, fromCashToExchange, notes, referenceNumber, timestamp)
-            val actionName = if (fromCashToExchange) "إيداع كاش لحساب الصراف" else "سحب كاش من الصراف للصندوق"
-            _userMessage.value = "تم تنفيذ $actionName بنجاح!"
-            onSuccess()
+            try {
+                repository.transferBetweenCashAndExchange(accountId, amount, fromCashToExchange, notes, referenceNumber, timestamp)
+                val actionName = if (fromCashToExchange) "إيداع كاش لحساب الصراف" else "سحب كاش من الصراف للصندوق"
+                _userMessage.value = "تم تنفيذ $actionName بنجاح!"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر تنفيذ التحويل")
+            }
         }
     }
 
@@ -848,16 +1076,20 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             if (amount <= 0) {
-                _userMessage.value = "يرجى إدخال مبلغ الدفعة"
+                reportError("يرجى إدخال مبلغ الدفعة")
                 return@launch
             }
-            if (amount > debt.remainingAmount) {
-                _userMessage.value = "مبلغ الدفعة أكبر من المبلغ المتبقي (${FormatUtils.formatCurrency(debt.remainingAmount)})"
+            if (amount > debt.remainingAmount + 0.01) {
+                reportError("مبلغ الدفعة أكبر من المبلغ المتبقي (${FormatUtils.formatCurrency(debt.remainingAmount)})")
                 return@launch
             }
-            repository.recordDebtPayment(debt, amount, notes, paymentMethod, exchangeAccount, referenceNumber, timestamp)
-            _userMessage.value = "تم تسجيل الدفعة بنجاح وتحديث الصندوق/الصراف والدين"
-            onSuccess()
+            try {
+                repository.recordDebtPayment(debt, amount, notes, paymentMethod, exchangeAccount, referenceNumber, timestamp)
+                _userMessage.value = "تم تسجيل الدفعة بنجاح وتحديث الصندوق/الصراف والدين"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر تسجيل الدفعة")
+            }
         }
     }
 
@@ -867,9 +1099,13 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "يرجى كتابة الاسم والمبلغ"
                 return@launch
             }
-            repository.addNewDebt(debt)
-            _userMessage.value = "تم تسجيل الدين الجديد"
-            onSuccess()
+            try {
+                repository.addNewDebt(debt)
+                _userMessage.value = "تم تسجيل الدين الجديد"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر تسجيل الدين")
+            }
         }
     }
 
@@ -879,16 +1115,24 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "يرجى إدخال مبلغ صحيح للدين"
                 return@launch
             }
-            repository.updateDebt(debt)
-            _userMessage.value = "تم تعديل بيانات الدين بنجاح"
-            onSuccess()
+            try {
+                repository.updateDebt(debt)
+                _userMessage.value = "تم تعديل بيانات الدين بنجاح"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر تعديل بيانات الدين")
+            }
         }
     }
 
     fun deleteDebt(id: Long) {
         viewModelScope.launch {
-            repository.deleteDebt(id)
-            _userMessage.value = "تم حذف سجل الدين"
+            try {
+                repository.deleteDebt(id)
+                _userMessage.value = "تم حذف سجل الدين"
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر حذف سجل الدين")
+            }
         }
     }
 
@@ -904,17 +1148,34 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.value = "يرجى إدخال الاسم"
                 return@launch
             }
-            repository.saveParty(party, initialDebt, debtNotes, initialDebtTimestamp)
-            val typeTitle = if (party.type == "CUSTOMER") "العميل" else "المورد"
-            _userMessage.value = "تم حفظ وفتح حساب $typeTitle بنجاح"
-            onSuccess()
+            try {
+                repository.saveParty(party, initialDebt, debtNotes, initialDebtTimestamp)
+                val typeTitle = if (party.type == "CUSTOMER") "العميل" else "المورد"
+                _userMessage.value = "تم حفظ وفتح حساب $typeTitle بنجاح"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر حفظ بيانات الحساب")
+            }
         }
     }
 
     fun deleteParty(id: Long) {
         viewModelScope.launch {
-            repository.deleteParty(id)
-            _userMessage.value = "تم حذف الحساب بنجاح"
+            try {
+                when (repository.deleteParty(id)) {
+                    DeleteEntityResult.ARCHIVED -> {
+                        _userMessage.value = "تمت أرشفة الحساب لوجود فواتير أو ديون أو دفعات مرتبطة به (تم الحفاظ على كشف الحساب)"
+                    }
+                    DeleteEntityResult.DELETED -> {
+                        _userMessage.value = "تم حذف الحساب بنجاح"
+                    }
+                    DeleteEntityResult.NOT_FOUND -> {
+                        _userMessage.value = "لم يتم العثور على الحساب"
+                    }
+                }
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر حذف الحساب")
+            }
         }
     }
 
@@ -931,79 +1192,103 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             if (totalPayment <= 0) {
-                _userMessage.value = "يرجى إدخال مبلغ الدفعة"
+                reportError("يرجى إدخال مبلغ الدفعة")
                 return@launch
             }
-            val result = repository.recordPartyPayment(
-                partyName = partyName,
-                partyType = partyType,
-                totalPayment = totalPayment,
-                notes = notes,
-                paymentMethod = paymentMethod,
-                exchangeAccount = exchangeAccount,
-                referenceNumber = referenceNumber,
-                timestamp = timestamp
-            )
-            if (result) {
-                val actionType = if (partyType == "CUSTOMER") "قبض زلط من العميل" else "سداد دفعة للمورد"
-                _userMessage.value = "تم توثيق $actionType بنجاح وتحديث الحساب والأرصدة"
-                onSuccess()
-            } else {
-                _userMessage.value = "تعذر تسجيل الدفعة، تأكد من وجود ديون مستحقة"
+            try {
+                val result = repository.recordPartyPayment(
+                    partyName = partyName,
+                    partyType = partyType,
+                    totalPayment = totalPayment,
+                    notes = notes,
+                    paymentMethod = paymentMethod,
+                    exchangeAccount = exchangeAccount,
+                    referenceNumber = referenceNumber,
+                    timestamp = timestamp
+                )
+                if (result) {
+                    val actionType = if (partyType == "CUSTOMER") "قبض زلط من العميل" else "سداد دفعة للمورد"
+                    _userMessage.value = "تم توثيق $actionType بنجاح وتحديث الحساب والأرصدة"
+                    onSuccess()
+                } else {
+                    reportError("تعذر تسجيل الدفعة، تأكد من وجود ديون مستحقة")
+                }
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر تسجيل الدفعة")
             }
         }
     }
 
     fun openShift(cashierName: String, openingBalance: Double, notes: String, onSuccess: () -> Unit) {
         viewModelScope.launch {
-            repository.openShift(cashierName, openingBalance, notes)
-            _userMessage.value = "تم فتح الوردية بنجاح"
-            onSuccess()
+            try {
+                repository.openShift(cashierName, openingBalance, notes)
+                _userMessage.value = "تم فتح الوردية بنجاح"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر فتح الوردية")
+            }
         }
     }
 
     fun closeShift(shift: CashDrawerShift, actualCashInDrawer: Double, notes: String, onSuccess: () -> Unit) {
         viewModelScope.launch {
-            repository.closeShift(shift, actualCashInDrawer, notes)
-            _userMessage.value = "تم إغلاق الوردية وتوثيق الرصيد النهائي"
-            onSuccess()
+            try {
+                repository.closeShift(shift, actualCashInDrawer, notes)
+                _userMessage.value = "تم إغلاق الوردية وتوثيق الرصيد النهائي"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر إغلاق الوردية")
+            }
         }
     }
 
     fun recordOwnerWithdrawal(amount: Double, reason: String, timestamp: Long = System.currentTimeMillis(), onSuccess: () -> Unit) {
         viewModelScope.launch {
             if (amount <= 0) {
-                _userMessage.value = "يرجى تحديد مبلغ السحب"
+                reportError("يرجى تحديد مبلغ السحب")
                 return@launch
             }
-            repository.recordOwnerWithdrawal(amount, reason, timestamp)
-            _userMessage.value = "تم توثيق سحب صاحب المحل من الصندوق"
-            onSuccess()
+            try {
+                repository.recordOwnerWithdrawal(amount, reason, timestamp)
+                _userMessage.value = "تم توثيق سحب صاحب المحل من الصندوق"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر تسجيل السحب")
+            }
         }
     }
 
     fun recordManualDeposit(amount: Double, reason: String, timestamp: Long = System.currentTimeMillis(), onSuccess: () -> Unit) {
         viewModelScope.launch {
             if (amount <= 0) {
-                _userMessage.value = "يرجى تحديد مبلغ الإيداع"
+                reportError("يرجى تحديد مبلغ الإيداع")
                 return@launch
             }
-            repository.recordManualDeposit(amount, reason, timestamp)
-            _userMessage.value = "تم تسجيل الإيداع النقدي في الصندوق"
-            onSuccess()
+            try {
+                repository.recordManualDeposit(amount, reason, timestamp)
+                _userMessage.value = "تم تسجيل الإيداع النقدي في الصندوق"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر تسجيل الإيداع")
+            }
         }
     }
 
     fun clearData(transactionsOnly: Boolean, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
-            if (transactionsOnly) {
-                repository.clearTransactionsOnly()
-                _userMessage.value = "تم تصفير وحذف جميع حركات البيع والشراء والمصروفات والديون"
-            } else {
-                repository.clearEverythingCompletely(clearConfigDictionaries = true)
-                _userMessage.value = "تم تهيئة التطبيق وإفراغ جميع البيانات والمنتجات والأنواع بالكامل"
+            try {
+                if (transactionsOnly) {
+                    repository.clearTransactionsOnly()
+                    _userMessage.value = "تم تصفير وحذف جميع حركات البيع والشراء والمصروفات والديون"
+                } else {
+                    repository.clearEverythingCompletely(clearConfigDictionaries = true)
+                    _userMessage.value = "تم تهيئة التطبيق وإفراغ جميع البيانات والمنتجات والأنواع بالكامل"
+                }
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر تصفير البيانات")
             }
-            onSuccess()
         }
     }
 
@@ -1015,26 +1300,35 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
-            repository.executeStoreFullAudit(
-                actualDrawerCash = actualDrawerCash,
-                exchangeBalances = exchangeBalances,
-                resetTransactions = resetTransactions,
-                notes = notes
-            )
-            _userMessage.value = "تم اعتماد الجرد الفعلي وتحديث الصندوق وحسابات الصرافين بنجاح"
-            onSuccess()
+            try {
+                repository.executeStoreFullAudit(
+                    actualDrawerCash = actualDrawerCash,
+                    exchangeBalances = exchangeBalances,
+                    resetTransactions = resetTransactions,
+                    notes = notes
+                )
+                _userMessage.value = "تم اعتماد الجرد الفعلي وتحديث الصندوق وحسابات الصرافين بنجاح"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر اعتماد الجرد الفعلي")
+            }
         }
     }
 
     fun saveSettings(settings: StoreSettings) {
         viewModelScope.launch {
-            repository.saveStoreSettings(settings.copy(id = 1, isSetupCompleted = true))
-            _userMessage.value = "تم حفظ إعدادات المحل والشعار بنجاح"
+            try {
+                repository.saveStoreSettings(settings.copy(id = 1, isSetupCompleted = true))
+                _userMessage.value = "تم حفظ إعدادات المحل والشعار بنجاح"
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر حفظ الإعدادات")
+            }
         }
     }
 
     fun completeInitialSetup(
         settings: StoreSettings,
+        rawManagerPin: String = "",
         categories: List<String>,
         sizes: List<String>,
         expenseCategories: List<String>,
@@ -1044,34 +1338,59 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         onCompleted: () -> Unit = {}
     ) {
         viewModelScope.launch {
-            repository.saveStoreSettings(settings.copy(id = 1, isSetupCompleted = true))
-            repository.replaceConfigItemsForSetup(
-                categories = categories,
-                sizes = sizes,
-                expenseCategories = expenseCategories,
-                accountTypes = accountTypes,
-                colors = colors,
-                roles = roles
-            )
-            _currentScreen.value = AppScreen.HOME
-            _userMessage.value = "تم حفظ تهيئة «${settings.shopNameAr}» وبدء تشغيل النظام بنجاح"
-            onCompleted()
+            try {
+                val existing = repository.getStoreSettingsDirect()
+                val alreadyHasPin = PinSecurityManager.isPinConfigured(existing)
+                val targetSettings = if (rawManagerPin.isNotBlank() || !alreadyHasPin) {
+                    val strengthErr = PinSecurityManager.validatePinStrength(rawManagerPin)
+                    if (strengthErr != null) {
+                        reportError(strengthErr)
+                        return@launch
+                    }
+                    PinSecurityManager.withNewPin(
+                        settings.copy(id = 1, isSetupCompleted = true),
+                        rawManagerPin
+                    )
+                } else {
+                    settings.copy(id = 1, isSetupCompleted = true)
+                }
+                repository.saveStoreSettings(targetSettings)
+                repository.replaceConfigItemsForSetup(
+                    categories = categories,
+                    sizes = sizes,
+                    expenseCategories = expenseCategories,
+                    accountTypes = accountTypes,
+                    colors = colors,
+                    roles = roles
+                )
+                _currentScreen.value = AppScreen.HOME
+                _userMessage.value = "تم حفظ تهيئة «${settings.shopNameAr}» وبدء تشغيل النظام بنجاح"
+                onCompleted()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر حفظ تهيئة المحل")
+            }
         }
     }
 
-    fun restoreBackup(jsonString: String, onResult: (Boolean) -> Unit) {
+    fun validateBackupPreview(jsonString: String): Result<BackupPreview> {
+        return BackupManager.validateAndParseBackup(jsonString).map { it.preview }
+    }
+
+    fun restoreBackup(jsonString: String, onResult: (Result<BackupPreview>) -> Unit) {
         viewModelScope.launch {
             try {
-                val ok = com.example.ui.util.BackupManager.restoreFromJson(jsonString, repository)
-                if (ok) {
-                    _userMessage.value = "تمت استعادة النسخة الاحتياطية بنجاح!"
+                val result = BackupManager.restoreFromJson(jsonString, repository)
+                if (result.isSuccess) {
+                    _userMessage.value = "تمت استعادة النسخة الاحتياطية كاملة بنجاح!"
                 } else {
-                    _userMessage.value = "ملف النسخة الاحتياطية غير متوافق"
+                    val err = result.exceptionOrNull()?.message ?: "ملف النسخة الاحتياطية غير صالح"
+                    reportError(err)
                 }
-                onResult(ok)
+                onResult(result)
             } catch (e: Exception) {
-                _userMessage.value = "حدث خطأ أثناء الاستعادة: ${e.message}"
-                onResult(false)
+                val err = "حدث خطأ أثناء الاستعادة: ${e.message}"
+                reportError(err)
+                onResult(Result.failure(e))
             }
         }
     }

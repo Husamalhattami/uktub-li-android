@@ -45,13 +45,15 @@ object ClothingSizes {
 }
 
 object FormatUtils {
-    private val decimalFormat = DecimalFormat("#,##0", DecimalFormatSymbols(Locale.US))
+    private val decimalFormat = DecimalFormat("#,##0.##", DecimalFormatSymbols(Locale.US))
+    private val plainInputFormat = DecimalFormat("0.##", DecimalFormatSymbols(Locale.US))
     private val dateFormat = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault())
     private val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
     private val dateTimeFormat = SimpleDateFormat("yyyy/MM/dd hh:mm a", Locale.getDefault())
 
     fun formatCurrency(amount: Double, currency: String = "ريال"): String {
-        return "${decimalFormat.format(amount.toLong())} $currency"
+        val clean = if (kotlin.math.abs(amount) < 0.005) 0.0 else amount
+        return "${decimalFormat.format(clean)} $currency"
     }
 
     fun formatNumber(number: Long): String {
@@ -59,7 +61,13 @@ object FormatUtils {
     }
 
     fun formatNumber(number: Double): String {
-        return decimalFormat.format(number.toLong())
+        val clean = if (kotlin.math.abs(number) < 0.005) 0.0 else number
+        return decimalFormat.format(clean)
+    }
+
+    fun formatInputNumber(number: Double): String {
+        val clean = if (kotlin.math.abs(number) < 0.005) 0.0 else number
+        return plainInputFormat.format(clean)
     }
 
     fun formatDate(timestamp: Long): String {

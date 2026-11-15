@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -35,12 +36,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.*
+import com.example.data.repository.PinVerificationResult
 import com.example.ui.AppScreen
 import com.example.ui.CompletedSaleReceipt
+import com.example.ui.StoreViewModel
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
 import com.example.ui.util.InvoiceHelper
+import com.example.ui.util.PinSecurityManager
 import com.example.ui.util.StatementHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1265,6 +1270,19 @@ fun CollectionReceiptDialog(
                 .testTag("collection_amount_input")
         )
 
+        if (matchedDebtTotal > 0.0 && amountVal > 0.0) {
+            val afterDebt = (matchedDebtTotal - amountVal).coerceAtLeast(0.0)
+            val surplus = (amountVal - matchedDebtTotal).coerceAtLeast(0.0)
+            DialogInfoBanner(
+                title = if (surplus > 0.01) "سداد كامل مع فائض:" else "المتبقي على العميل بعد التحصيل:",
+                value = if (surplus > 0.01) "0 (فائض ${FormatUtils.formatCurrency(surplus)})" else FormatUtils.formatCurrency(afterDebt),
+                containerColor = FintechEmeraldBg,
+                contentColor = FintechEmerald,
+                borderColor = FintechEmeraldBorder,
+                icon = Icons.Default.Calculate
+            )
+        }
+
         OutlinedTextField(
             value = voucherNumber,
             onValueChange = { voucherNumber = it },
@@ -1643,6 +1661,30 @@ fun SupplierPaymentDialog(
                 .testTag("supplier_pay_amount_input")
         )
 
+        if (matchedDebtTotal > 0.0 && amountVal > 0.0) {
+            val remainingSupplierAfter = (matchedDebtTotal - amountVal).coerceAtLeast(0.0)
+            DialogInfoBanner(
+                title = "المتبقي للمورد بعد السداد:",
+                value = FormatUtils.formatCurrency(remainingSupplierAfter),
+                containerColor = FintechEmeraldBg,
+                contentColor = FintechEmerald,
+                borderColor = FintechEmeraldBorder,
+                icon = Icons.Default.Calculate
+            )
+        }
+        if (paymentMethod != "نقداً" && selectedAccount != null && amountVal > 0.0) {
+            val accAfter = selectedAccount!!.balance - amountVal
+            val sufficient = accAfter >= -0.001
+            DialogInfoBanner(
+                title = "رصيد (${selectedAccount!!.name}) بعد الصرف:",
+                value = FormatUtils.formatCurrency(accAfter),
+                containerColor = if (sufficient) FintechIndigoBg else FintechRoseBg,
+                contentColor = if (sufficient) FintechIndigo else FintechRose,
+                borderColor = if (sufficient) FintechIndigo.copy(alpha = 0.35f) else FintechRoseBorder,
+                icon = if (sufficient) Icons.Default.AccountBalance else Icons.Default.Warning
+            )
+        }
+
         OutlinedTextField(
             value = voucherNumber,
             onValueChange = { voucherNumber = it },
@@ -1890,3 +1932,127 @@ fun SupplierPaymentSuccessDialog(
         }
     }
 }
+
+@Composable
+fun PinVerificationDialog(
+    viewModel: StoreViewModel,
+    title: String = "التحقق من رمز المدير (PIN)",
+    subtitle: String = "هذه العملية تتطلب تأكيد صلاحية المدير",
+    onDismiss: () -> Unit,
+    onVerified: () -> Unit
+) {
+    val isPinConfigured by viewModel.isPinConfigured.collectAsStateWithLifecycle()
+    var pinInput by remember { mutableStateOf("") }
+    var confirmPinInput by remember { mutableStateOf("") }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var isBusy by remember { mutableStateOf(false) }
+
+    StoreOperationDialog(
+        onDismissRequest = onDismiss,
+        title = if (isPinConfigured) title else "تعيين رمز المدير (PIN) أولاً",
+        subtitle = if (isPinConfigured) subtitle else "يجب إنشاء رمز حماية قوي قبل تنفيذ العمليات الحساسة",
+        icon = Icons.Default.Lock,
+        accentColor = PdfHeaderNavy,
+        confirmText = if (isPinConfigured) "تأكيد ومتابعة" else "حفظ الرمز والمتابعة",
+        confirmIcon = Icons.Default.VerifiedUser,
+        confirmColor = PdfHeaderNavy,
+        confirmEnabled = !isBusy && pinInput.isNotBlank() && (isPinConfigured || confirmPinInput.isNotBlank()),
+        confirmTestTag = "pin_verify_confirm_button",
+        onConfirm = {
+            if (isPinConfigured) {
+                isBusy = true
+                errorMsg = null
+                viewModel.verifyManagerPin(pinInput) { result ->
+                    isBusy = false
+                    when (result) {
+                        is PinVerificationResult.Success -> onVerified()
+                        is PinVerificationResult.Invalid -> {
+                            errorMsg = "رمز المدير غير صحيح! المحاولات المتبقية: ${result.remainingAttempts}"
+                        }
+                        is PinVerificationResult.Locked -> {
+                            errorMsg = "تم إيقاف المحاولات مؤقتاً لمدة ${result.remainingSeconds} ثانية بسبب تكرار الخطأ"
+                        }
+                        PinVerificationResult.NotConfigured -> {
+                            errorMsg = "لم يتم تعيين رمز مدير قوي بعد"
+                        }
+                    }
+                }
+            } else {
+                val strengthErr = PinSecurityManager.validatePinStrength(pinInput)
+                if (strengthErr != null) {
+                    errorMsg = strengthErr
+                } else if (pinInput.trim() != confirmPinInput.trim()) {
+                    errorMsg = "الرمزان غير متطابقين"
+                } else {
+                    isBusy = true
+                    errorMsg = null
+                    viewModel.updateManagerPin(currentPin = null, newPin = pinInput.trim()) { ok, err ->
+                        isBusy = false
+                        if (ok) onVerified() else errorMsg = err
+                    }
+                }
+            }
+        }
+    ) {
+        if (!isPinConfigured) {
+            DialogInfoBanner(
+                title = "تأمين الحسابات",
+                value = "اختر رمزاً مكوناً من 4 أرقام أو أكثر (يُمنع 1234 أو الأرقام المكررة)",
+                containerColor = FintechAmberBg,
+                contentColor = FintechAmber,
+                borderColor = FintechAmberBorder,
+                icon = Icons.Default.Shield
+            )
+        }
+
+        OutlinedTextField(
+            value = pinInput,
+            onValueChange = {
+                pinInput = it
+                errorMsg = null
+            },
+            label = { Text(if (isPinConfigured) "أدخل رمز المدير (PIN)" else "رمز المدير الجديد (PIN) *") },
+            leadingIcon = { Icon(Icons.Default.Pin, contentDescription = null, tint = PdfHeaderNavy) },
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            colors = storeDialogTextFieldColors(PdfHeaderNavy),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("pin_verify_input")
+        )
+
+        if (!isPinConfigured) {
+            OutlinedTextField(
+                value = confirmPinInput,
+                onValueChange = {
+                    confirmPinInput = it
+                    errorMsg = null
+                },
+                label = { Text("تأكيد رمز المدير الجديد *") },
+                leadingIcon = { Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = PdfHeaderNavy) },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("pin_verify_confirm_input")
+            )
+        }
+
+        errorMsg?.let { err ->
+            DialogInfoBanner(
+                title = "خطأ في التحقق:",
+                value = err,
+                containerColor = FintechRoseBg,
+                contentColor = FintechRose,
+                borderColor = FintechRoseBorder,
+                icon = Icons.Default.ErrorOutline
+            )
+        }
+    }
+}
+

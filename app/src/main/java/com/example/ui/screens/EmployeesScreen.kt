@@ -32,6 +32,7 @@ import com.example.ui.StoreViewModel
 import com.example.ui.components.DialogInfoBanner
 import com.example.ui.components.DialogSectionHeader
 import com.example.ui.components.DialogSegmentedChoice
+import com.example.ui.components.PinVerificationDialog
 import com.example.ui.components.StoreOperationDialog
 import com.example.ui.components.StoreTopBar
 import com.example.ui.components.TransactionDatePickerField
@@ -53,6 +54,7 @@ fun EmployeesScreen(
     val employeeTransactions by viewModel.employeeTransactions.collectAsStateWithLifecycle()
     val sales by viewModel.sales.collectAsStateWithLifecycle()
     val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
+    val exchangeAccountsAll by viewModel.exchangeAccountsIncludingArchived.collectAsStateWithLifecycle()
     val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
     val employeeRoles by viewModel.employeeRoles.collectAsStateWithLifecycle()
 
@@ -61,7 +63,9 @@ fun EmployeesScreen(
     var employeeToDelete by remember { mutableStateOf<Employee?>(null) }
     var actionDialogState by remember { mutableStateOf<Triple<Employee, String, String>?>(null) } // (Employee, ActionType: "سلفة" | "خصم غياب" | "صرف راتب", defaultNotes)
     var viewHistoryEmployee by remember { mutableStateOf<Employee?>(null) }
-    var editingEmployeeTx by remember { mutableStateOf<com.example.data.model.EmployeeTransaction?>(null) }
+    var editingEmployeeTx by remember { mutableStateOf<EmployeeTransaction?>(null) }
+    var txToDelete by remember { mutableStateOf<EmployeeTransaction?>(null) }
+    var pendingPinAction by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
 
     Scaffold(
         topBar = {
@@ -194,18 +198,24 @@ fun EmployeesScreen(
             confirmTestTag = "confirm_emp_tx_button",
             onConfirm = {
                 val amount = amountStr.toDoubleOrNull() ?: 0.0
-                viewModel.recordEmployeeTransaction(
-                    employeeId = employee.id,
-                    employeeName = employee.name,
-                    type = actionType,
-                    amount = amount,
-                    notes = notes,
-                    paidFromCashDrawer = if (actionType == "خصم غياب") false else paidFromCash,
-                    exchangeAccount = if (actionType == "خصم غياب") null else selectedExchangeAccount,
-                    referenceNumber = if (actionType == "خصم غياب" || paidFromCash) "" else transferRef,
-                    timestamp = txTimestamp,
-                    onSuccess = { actionDialogState = null }
-                )
+                if (amount <= 0) {
+                    viewModel.showMessage("يرجى إدخال مبلغ صحيح أكبر من الصفر!")
+                } else if (actionType != "خصم غياب" && !paidFromCash && selectedExchangeAccount == null) {
+                    viewModel.showMessage("يجب اختيار حساب الصراف أو المحفظة للعملية غير النقدية!")
+                } else {
+                    viewModel.recordEmployeeTransaction(
+                        employeeId = employee.id,
+                        employeeName = employee.name,
+                        type = actionType,
+                        amount = amount,
+                        notes = notes,
+                        paidFromCashDrawer = if (actionType == "خصم غياب") false else paidFromCash,
+                        exchangeAccount = if (actionType == "خصم غياب") null else selectedExchangeAccount,
+                        referenceNumber = if (actionType == "خصم غياب" || paidFromCash) "" else transferRef,
+                        timestamp = txTimestamp,
+                        onSuccess = { actionDialogState = null }
+                    )
+                }
             }
         ) {
             OutlinedTextField(
@@ -695,7 +705,7 @@ fun EmployeesScreen(
                                                 IconButton(onClick = { editingEmployeeTx = tx }, modifier = Modifier.size(28.dp)) {
                                                     Icon(Icons.Default.Edit, contentDescription = "تعديل", tint = BrandBlue, modifier = Modifier.size(16.dp))
                                                 }
-                                                IconButton(onClick = { viewModel.deleteEmployeeTransaction(tx.id) }, modifier = Modifier.size(28.dp)) {
+                                                IconButton(onClick = { txToDelete = tx }, modifier = Modifier.size(28.dp)) {
                                                     Icon(Icons.Default.DeleteOutline, contentDescription = "حذف", tint = RubyExpense, modifier = Modifier.size(16.dp))
                                                 }
                                             }
@@ -710,11 +720,14 @@ fun EmployeesScreen(
 
     // Edit Employee Transaction Dialog
     editingEmployeeTx?.let { tx ->
-        var amountStr by remember { mutableStateOf(tx.amount.toLong().toString()) }
-        var notes by remember { mutableStateOf(tx.notes) }
-        var paidFromCash by remember { mutableStateOf(tx.paidFromCash) }
-        var selectedExchangeAccount by remember {
-            mutableStateOf(exchangeAccounts.firstOrNull { it.id == tx.exchangeAccountId } ?: exchangeAccounts.firstOrNull())
+        var amountStr by remember(tx.id) { mutableStateOf(FormatUtils.formatInputNumber(tx.amount)) }
+        var notes by remember(tx.id) { mutableStateOf(tx.notes) }
+        var paidFromCash by remember(tx.id) { mutableStateOf(tx.paidFromCash) }
+        var selectedExchangeAccount by remember(tx.id) {
+            mutableStateOf(
+                exchangeAccountsAll.firstOrNull { it.id == tx.exchangeAccountId }
+                    ?: exchangeAccounts.firstOrNull()
+            )
         }
         var editTimestamp by remember(tx.id) { mutableLongStateOf(tx.timestamp) }
 
@@ -728,11 +741,13 @@ fun EmployeesScreen(
             confirmIcon = Icons.Default.Check,
             confirmColor = PdfHeaderNavy,
             onConfirm = {
-                val amount = amountStr.toDoubleOrNull() ?: tx.amount
+                val amount = amountStr.toDoubleOrNull() ?: 0.0
+                val isCash = if (tx.type == "خصم غياب") false else paidFromCash
                 if (amount <= 0) {
                     viewModel.showMessage("يرجى إدخال مبلغ صحيح أكبر من الصفر!")
+                } else if (tx.type != "خصم غياب" && !isCash && selectedExchangeAccount == null) {
+                    viewModel.showMessage("يجب اختيار حساب الصراف أو المحفظة للعملية غير النقدية!")
                 } else {
-                    val isCash = if (tx.type == "خصم غياب") false else paidFromCash
                     viewModel.updateEmployeeTransaction(
                         tx.copy(
                             amount = amount,
@@ -803,20 +818,30 @@ fun EmployeesScreen(
                     )
                 }
 
-                if (!paidFromCash && exchangeAccounts.isNotEmpty()) {
-                    DialogSectionHeader(title = "اختر حساب الصراف أو المحفظة", icon = Icons.Default.AccountBalance, accentColor = FintechIndigo)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(exchangeAccounts) { acc ->
-                            val isSel = selectedExchangeAccount?.id == acc.id
-                            FilterChip(
-                                selected = isSel,
-                                onClick = { selectedExchangeAccount = acc },
-                                label = { Text(acc.name, fontSize = 11.sp) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = FintechIndigo,
-                                    selectedLabelColor = Color.White
+                if (!paidFromCash) {
+                    val accChoices = remember(exchangeAccounts, selectedExchangeAccount) {
+                        val list = exchangeAccounts.toMutableList()
+                        val sel = selectedExchangeAccount
+                        if (sel != null && list.none { it.id == sel.id }) list.add(0, sel)
+                        list
+                    }
+                    if (accChoices.isEmpty()) {
+                        Text("لا توجد حسابات صرافة متاحة. اختر الدفع نقداً أو أضف حساب صرافة.", color = RubyExpense, fontSize = 11.sp)
+                    } else {
+                        DialogSectionHeader(title = "اختر حساب الصراف أو المحفظة *", icon = Icons.Default.AccountBalance, accentColor = FintechIndigo)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(accChoices) { acc ->
+                                val isSel = selectedExchangeAccount?.id == acc.id
+                                FilterChip(
+                                    selected = isSel,
+                                    onClick = { selectedExchangeAccount = acc },
+                                    label = { Text("${acc.name}${if (acc.isArchived) " (مؤرشف)" else ""}", fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = FintechIndigo,
+                                        selectedLabelColor = Color.White
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 }
@@ -826,11 +851,11 @@ fun EmployeesScreen(
 
     // Edit Employee Dialog
     employeeToEdit?.let { emp ->
-        var name by remember { mutableStateOf(emp.name) }
-        var phone by remember { mutableStateOf(emp.phone) }
-        var role by remember { mutableStateOf(emp.role) }
-        var salaryStr by remember { mutableStateOf(emp.baseSalary.toLong().toString()) }
-        var commissionStr by remember { mutableStateOf(emp.commissionPercent.toString()) }
+        var name by remember(emp.id) { mutableStateOf(emp.name) }
+        var phone by remember(emp.id) { mutableStateOf(emp.phone) }
+        var role by remember(emp.id) { mutableStateOf(emp.role) }
+        var salaryStr by remember(emp.id) { mutableStateOf(FormatUtils.formatInputNumber(emp.baseSalary)) }
+        var commissionStr by remember(emp.id) { mutableStateOf(FormatUtils.formatInputNumber(emp.commissionPercent)) }
 
         StoreOperationDialog(
             onDismissRequest = { employeeToEdit = null },
@@ -926,20 +951,75 @@ fun EmployeesScreen(
         }
     }
 
-    // Delete Employee Confirmation Dialog
-    employeeToDelete?.let { emp ->
+    // Delete Employee Transaction Confirmation Dialog
+    txToDelete?.let { tx ->
         StoreOperationDialog(
-            onDismissRequest = { employeeToDelete = null },
-            title = "تأكيد حذف العامل",
-            subtitle = emp.name,
+            onDismissRequest = { txToDelete = null },
+            title = "تأكيد حذف حركة العامل",
+            subtitle = "${tx.type} • ${tx.employeeName}",
             icon = Icons.Default.Warning,
             accentColor = RubyExpense,
             confirmText = "تأكيد الحذف",
             confirmIcon = Icons.Default.DeleteOutline,
             confirmColor = RubyExpense,
+            confirmTestTag = "confirm_delete_emp_tx_button",
             onConfirm = {
-                viewModel.deleteEmployee(emp.id)
+                val txId = tx.id
+                val label = "${tx.type} (${tx.employeeName})"
+                txToDelete = null
+                pendingPinAction = "تأكيد رمز المدير لحذف حركة: $label" to {
+                    viewModel.deleteEmployeeTransaction(txId)
+                }
+            }
+        ) {
+            DialogInfoBanner(
+                title = "قيمة الحركة:",
+                value = FormatUtils.formatCurrency(tx.amount),
+                containerColor = FintechRoseBg,
+                contentColor = FintechRose,
+                borderColor = FintechRoseBorder,
+                icon = Icons.Default.ReceiptLong
+            )
+            Text(
+                text = buildString {
+                    appendLine("سيتم حذف هذه الحركة وإعادة احتساب كشف حساب العامل:")
+                    if (tx.type != "خصم غياب") {
+                        if (tx.paidFromCash) {
+                            appendLine("• استرداد ${FormatUtils.formatCurrency(tx.amount)} إلى الصندوق النقدي.")
+                        } else if (tx.exchangeAccountId > 0L) {
+                            appendLine("• استرداد ${FormatUtils.formatCurrency(tx.amount)} إلى (${tx.exchangeAccountName.ifBlank { "الصراف" }}) وعكس قيد التحويل.")
+                        }
+                    }
+                    if (tx.linkedExpenseId > 0L) {
+                        appendLine("• حذف سجل المصروف المرتبط في شاشة المصروفات تلقائياً.")
+                    }
+                }.trimEnd(),
+                fontSize = 13.sp,
+                color = SlateTextPrimary,
+                lineHeight = 20.sp
+            )
+        }
+    }
+
+    // Delete Employee Confirmation Dialog
+    employeeToDelete?.let { emp ->
+        StoreOperationDialog(
+            onDismissRequest = { employeeToDelete = null },
+            title = "تأكيد حذف / أرشفة العامل",
+            subtitle = emp.name,
+            icon = Icons.Default.Warning,
+            accentColor = RubyExpense,
+            confirmText = "متابعة",
+            confirmIcon = Icons.Default.DeleteOutline,
+            confirmColor = RubyExpense,
+            confirmTestTag = "confirm_delete_employee_button",
+            onConfirm = {
+                val empId = emp.id
+                val empName = emp.name
                 employeeToDelete = null
+                pendingPinAction = "تأكيد رمز المدير لحذف/أرشفة العامل ($empName)" to {
+                    viewModel.deleteEmployee(empId)
+                }
             }
         ) {
             DialogInfoBanner(
@@ -951,12 +1031,25 @@ fun EmployeesScreen(
                 icon = Icons.Default.PersonOff
             )
             Text(
-                text = "هل أنت متأكد من حذف العامل (${emp.name}) من قائمة عمال المحل؟",
+                text = "سيتم حذف العامل (${emp.name}) فقط إذا لم تكن له سلف أو رواتب أو مبيعات سابقة، أما في حال وجود حركات مرتبطة فسيتم أرشفته وتعطيله للحفاظ على التقارير والكشوفات التاريخية.",
                 fontSize = 13.sp,
                 color = SlateTextPrimary,
                 lineHeight = 20.sp
             )
         }
+    }
+
+    pendingPinAction?.let { (title, action) ->
+        PinVerificationDialog(
+            viewModel = viewModel,
+            title = "تحقق صلاحية المدير",
+            subtitle = title,
+            onDismiss = { pendingPinAction = null },
+            onVerified = {
+                pendingPinAction = null
+                action()
+            }
+        )
     }
 }
 

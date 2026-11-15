@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -32,6 +33,7 @@ import com.example.data.model.StoreSettings
 import com.example.ui.StoreViewModel
 import com.example.ui.theme.*
 import com.example.ui.util.LogoHelper
+import com.example.ui.util.PinSecurityManager
 import com.example.ui.util.StoreLogoBadge
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -79,6 +81,9 @@ fun SetupScreen(
     var logoPath by remember(existingSettings?.id) {
         mutableStateOf(existingSettings?.logoPath.orEmpty())
     }
+    var managerPinInput by remember { mutableStateOf("") }
+    var confirmManagerPinInput by remember { mutableStateOf("") }
+    val hasConfiguredPin = PinSecurityManager.isPinConfigured(existingSettings)
 
     val categoriesList = remember { mutableStateListOf<String>() }
     val sizesList = remember { mutableStateListOf<String>() }
@@ -277,6 +282,11 @@ fun SetupScreen(
                                     .clickable {
                                         if (shopNameAr.isBlank()) {
                                             viewModel.showMessage("يرجى إدخال اسم المحل أولاً قبل المتابعة")
+                                        } else if (!hasConfiguredPin && (PinSecurityManager.validatePinStrength(managerPinInput) != null || managerPinInput.trim() != confirmManagerPinInput.trim())) {
+                                            viewModel.showMessage(
+                                                PinSecurityManager.validatePinStrength(managerPinInput)
+                                                    ?: "يرجى مطابقة رمز المدير وتأكيده قبل المتابعة"
+                                            )
                                         } else {
                                             currentStep = 2
                                         }
@@ -476,13 +486,60 @@ fun SetupScreen(
                                 shape = RoundedCornerShape(12.dp)
                             )
 
+                            HorizontalDivider(color = Color(0xFFE2E8F0))
+
+                            Text(
+                                text = if (hasConfiguredPin) "رمز أمان المدير (PIN) — مفعّل (اتركه فارغاً للإبقاء عليه)" else "تعيين رمز أمان المدير (PIN) *",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = PdfHeaderNavy
+                            )
+                            OutlinedTextField(
+                                value = managerPinInput,
+                                onValueChange = { managerPinInput = it },
+                                label = { Text(if (hasConfiguredPin) "رمز PIN جديد (اختياري)" else "رمز المدير (4 أرقام فأكثر، غير 1234) *") },
+                                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = PdfGoldDark) },
+                                visualTransformation = PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("setup_manager_pin_input")
+                            )
+                            OutlinedTextField(
+                                value = confirmManagerPinInput,
+                                onValueChange = { confirmManagerPinInput = it },
+                                label = { Text(if (hasConfiguredPin) "تأكيد رمز PIN الجديد" else "تأكيد رمز المدير *") },
+                                leadingIcon = { Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = PdfGoldDark) },
+                                visualTransformation = PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("setup_manager_pin_confirm_input")
+                            )
+
                             Button(
                                 onClick = {
                                     if (shopNameAr.trim().isBlank()) {
                                         viewModel.showMessage("يرجى إدخال اسم المحل أو النظام")
-                                    } else {
-                                        currentStep = 2
+                                        return@Button
                                     }
+                                    val pinRequiredOrEntered = !hasConfiguredPin || managerPinInput.isNotBlank()
+                                    if (pinRequiredOrEntered) {
+                                        val pinErr = PinSecurityManager.validatePinStrength(managerPinInput)
+                                        if (pinErr != null) {
+                                            viewModel.showMessage(pinErr)
+                                            return@Button
+                                        }
+                                        if (managerPinInput.trim() != confirmManagerPinInput.trim()) {
+                                            viewModel.showMessage("رمز المدير وتأكيده غير متطابقين")
+                                            return@Button
+                                        }
+                                    }
+                                    currentStep = 2
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -591,13 +648,14 @@ fun SetupScreen(
                                     invoiceHeader = invoiceHeader.trim().ifBlank { shopNameAr.trim() },
                                     invoiceFooter = invoiceFooter.trim(),
                                     showProfitInReports = existingSettings?.showProfitInReports ?: true,
-                                    managerPin = existingSettings?.managerPin ?: "1234",
+                                    managerPin = "",
                                     isManagerRole = existingSettings?.isManagerRole ?: true,
                                     logoPath = logoPath,
                                     isSetupCompleted = true
                                 )
                                 viewModel.completeInitialSetup(
                                     settings = finalSettings,
+                                    rawManagerPin = managerPinInput.trim(),
                                     categories = categoriesList.toList(),
                                     sizes = sizesList.toList(),
                                     expenseCategories = expenseCategoriesList.toList(),

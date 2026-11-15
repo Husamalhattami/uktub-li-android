@@ -24,7 +24,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -34,13 +37,16 @@ import com.example.data.model.StoreConfigTypes
 import com.example.data.model.StoreSettings
 import com.example.ui.StoreViewModel
 import com.example.ui.components.DialogInfoBanner
+import com.example.ui.components.PinVerificationDialog
 import com.example.ui.components.StoreOperationDialog
 import com.example.ui.components.StoreTopBar
 import com.example.ui.components.storeDialogTextFieldColors
 import com.example.ui.theme.*
 import com.example.ui.util.BackupManager
+import com.example.ui.util.BackupPreview
 import com.example.ui.util.FormatUtils
 import com.example.ui.util.LogoHelper
+import com.example.ui.util.PinSecurityManager
 import com.example.ui.util.StoreLogoBadge
 import kotlinx.coroutines.launch
 
@@ -64,8 +70,8 @@ fun SettingsScreen(
     var taxNumber by remember(settingsState) { mutableStateOf(settingsState?.taxNumber ?: "") }
     var invoiceHeader by remember(settingsState) { mutableStateOf(settingsState?.invoiceHeader ?: "") }
     var invoiceFooter by remember(settingsState) { mutableStateOf(settingsState?.invoiceFooter ?: "البضاعة المباعة ترد وتستبدل خلال 3 أيام بشرط وجود الفاتورة وبحالتها الأصلية") }
-    var managerPin by remember(settingsState) { mutableStateOf(settingsState?.managerPin ?: "1234") }
     var logoPath by remember(settingsState) { mutableStateOf(settingsState?.logoPath ?: "") }
+    val hasConfiguredPin = PinSecurityManager.isPinConfigured(settingsState)
 
     val logoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -87,11 +93,16 @@ fun SettingsScreen(
     var configItemToEdit by remember { mutableStateOf<StoreConfigItem?>(null) }
     var configItemToDelete by remember { mutableStateOf<StoreConfigItem?>(null) }
 
+    var showChangePinDialog by remember { mutableStateOf(false) }
     var showRestoreDialog by remember { mutableStateOf(false) }
     var restoreJsonInput by remember { mutableStateOf("") }
+    var backupPreview by remember { mutableStateOf<BackupPreview?>(null) }
+    var backupValidationError by remember { mutableStateOf<String?>(null) }
     var isCreatingBackup by remember { mutableStateOf(false) }
     var showWipeAllDialog by remember { mutableStateOf(false) }
     var showWipeTransactionsDialog by remember { mutableStateOf(false) }
+    var pendingPinAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var pendingPinTitle by remember { mutableStateOf("التحقق من رمز المدير (PIN)") }
 
     Scaffold(
         topBar = {
@@ -315,17 +326,34 @@ fun SettingsScreen(
                             minLines = 2
                         )
 
-                        OutlinedTextField(
-                            value = managerPin,
-                            onValueChange = { managerPin = it },
-                            label = { Text("رمز PIN للمدير") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
+                        DialogInfoBanner(
+                            title = if (hasConfiguredPin) "أمان المدير (PIN):" else "تنبيه أمان:",
+                            value = if (hasConfiguredPin) "رمز الحماية مفعّل ومشفّر" else "لم يتم تعيين رمز مدير قوي بعد",
+                            containerColor = if (hasConfiguredPin) FintechEmeraldBg else FintechAmberBg,
+                            contentColor = if (hasConfiguredPin) FintechEmerald else FintechAmber,
+                            borderColor = if (hasConfiguredPin) FintechEmeraldBorder else FintechAmberBorder,
+                            icon = if (hasConfiguredPin) Icons.Default.VerifiedUser else Icons.Default.WarningAmber
                         )
+
+                        OutlinedButton(
+                            onClick = { showChangePinDialog = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("open_change_pin_button"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.LockReset, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                if (hasConfiguredPin) "تغيير رمز المدير (PIN)" else "تعيين رمز المدير (PIN)",
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
 
                         Button(
                             onClick = {
-                                val updated = StoreSettings(
+                                val updated = (settingsState ?: StoreSettings()).copy(
                                     id = 1,
                                     shopNameAr = storeName.trim().ifBlank { "متجري" },
                                     shopNameEn = storeNameEn.trim(),
@@ -335,7 +363,7 @@ fun SettingsScreen(
                                     taxNumber = taxNumber.trim(),
                                     invoiceHeader = invoiceHeader.trim(),
                                     invoiceFooter = invoiceFooter.trim(),
-                                    managerPin = managerPin.trim().ifBlank { "1234" },
+                                    managerPin = "",
                                     logoPath = logoPath,
                                     isSetupCompleted = true
                                 )
@@ -753,61 +781,224 @@ fun SettingsScreen(
         }
     }
 
-    // Restore Dialog
+    // Change / Set Manager PIN Dialog
+    if (showChangePinDialog) {
+        var currentPin by remember { mutableStateOf("") }
+        var newPin by remember { mutableStateOf("") }
+        var confirmPin by remember { mutableStateOf("") }
+        var pinDialogError by remember { mutableStateOf<String?>(null) }
+
+        StoreOperationDialog(
+            onDismissRequest = { showChangePinDialog = false },
+            title = if (hasConfiguredPin) "تغيير رمز المدير (PIN)" else "تعيين رمز المدير (PIN)",
+            subtitle = "يُحفظ الرمز مشفراً لحماية العمليات الحساسة",
+            icon = Icons.Default.Lock,
+            accentColor = PdfHeaderNavy,
+            confirmText = "حفظ الرمز",
+            confirmIcon = Icons.Default.Check,
+            confirmColor = PdfHeaderNavy,
+            confirmTestTag = "confirm_change_pin_button",
+            onConfirm = {
+                val strengthErr = PinSecurityManager.validatePinStrength(newPin)
+                if (strengthErr != null) {
+                    pinDialogError = strengthErr
+                    return@StoreOperationDialog
+                }
+                if (newPin.trim() != confirmPin.trim()) {
+                    pinDialogError = "الرمز الجديد وتأكيده غير متطابقين"
+                    return@StoreOperationDialog
+                }
+                viewModel.updateManagerPin(
+                    currentPin = if (hasConfiguredPin) currentPin else null,
+                    newPin = newPin.trim()
+                ) { ok, err ->
+                    if (ok) {
+                        showChangePinDialog = false
+                    } else {
+                        pinDialogError = err ?: "تعذر تحديث رمز المدير"
+                    }
+                }
+            }
+        ) {
+            if (hasConfiguredPin) {
+                OutlinedTextField(
+                    value = currentPin,
+                    onValueChange = { currentPin = it; pinDialogError = null },
+                    label = { Text("الرمز الحالي *") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                    modifier = Modifier.fillMaxWidth().testTag("current_pin_input")
+                )
+            }
+            OutlinedTextField(
+                value = newPin,
+                onValueChange = { newPin = it; pinDialogError = null },
+                label = { Text("الرمز الجديد (4 أرقام فأكثر) *") },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                modifier = Modifier.fillMaxWidth().testTag("new_pin_input")
+            )
+            OutlinedTextField(
+                value = confirmPin,
+                onValueChange = { confirmPin = it; pinDialogError = null },
+                label = { Text("تأكيد الرمز الجديد *") },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = storeDialogTextFieldColors(PdfHeaderNavy),
+                modifier = Modifier.fillMaxWidth().testTag("confirm_new_pin_input")
+            )
+            pinDialogError?.let { err ->
+                DialogInfoBanner(
+                    title = "تنبيه:",
+                    value = err,
+                    containerColor = FintechRoseBg,
+                    contentColor = FintechRose,
+                    borderColor = FintechRoseBorder,
+                    icon = Icons.Default.ErrorOutline
+                )
+            }
+        }
+    }
+
+    // Restore Dialog with Validation & Record Counts Preview
     if (showRestoreDialog) {
         var restoreWordConfirm by remember { mutableStateOf("") }
-        val canRestore = restoreWordConfirm.trim() == "استعادة" && restoreJsonInput.isNotBlank()
+        val preview = backupPreview
+        val canRestore = preview != null && restoreWordConfirm.trim() == "استعادة" && restoreJsonInput.isNotBlank()
         StoreOperationDialog(
-            onDismissRequest = { showRestoreDialog = false },
+            onDismissRequest = {
+                showRestoreDialog = false
+                backupPreview = null
+                backupValidationError = null
+            },
             title = "استعادة البيانات من نسخة احتياطية",
-            subtitle = "استيراد ملف JSON محفوظ مسبقاً",
+            subtitle = "فحص ومعاينة السجلات قبل الاستبدال",
             icon = Icons.Default.Restore,
             accentColor = RubyExpense,
             confirmText = "تنفيذ الاستعادة",
             confirmIcon = Icons.Default.RestorePage,
             confirmColor = RubyExpense,
             confirmEnabled = canRestore,
+            confirmTestTag = "execute_restore_backup_button",
             onConfirm = {
-                viewModel.restoreBackup(restoreJsonInput) { ok ->
-                    if (ok) {
-                        showRestoreDialog = false
+                val jsonSnapshot = restoreJsonInput
+                pendingPinTitle = "التحقق قبل استعادة النسخة الاحتياطية"
+                pendingPinAction = {
+                    viewModel.restoreBackup(jsonSnapshot) { res ->
+                        if (res.isSuccess) {
+                            showRestoreDialog = false
+                            backupPreview = null
+                            backupValidationError = null
+                        }
                     }
                 }
             }
         ) {
             Text(
-                text = "الصق محتوى ملف النسخة الاحتياطية (JSON) أدناه:",
+                text = "الصق محتوى ملف النسخة الاحتياطية (JSON) أدناه ثم اضغط «فحص النسخة» قبل التنفيذ:",
                 style = MaterialTheme.typography.bodySmall,
                 color = SlateMuted
             )
             OutlinedTextField(
                 value = restoreJsonInput,
-                onValueChange = { restoreJsonInput = it },
+                onValueChange = {
+                    restoreJsonInput = it
+                    backupPreview = null
+                    backupValidationError = null
+                },
                 label = { Text("بيانات النسخة الاحتياطية JSON") },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(140.dp),
+                    .height(130.dp)
+                    .testTag("restore_json_input"),
                 maxLines = 8,
                 shape = RoundedCornerShape(12.dp),
                 colors = storeDialogTextFieldColors(PdfHeaderNavy)
             )
-            DialogInfoBanner(
-                title = "تنبيه الاستعادة",
-                value = "ستستبدل الاستعادة البيانات الحالية بالنسخة. اكتب «استعادة» للتأكيد:",
-                containerColor = RubyLight,
-                contentColor = RubyExpense,
-                borderColor = Color(0xFFFECACA),
-                icon = Icons.Default.WarningAmber
-            )
-            OutlinedTextField(
-                value = restoreWordConfirm,
-                onValueChange = { restoreWordConfirm = it },
-                placeholder = { Text("اكتب استعادة") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
-                colors = storeDialogTextFieldColors(RubyExpense)
-            )
+
+            OutlinedButton(
+                onClick = {
+                    val res = viewModel.validateBackupPreview(restoreJsonInput)
+                    if (res.isSuccess) {
+                        backupPreview = res.getOrNull()
+                        backupValidationError = null
+                    } else {
+                        backupPreview = null
+                        backupValidationError = res.exceptionOrNull()?.message ?: "ملف النسخة الاحتياطية غير صالح"
+                    }
+                },
+                enabled = restoreJsonInput.isNotBlank(),
+                modifier = Modifier.fillMaxWidth().height(48.dp).testTag("validate_backup_button"),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.FactCheck, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text("فحص النسخة وعرض عدد السجلات", fontWeight = FontWeight.Bold)
+            }
+
+            backupValidationError?.let { err ->
+                DialogInfoBanner(
+                    title = "ملف مرفوض:",
+                    value = err,
+                    containerColor = FintechRoseBg,
+                    contentColor = FintechRose,
+                    borderColor = FintechRoseBorder,
+                    icon = Icons.Default.ErrorOutline
+                )
+            }
+
+            preview?.let { p ->
+                DialogInfoBanner(
+                    title = "نسخة سليمة (الإصدار ${p.version}):",
+                    value = "إجمالي السجلات: ${p.totalRecords}",
+                    containerColor = FintechEmeraldBg,
+                    contentColor = FintechEmerald,
+                    borderColor = FintechEmeraldBorder,
+                    icon = Icons.Default.CheckCircle
+                )
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = SlateBg,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "• المنتجات: ${p.productsCount} | المبيعات: ${p.salesCount} | المشتريات: ${p.purchasesCount}\n" +
+                            "• المصروفات: ${p.expensesCount} | العمال: ${p.employeesCount} | حركات العمال: ${p.employeeTransactionsCount}\n" +
+                            "• العملاء والموردين: ${p.partiesCount} | الديون: ${p.debtsCount} | الدفعات: ${p.debtPaymentsCount}\n" +
+                            "• الورديات: ${p.shiftsCount} | الصندوق: ${p.cashMovementsCount} | الصرافون: ${p.exchangeAccountsCount}\n" +
+                            "• التحويلات: ${p.exchangeTransfersCount} | التدقيق: ${p.auditLogsCount} | القوائم: ${p.configItemsCount}",
+                        fontSize = 11.sp,
+                        color = SlateTextPrimary,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+                DialogInfoBanner(
+                    title = "تنبيه الاستعادة",
+                    value = "ستستبدل البيانات الحالية بعد التحقق. اكتب «استعادة» للتأكيد:",
+                    containerColor = RubyLight,
+                    contentColor = RubyExpense,
+                    borderColor = Color(0xFFFECACA),
+                    icon = Icons.Default.WarningAmber
+                )
+                OutlinedTextField(
+                    value = restoreWordConfirm,
+                    onValueChange = { restoreWordConfirm = it },
+                    placeholder = { Text("اكتب استعادة") },
+                    modifier = Modifier.fillMaxWidth().testTag("restore_confirm_word_input"),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = storeDialogTextFieldColors(RubyExpense)
+                )
+            }
         }
     }
 
@@ -823,8 +1014,10 @@ fun SettingsScreen(
             confirmColor = RubyExpense,
             confirmTestTag = "confirm_wipe_all_button",
             onConfirm = {
-                viewModel.clearData(transactionsOnly = false) {
-                    showWipeAllDialog = false
+                showWipeAllDialog = false
+                pendingPinTitle = "تأكيد تهيئة وإفراغ جميع البيانات"
+                pendingPinAction = {
+                    viewModel.clearData(transactionsOnly = false)
                 }
             }
         ) {
@@ -853,8 +1046,10 @@ fun SettingsScreen(
             confirmColor = RubyExpense,
             confirmTestTag = "confirm_wipe_transactions_button",
             onConfirm = {
-                viewModel.clearData(transactionsOnly = true) {
-                    showWipeTransactionsDialog = false
+                showWipeTransactionsDialog = false
+                pendingPinTitle = "تأكيد تصفير الحركات والفواتير"
+                pendingPinAction = {
+                    viewModel.clearData(transactionsOnly = true)
                 }
             }
         ) {
@@ -867,6 +1062,18 @@ fun SettingsScreen(
                 icon = Icons.Default.Info
             )
         }
+    }
+
+    pendingPinAction?.let { action ->
+        PinVerificationDialog(
+            viewModel = viewModel,
+            title = pendingPinTitle,
+            onDismiss = { pendingPinAction = null },
+            onVerified = {
+                pendingPinAction = null
+                action()
+            }
+        )
     }
 
     // Edit Dictionary Item Dialog

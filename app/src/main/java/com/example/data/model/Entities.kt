@@ -126,7 +126,8 @@ data class ExpenseRecord(
     val paidFromCash: Boolean = true,
     val exchangeAccountId: Long = 0,
     val exchangeAccountName: String = "",
-    val shiftId: Long = 0
+    val shiftId: Long = 0,
+    val linkedEmployeeTxId: Long = 0L
 )
 
 @Entity(tableName = "employees")
@@ -154,7 +155,8 @@ data class EmployeeTransaction(
     val shiftId: Long = 0,
     val paidFromCash: Boolean = true,
     val exchangeAccountId: Long = 0,
-    val exchangeAccountName: String = ""
+    val exchangeAccountName: String = "",
+    val linkedExpenseId: Long = 0L
 )
 
 @Entity(tableName = "debts")
@@ -251,7 +253,8 @@ data class ExchangeAccount(
     val balance: Double = 0.0,
     val type: String = "صراف", // "صراف", "محفظة", "حساب بنكي"
     val notes: String = "",
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val isArchived: Boolean = false
 )
 
 @Entity(tableName = "exchange_transfers")
@@ -265,7 +268,12 @@ data class ExchangeTransfer(
     val title: String,
     val referenceNumber: String = "",
     val notes: String = "",
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val referenceType: String = "",
+    val referenceId: Long = 0L,
+    val isReversed: Boolean = false,
+    val reversedByTransferId: Long = 0L,
+    val isReversalEntry: Boolean = false
 )
 
 @Entity(tableName = "parties")
@@ -277,7 +285,8 @@ data class PartyAccount(
     val address: String = "",
     val notes: String = "",
     val initialBalance: Double = 0.0, // رصيد افتتاحي / مستحق سابق
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val isArchived: Boolean = false
 )
 
 @Entity(tableName = "audit_logs")
@@ -301,15 +310,26 @@ data class StoreSettings(
     val invoiceHeader: String = "الجرادي للملابس الجاهزة",
     val invoiceFooter: String = "البضاعة المباعة ترد وتستبدل خلال 3 أيام بشرط وجود الفاتورة وبحالتها الأصلية.",
     val showProfitInReports: Boolean = true,
-    val managerPin: String = "1234",
+    val managerPin: String = "",
     val isManagerRole: Boolean = true,
     val logoPath: String = "",
-    val isSetupCompleted: Boolean = false
+    val isSetupCompleted: Boolean = false,
+    val managerPinHash: String = "",
+    val managerPinSalt: String = "",
+    val mustChangePin: Boolean = false,
+    val pinFailedAttempts: Int = 0,
+    val pinLockUntilTimestamp: Long = 0L
 ) {
     val storeName: String get() = shopNameAr
     val storeNameEn: String get() = shopNameEn
     val phoneNumber: String get() = phone
     val currencySymbol: String get() = currency
+}
+
+enum class DeleteEntityResult {
+    DELETED,
+    ARCHIVED,
+    NOT_FOUND
 }
 
 object StoreConfigTypes {
