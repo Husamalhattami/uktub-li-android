@@ -31,7 +31,8 @@ data class PartyStatementSummary(
     val netBalance: Double,     // Customer: totalOnParty - totalForParty; Supplier: totalForParty - totalOnParty
     val invoicesCount: Int,
     val paymentsCount: Int,
-    val unsettledDebtsCount: Int
+    val unsettledDebtsCount: Int,
+    val returnsCount: Int = 0
 )
 
 data class EmployeeLedgerEntry(
@@ -85,7 +86,12 @@ data class DailyReportSummary(
     val currentExchangeBalance: Double,
     val inventoryCapital: Double,
     val totalCustomerDebts: Double,
-    val totalSupplierDebts: Double
+    val totalSupplierDebts: Double,
+    val salesReturnsCount: Int = 0,
+    val salesReturnsTotal: Double = 0.0,
+    val grossSalesBeforeReturns: Double = 0.0,
+    val purchaseReturnsCount: Int = 0,
+    val purchaseReturnsTotal: Double = 0.0
 )
 
 object StatementHelper {
@@ -95,13 +101,15 @@ object StatementHelper {
         sales: List<SaleTransaction>,
         purchases: List<PurchaseRecord>,
         debts: List<DebtRecord>,
-        payments: List<DebtPayment>
+        payments: List<DebtPayment>,
+        returns: List<ReturnRecord> = emptyList()
     ): PartyStatementSummary {
         val isCustomer = party.type == "CUSTOMER"
         val normalizedName = party.name.trim()
         val rawRows = mutableListOf<PartyLedgerEntry>()
 
         var invoicesCount = 0
+        var returnsCount = 0
 
         if (isCustomer) {
             val matchingSales = sales.filter {
@@ -235,6 +243,45 @@ object StatementHelper {
                 )
             }
 
+            val customerReturns = returns.filter {
+                it.returnType == ReturnTypes.SALE_RETURN &&
+                    it.partyName.trim().equals(normalizedName, ignoreCase = true)
+            }
+            val groupedReturns = customerReturns.groupBy { r ->
+                if (r.returnNumber.isNotBlank()) "RET:${r.returnNumber.trim()}" else "RETID:${r.id}"
+            }
+            groupedReturns.values.forEach { group ->
+                returnsCount++
+                val first = group.first()
+                val retLabel = first.returnNumber.ifBlank { "#${first.id}" }
+                val totalReturn = group.sumOf { it.totalAmount }
+                val refundedNow = group.sumOf { it.cashAmount + it.transferAmount }
+                val debtDeducted = group.sumOf { it.debtReducedAmount }
+                val surplus = group.sumOf { it.surplusCreditAmount }
+                val itemsSummary = if (group.size == 1) {
+                    "${first.productName} (${first.quantity} قطعة)"
+                } else {
+                    "${group.size} أصناف (${group.sumOf { it.quantity }} قطعة)"
+                }
+                val details = buildString {
+                    append("من فاتورة #${first.originalInvoiceNumber} • $itemsSummary")
+                    if (debtDeducted > 0.01) append(" • خصم دين: ${FormatUtils.formatNumber(debtDeducted)}")
+                    if (refundedNow > 0.01) append(" • رد نقد/حوالة: ${FormatUtils.formatNumber(refundedNow)}")
+                    if (surplus > 0.01) append(" • رصيد دائن: ${FormatUtils.formatNumber(surplus)}")
+                }
+                rawRows.add(
+                    PartyLedgerEntry(
+                        timestamp = first.timestamp,
+                        title = "مرتجع مبيعات #$retLabel",
+                        subDetails = details,
+                        debit = refundedNow,
+                        credit = totalReturn,
+                        runningBalance = 0.0,
+                        kind = "RETURN"
+                    )
+                )
+            }
+
             val sorted = rawRows.sortedBy { it.timestamp }
             var running = 0.0
             val withRunning = sorted.map { row ->
@@ -255,7 +302,8 @@ object StatementHelper {
                 netBalance = netBalance,
                 invoicesCount = invoicesCount,
                 paymentsCount = groupedPayments.size,
-                unsettledDebtsCount = partyDebts.count { !it.isSettled }
+                unsettledDebtsCount = partyDebts.count { !it.isSettled },
+                returnsCount = returnsCount
             )
         } else {
             // SUPPLIER
@@ -390,6 +438,45 @@ object StatementHelper {
                 )
             }
 
+            val supplierReturns = returns.filter {
+                it.returnType == ReturnTypes.PURCHASE_RETURN &&
+                    it.partyName.trim().equals(normalizedName, ignoreCase = true)
+            }
+            val groupedReturns = supplierReturns.groupBy { r ->
+                if (r.returnNumber.isNotBlank()) "RET:${r.returnNumber.trim()}" else "RETID:${r.id}"
+            }
+            groupedReturns.values.forEach { group ->
+                returnsCount++
+                val first = group.first()
+                val retLabel = first.returnNumber.ifBlank { "#${first.id}" }
+                val totalReturn = group.sumOf { it.totalAmount }
+                val receivedNow = group.sumOf { it.cashAmount + it.transferAmount }
+                val debtDeducted = group.sumOf { it.debtReducedAmount }
+                val surplus = group.sumOf { it.surplusCreditAmount }
+                val itemsSummary = if (group.size == 1) {
+                    "${first.productName} (${first.quantity} قطعة)"
+                } else {
+                    "${group.size} أصناف (${group.sumOf { it.quantity }} قطعة)"
+                }
+                val details = buildString {
+                    append("من فاتورة #${first.originalInvoiceNumber} • $itemsSummary")
+                    if (debtDeducted > 0.01) append(" • خصم دين: ${FormatUtils.formatNumber(debtDeducted)}")
+                    if (receivedNow > 0.01) append(" • مستلم نقد/حوالة: ${FormatUtils.formatNumber(receivedNow)}")
+                    if (surplus > 0.01) append(" • رصيد لنا: ${FormatUtils.formatNumber(surplus)}")
+                }
+                rawRows.add(
+                    PartyLedgerEntry(
+                        timestamp = first.timestamp,
+                        title = "مرتجع مشتريات #$retLabel",
+                        subDetails = details,
+                        debit = totalReturn,
+                        credit = receivedNow,
+                        runningBalance = 0.0,
+                        kind = "RETURN"
+                    )
+                )
+            }
+
             val sorted = rawRows.sortedBy { it.timestamp }
             var running = 0.0
             val withRunning = sorted.map { row ->
@@ -410,7 +497,8 @@ object StatementHelper {
                 netBalance = netBalance,
                 invoicesCount = invoicesCount,
                 paymentsCount = groupedPayments.size,
-                unsettledDebtsCount = partyDebts.count { !it.isSettled }
+                unsettledDebtsCount = partyDebts.count { !it.isSettled },
+                returnsCount = returnsCount
             )
         }
     }
@@ -512,19 +600,26 @@ object StatementHelper {
         allDebts: List<DebtRecord>,
         allProducts: List<ProductItem>,
         currentCashBalance: Double,
-        currentExchangeBalance: Double
+        currentExchangeBalance: Double,
+        filteredReturns: List<ReturnRecord> = emptyList()
     ): DailyReportSummary {
-        val totalSales = filteredSales.sumOf { it.totalAmount }
-        val cashSales = filteredSales.sumOf { it.cashAmount }
-        val transferSales = filteredSales.sumOf { it.transferAmount }
-        val debtSales = filteredSales.sumOf { it.debtAmount }
-        val cogs = filteredSales.sumOf { it.unitBuyPrice * it.quantity }
+        val saleReturns = filteredReturns.filter { it.returnType == ReturnTypes.SALE_RETURN }
+        val purchaseReturns = filteredReturns.filter { it.returnType == ReturnTypes.PURCHASE_RETURN }
+
+        val grossSalesBeforeReturns = filteredSales.sumOf { it.totalAmount }
+        val salesReturnsTotal = saleReturns.sumOf { it.totalAmount }
+        val totalSales = grossSalesBeforeReturns - salesReturnsTotal
+        val cashSales = filteredSales.sumOf { it.cashAmount } - saleReturns.sumOf { it.cashAmount }
+        val transferSales = filteredSales.sumOf { it.transferAmount } - saleReturns.sumOf { it.transferAmount }
+        val debtSales = filteredSales.sumOf { it.debtAmount } - saleReturns.sumOf { it.debtReducedAmount }
+        val cogs = filteredSales.sumOf { it.unitBuyPrice * it.quantity } - saleReturns.sumOf { it.unitBuyPrice * it.quantity }
         val grossProfit = totalSales - cogs
 
-        val totalPurchases = filteredPurchases.sumOf { it.totalCost }
-        val purchasesCash = filteredPurchases.sumOf { it.cashPaid }
-        val purchasesTransfer = filteredPurchases.sumOf { it.transferPaid }
-        val purchasesDebt = filteredPurchases.sumOf { it.remainingDebt }
+        val purchaseReturnsTotal = purchaseReturns.sumOf { it.totalAmount }
+        val totalPurchases = filteredPurchases.sumOf { it.totalCost } - purchaseReturnsTotal
+        val purchasesCash = filteredPurchases.sumOf { it.cashPaid } - purchaseReturns.sumOf { it.cashAmount }
+        val purchasesTransfer = filteredPurchases.sumOf { it.transferPaid } - purchaseReturns.sumOf { it.transferAmount }
+        val purchasesDebt = filteredPurchases.sumOf { it.remainingDebt } - purchaseReturns.sumOf { it.debtReducedAmount }
 
         val customerDebtIds = allDebts.filter { it.type == "CUSTOMER" }.map { it.id }.toSet()
         val supplierDebtIds = allDebts.filter { it.type == "SUPPLIER" }.map { it.id }.toSet()
@@ -551,6 +646,9 @@ object StatementHelper {
         val inventoryCapital = allProducts.sumOf { it.buyPrice * it.quantity }
         val totalCustomerDebts = allDebts.filter { it.type == "CUSTOMER" && !it.isSettled }.sumOf { it.remainingAmount }
         val totalSupplierDebts = allDebts.filter { it.type == "SUPPLIER" && !it.isSettled }.sumOf { it.remainingAmount }
+
+        val salesReturnsCount = saleReturns.map { it.returnNumber.ifBlank { "SR:${it.id}" } }.distinct().size
+        val purchaseReturnsCount = purchaseReturns.map { it.returnNumber.ifBlank { "PR:${it.id}" } }.distinct().size
 
         return DailyReportSummary(
             periodTitle = periodTitle,
@@ -580,7 +678,12 @@ object StatementHelper {
             currentExchangeBalance = currentExchangeBalance,
             inventoryCapital = inventoryCapital,
             totalCustomerDebts = totalCustomerDebts,
-            totalSupplierDebts = totalSupplierDebts
+            totalSupplierDebts = totalSupplierDebts,
+            salesReturnsCount = salesReturnsCount,
+            salesReturnsTotal = salesReturnsTotal,
+            grossSalesBeforeReturns = grossSalesBeforeReturns,
+            purchaseReturnsCount = purchaseReturnsCount,
+            purchaseReturnsTotal = purchaseReturnsTotal
         )
     }
 
@@ -736,11 +839,17 @@ object StatementHelper {
             appendLine("📊 *التقرير المالي الشامل — $storeName*")
             appendLine("🗓️ الفترة: *${report.periodTitle}* | ${FormatUtils.formatDateTime(report.generatedAt)}")
             appendLine("━━━━━━━━━━━━━━━━━━━━━━")
-            appendLine("🛒 *المبيعات (${report.salesCount} فاتورة):* ${FormatUtils.formatCurrency(report.totalSales, currency)}")
+            appendLine("🛒 *صافي المبيعات (${report.salesCount} فاتورة):* ${FormatUtils.formatCurrency(report.totalSales, currency)}")
+            if (report.salesReturnsTotal > 0.01) {
+                appendLine("   ↩️ مرتجعات المبيعات (${report.salesReturnsCount}): - ${FormatUtils.formatCurrency(report.salesReturnsTotal, currency)}")
+            }
             appendLine("   • نقداً (كاش): ${FormatUtils.formatCurrency(report.cashSales, currency)}")
             appendLine("   • تحويل صرافة: ${FormatUtils.formatCurrency(report.transferSales, currency)}")
             appendLine("   • آجل (بالدين): ${FormatUtils.formatCurrency(report.debtSales, currency)}")
-            appendLine("📦 *المشتريات (${report.purchasesCount} فاتورة):* ${FormatUtils.formatCurrency(report.totalPurchases, currency)}")
+            appendLine("📦 *صافي المشتريات (${report.purchasesCount} فاتورة):* ${FormatUtils.formatCurrency(report.totalPurchases, currency)}")
+            if (report.purchaseReturnsTotal > 0.01) {
+                appendLine("   ↩️ مرتجعات المشتريات (${report.purchaseReturnsCount}): - ${FormatUtils.formatCurrency(report.purchaseReturnsTotal, currency)}")
+            }
             appendLine("   • كاش: ${FormatUtils.formatCurrency(report.purchasesCash, currency)} | صرافة: ${FormatUtils.formatCurrency(report.purchasesTransfer, currency)} | آجل: ${FormatUtils.formatCurrency(report.purchasesDebt, currency)}")
             appendLine("━━━━━━━━━━━━━━━━━━━━━━")
             appendLine("💚 *التحصيلات من العملاء (سندات قبض):* ${FormatUtils.formatCurrency(report.collectionsTotal, currency)}")
@@ -810,6 +919,44 @@ object StatementHelper {
             appendLine("📅 التاريخ: ${FormatUtils.formatDateTime(receipt.timestamp)}")
             appendLine("━━━━━━━━━━━━━━━━━━━━━━")
             appendLine("$storeName")
+        }
+    }
+
+    fun formatReturnReceiptText(records: List<ReturnRecord>, settings: StoreSettings?): String {
+        if (records.isEmpty()) return ""
+        val first = records.first()
+        val isSaleReturn = first.returnType == ReturnTypes.SALE_RETURN
+        val storeName = settings?.shopNameAr?.ifBlank { "متجري" } ?: "متجري"
+        val currency = settings?.currency?.ifBlank { "ريال" } ?: "ريال"
+        val totalReturn = records.sumOf { it.totalAmount }
+        val totalCash = records.sumOf { it.cashAmount }
+        val totalTransfer = records.sumOf { it.transferAmount }
+        val totalDebtReduced = records.sumOf { it.debtReducedAmount }
+        val totalSurplus = records.sumOf { it.surplusCreditAmount }
+
+        return buildString {
+            appendLine(if (isSaleReturn) "↩️ *إشعار مرتجع مبيعات — $storeName*" else "↩️ *إشعار مرتجع مشتريات لمورد — $storeName*")
+            appendLine("━━━━━━━━━━━━━━━━━━━━━━")
+            appendLine("🧾 رقم المرتجع: *#${first.returnNumber}*")
+            appendLine("📄 حسب الفاتورة الأصلية: *#${first.originalInvoiceNumber}*")
+            appendLine(if (isSaleReturn) "👤 العميل: *${first.partyName}*" else "🚚 المورد: *${first.partyName}*")
+            appendLine("📅 التاريخ: ${FormatUtils.formatDateTime(first.timestamp)}")
+            appendLine("──────────────────────")
+            records.forEachIndexed { idx, r ->
+                val pricePerPiece = if (isSaleReturn) r.unitSellPrice else r.unitBuyPrice
+                appendLine("${idx + 1}. ${r.productName} (${r.size} | ${r.color})")
+                appendLine("   ${r.quantity} حبة × ${FormatUtils.formatNumber(pricePerPiece)} = ${FormatUtils.formatCurrency(r.totalAmount, currency)}")
+            }
+            appendLine("──────────────────────")
+            appendLine("💵 *إجمالي المرتجع: ${FormatUtils.formatCurrency(totalReturn, currency)}*")
+            appendLine("💳 التسوية: ${first.settlementMethod}")
+            if (totalDebtReduced > 0.01) appendLine("   • خصم من الدين: ${FormatUtils.formatCurrency(totalDebtReduced, currency)}")
+            if (totalCash > 0.01) appendLine("   • نقداً (كاش): ${FormatUtils.formatCurrency(totalCash, currency)}")
+            if (totalTransfer > 0.01) appendLine("   • صرافة (${first.exchangeAccountName}): ${FormatUtils.formatCurrency(totalTransfer, currency)}")
+            if (totalSurplus > 0.01) appendLine("   • رصيد دائن بالحساب: ${FormatUtils.formatCurrency(totalSurplus, currency)}")
+            if (first.notes.isNotBlank()) appendLine("📝 ملاحظات: ${first.notes}")
+            appendLine("━━━━━━━━━━━━━━━━━━━━━━")
+            appendLine("شكراً لتعاملكم مع $storeName")
         }
     }
 

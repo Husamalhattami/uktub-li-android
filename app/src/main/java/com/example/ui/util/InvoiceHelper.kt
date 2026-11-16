@@ -255,7 +255,7 @@ object InvoiceHelper {
     }
 
     // ==========================================
-    // 2. Multi-Item Professional Sale Invoice PDF (Multi-Page + Wrapped)
+    // 2. Multi-Item Professional Sale Invoice PDF (Framed, Multi-Page, Aligned RTL Table)
     // ==========================================
 
     data class PdfSaleLineItem(
@@ -266,6 +266,156 @@ object InvoiceHelper {
         val total: Double,
         val unit: String = "حبه"
     )
+
+    private fun drawFramedInvoiceHeader(
+        canvas: Canvas,
+        settings: StoreSettings?,
+        documentTitle: String,
+        documentNumber: String,
+        accentColor: Int,
+        bannerBg: Int
+    ): Float {
+        val shopName = settings?.shopNameAr?.ifBlank { "متجري" } ?: "متجري"
+        val phone = settings?.phone?.trim().orEmpty()
+        val address = settings?.address?.trim().orEmpty()
+        val headerNote = settings?.invoiceHeader?.trim().orEmpty()
+        val taxNo = settings?.taxNumber?.trim().orEmpty()
+
+        val titleTp = makeTextPaint(Color.rgb(15, 30, 54), 17f, bold = true)
+        val subTp = makeTextPaint(Color.rgb(100, 116, 139), 9.5f, bold = false)
+
+        // Top Navy Accent Bar
+        canvas.drawRoundRect(
+            RectF(MARGIN_X, 14f, PAGE_WIDTH - MARGIN_X, 20f),
+            3f, 3f,
+            Paint().apply { color = Color.rgb(15, 30, 54) }
+        )
+
+        drawStoreLogoIfPresent(canvas, settings, left = MARGIN_X + 4f, top = 26f, size = 44f)
+
+        val headerWidth = CONTENT_WIDTH - 108f
+        val headerLeft = MARGIN_X + 54f
+        var y = 26f
+        y += drawWrappedText(canvas, shopName, headerLeft, y, headerWidth, titleTp, Layout.Alignment.ALIGN_CENTER) + 3f
+        if (headerNote.isNotBlank()) {
+            y += drawWrappedText(canvas, headerNote, headerLeft, y, headerWidth, subTp, Layout.Alignment.ALIGN_CENTER) + 2f
+        }
+        val contactLine = listOfNotNull(
+            address.takeIf { it.isNotBlank() },
+            phone.takeIf { it.isNotBlank() }?.let { "هاتف: $it" },
+            taxNo.takeIf { it.isNotBlank() }?.let { "الرقم الضريبي: $it" }
+        ).joinToString("  •  ")
+        if (contactLine.isNotBlank()) {
+            y += drawWrappedText(canvas, contactLine, headerLeft, y, headerWidth, subTp, Layout.Alignment.ALIGN_CENTER) + 4f
+        }
+        y = y.coerceAtLeast(76f)
+
+        // Framed Document Banner
+        val bannerRect = RectF(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y + 30f)
+        canvas.drawRoundRect(bannerRect, 6f, 6f, Paint().apply { color = bannerBg })
+        canvas.drawRoundRect(
+            bannerRect, 6f, 6f,
+            Paint().apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 1f
+                color = accentColor
+                alpha = 90
+            }
+        )
+        val bannerTp = makeTextPaint(accentColor, 12.5f, bold = true)
+        drawWrappedText(
+            canvas,
+            "$documentTitle  •  $documentNumber",
+            MARGIN_X + 10f,
+            y + 7f,
+            CONTENT_WIDTH - 20f,
+            bannerTp,
+            Layout.Alignment.ALIGN_CENTER
+        )
+        return y + 38f
+    }
+
+    private fun drawMetaCard(
+        canvas: Canvas,
+        startY: Float,
+        rows: List<Pair<String, String>>
+    ): Float {
+        val boldTp = makeTextPaint(Color.rgb(15, 23, 42), 10f, bold = true)
+        val regularTp = makeTextPaint(Color.rgb(51, 65, 85), 9.8f, bold = false)
+
+        val rowHeights = rows.map { (rightTxt, leftTxt) ->
+            val rH = measureWrappedHeight(rightTxt, boldTp, 234f, Layout.Alignment.ALIGN_NORMAL)
+            val lH = if (leftTxt.isNotBlank()) measureWrappedHeight(leftTxt, regularTp, 224f, Layout.Alignment.ALIGN_OPPOSITE) else 0f
+            maxOf(rH, lH) + 6f
+        }
+        val boxHeight = rowHeights.sum() + 12f
+        val rect = RectF(MARGIN_X, startY, PAGE_WIDTH - MARGIN_X, startY + boxHeight)
+        canvas.drawRoundRect(rect, 7f, 7f, Paint().apply { color = Color.rgb(248, 250, 252) })
+        canvas.drawRoundRect(
+            rect, 7f, 7f,
+            Paint().apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 1f
+                color = Color.rgb(203, 213, 225)
+            }
+        )
+
+        var cy = startY + 8f
+        rows.forEachIndexed { i, (rightTxt, leftTxt) ->
+            drawWrappedText(canvas, rightTxt, 272f, cy, 234f, boldTp, Layout.Alignment.ALIGN_NORMAL)
+            if (leftTxt.isNotBlank()) {
+                drawWrappedText(canvas, leftTxt, MARGIN_X + 10f, cy, 224f, regularTp, Layout.Alignment.ALIGN_OPPOSITE)
+            }
+            cy += rowHeights[i]
+        }
+        return startY + boxHeight + 10f
+    }
+
+    private fun drawAlignedFiveColHeader(
+        canvas: Canvas,
+        y: Float,
+        col3Title: String,
+        col4Title: String
+    ): Float {
+        canvas.drawRoundRect(
+            RectF(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y + 24f),
+            4f, 4f,
+            Paint().apply { color = Color.rgb(15, 30, 54) }
+        )
+        val thPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 9.5f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        thPaint.textAlign = Paint.Align.CENTER
+        canvas.drawText("#", 502f, y + 15.5f, thPaint)
+        thPaint.textAlign = Paint.Align.RIGHT
+        canvas.drawText("الصنف والمواصفات", 482f, y + 15.5f, thPaint)
+        thPaint.textAlign = Paint.Align.CENTER
+        canvas.drawText(col3Title, 221f, y + 15.5f, thPaint)
+        canvas.drawText(col4Title, 149f, y + 15.5f, thPaint)
+        thPaint.textAlign = Paint.Align.LEFT
+        canvas.drawText("الإجمالي", 32f, y + 15.5f, thPaint)
+        return y + 26f
+    }
+
+    private fun drawRowGridBorders(canvas: Canvas, top: Float, bottom: Float, isOdd: Boolean) {
+        if (isOdd) {
+            canvas.drawRect(MARGIN_X, top, PAGE_WIDTH - MARGIN_X, bottom, Paint().apply { color = Color.rgb(248, 250, 252) })
+        }
+        val borderPaint = Paint().apply {
+            color = Color.rgb(226, 232, 240)
+            strokeWidth = 0.8f
+        }
+        // Vertical column separators matching exact column edges
+        canvas.drawLine(MARGIN_X, top, MARGIN_X, bottom, borderPaint)
+        canvas.drawLine(112f, top, 112f, bottom, borderPaint)
+        canvas.drawLine(186f, top, 186f, bottom, borderPaint)
+        canvas.drawLine(256f, top, 256f, bottom, borderPaint)
+        canvas.drawLine(488f, top, 488f, bottom, borderPaint)
+        canvas.drawLine(PAGE_WIDTH - MARGIN_X, top, PAGE_WIDTH - MARGIN_X, bottom, borderPaint)
+        canvas.drawLine(MARGIN_X, bottom, PAGE_WIDTH - MARGIN_X, bottom, borderPaint)
+    }
 
     fun generateSaleInvoicePdf(
         context: Context,
@@ -289,26 +439,17 @@ object InvoiceHelper {
     ): File {
         val pdfDocument = PdfDocument()
 
-        val titleTp = makeTextPaint(Color.rgb(15, 30, 54), 17f, bold = true)
-        val subTp = makeTextPaint(Color.rgb(100, 116, 139), 10f, bold = false)
-        val boldTp = makeTextPaint(Color.rgb(15, 23, 42), 11f, bold = true)
-        val regularTp = makeTextPaint(Color.rgb(51, 65, 85), 10f, bold = false)
-        val mutedSmallTp = makeTextPaint(Color.rgb(100, 116, 139), 8.8f, bold = false)
-        val headerCellPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            textSize = 10f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        }
+        val subTp = makeTextPaint(Color.rgb(100, 116, 139), 9.5f, bold = false)
+        val boldTp = makeTextPaint(Color.rgb(15, 23, 42), 10f, bold = true)
+        val regularTp = makeTextPaint(Color.rgb(51, 65, 85), 9.5f, bold = false)
+        val mutedSmallTp = makeTextPaint(Color.rgb(100, 116, 139), 8.2f, bold = false)
         val linePaint = Paint().apply {
             color = Color.rgb(226, 232, 240)
             strokeWidth = 1f
         }
 
         val shopName = settings?.shopNameAr?.ifBlank { "متجري" } ?: "متجري"
-        val phone = settings?.phone?.ifBlank { "" } ?: ""
-        val address = settings?.address?.ifBlank { "" } ?: ""
         val currency = settings?.currency?.ifBlank { "ريال" } ?: "ريال"
-        val headerNote = settings?.invoiceHeader ?: ""
         val footer = settings?.invoiceFooter?.ifBlank {
             "البضاعة المباعة ترد وتستبدل خلال 3 أيام بشرط وجود الفاتورة وبحالتها الأصلية."
         } ?: "البضاعة المباعة ترد وتستبدل خلال 3 أيام بشرط وجود الفاتورة وبحالتها الأصلية."
@@ -316,19 +457,7 @@ object InvoiceHelper {
         var pageNumber = 1
         var page = pdfDocument.startPage(PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, pageNumber).create())
         var canvas = page.canvas
-        var y = 26f
-
-        fun drawSaleTableHeader() {
-            canvas.drawRect(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y + 24f, Paint().apply { color = Color.rgb(15, 30, 54) })
-            headerCellPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText("الصنف والمواصفات", 508f, y + 16f, headerCellPaint)
-            headerCellPaint.textAlign = Paint.Align.CENTER
-            canvas.drawText("الكمية", 232f, y + 16f, headerCellPaint)
-            canvas.drawText("سعر الوحدة", 160f, y + 16f, headerCellPaint)
-            headerCellPaint.textAlign = Paint.Align.LEFT
-            canvas.drawText("الإجمالي", 32f, y + 16f, headerCellPaint)
-            y += 28f
-        }
+        var y: Float
 
         fun nextSalePage(withTableHeader: Boolean = true) {
             drawPageFooter(canvas, pageNumber, shopName, continued = true)
@@ -345,172 +474,137 @@ object InvoiceHelper {
                 CONTENT_WIDTH,
                 boldTp,
                 Layout.Alignment.ALIGN_NORMAL
-            )
-            y += 8f
+            ) + 8f
             canvas.drawLine(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y, linePaint)
-            y += 12f
-            if (withTableHeader) drawSaleTableHeader()
+            y += 10f
+            if (withTableHeader) {
+                y = drawAlignedFiveColHeader(canvas, y, "الكمية", "سعر الوحدة")
+            }
         }
 
-        drawStoreLogoIfPresent(canvas, settings, left = MARGIN_X, top = 18f, size = 44f)
-        val headerWidth = CONTENT_WIDTH - 104f
-        val headerLeft = MARGIN_X + 52f
-        y += drawWrappedText(canvas, shopName, headerLeft, y, headerWidth, titleTp, Layout.Alignment.ALIGN_CENTER) + 4f
-        if (headerNote.isNotBlank()) {
-            y += drawWrappedText(canvas, headerNote, headerLeft, y, headerWidth, subTp, Layout.Alignment.ALIGN_CENTER) + 3f
-        }
-        val contactLine = listOfNotNull(
-            address.takeIf { it.isNotBlank() },
-            phone.takeIf { it.isNotBlank() }?.let { "هاتف: $it" }
-        ).joinToString("  •  ")
-        if (contactLine.isNotBlank()) {
-            y += drawWrappedText(canvas, contactLine, headerLeft, y, headerWidth, subTp, Layout.Alignment.ALIGN_CENTER) + 4f
-        }
-        y = y.coerceAtLeast(68f)
-        canvas.drawLine(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y, linePaint)
-        y += 10f
-
-        // Meta box
-        val rightMetaH = measureWrappedHeight(
-            "فاتورة مبيعات: $invoiceNumber",
-            boldTp,
-            250f,
-            Layout.Alignment.ALIGN_NORMAL
+        y = drawFramedInvoiceHeader(
+            canvas = canvas,
+            settings = settings,
+            documentTitle = "فاتورة مبيعات",
+            documentNumber = invoiceNumber,
+            accentColor = Color.rgb(15, 30, 54),
+            bannerBg = Color.rgb(241, 245, 249)
         )
-        val leftMetaH = measureWrappedHeight(
-            "${FormatUtils.formatDate(timestamp)} - ${FormatUtils.formatTime(timestamp)}",
-            regularTp,
-            220f,
-            Layout.Alignment.ALIGN_OPPOSITE
-        )
-        drawWrappedText(canvas, "فاتورة مبيعات: $invoiceNumber", 266f, y, 250f, boldTp, Layout.Alignment.ALIGN_NORMAL)
-        drawWrappedText(
-            canvas,
-            "${FormatUtils.formatDate(timestamp)} - ${FormatUtils.formatTime(timestamp)}",
-            MARGIN_X,
-            y,
-            225f,
-            regularTp,
-            Layout.Alignment.ALIGN_OPPOSITE
-        )
-        y += maxOf(rightMetaH, leftMetaH) + 6f
 
-        val custText = "العميل: ${customerName.ifBlank { "زبون نقدي" }}${if (customerPhone.isNotBlank()) " ($customerPhone)" else ""}"
-        val empText = "البائع: ${employeeName.ifBlank { "صاحب المحل" }}"
-        val custH = measureWrappedHeight(custText, regularTp, 250f, Layout.Alignment.ALIGN_NORMAL)
-        val empH = measureWrappedHeight(empText, regularTp, 225f, Layout.Alignment.ALIGN_OPPOSITE)
-        drawWrappedText(canvas, custText, 266f, y, 250f, regularTp, Layout.Alignment.ALIGN_NORMAL)
-        drawWrappedText(canvas, empText, MARGIN_X, y, 225f, regularTp, Layout.Alignment.ALIGN_OPPOSITE)
-        y += maxOf(custH, empH) + 6f
-
-        val payText = "طريقة الدفع: $paymentType"
-        val exText = if (exchangeAccountName.isNotBlank()) {
-            "الصراف: $exchangeAccountName${if (transferRef.isNotBlank()) " (#$transferRef)" else ""}"
-        } else ""
-        val payH = measureWrappedHeight(payText, regularTp, 250f, Layout.Alignment.ALIGN_NORMAL)
-        val exH = if (exText.isNotBlank()) measureWrappedHeight(exText, regularTp, 225f, Layout.Alignment.ALIGN_OPPOSITE) else 0f
-        drawWrappedText(canvas, payText, 266f, y, 250f, regularTp, Layout.Alignment.ALIGN_NORMAL)
-        if (exText.isNotBlank()) {
-            drawWrappedText(canvas, exText, MARGIN_X, y, 225f, regularTp, Layout.Alignment.ALIGN_OPPOSITE)
+        val metaRows = buildList {
+            add(
+                "العميل: ${customerName.ifBlank { "زبون نقدي" }}${if (customerPhone.isNotBlank()) " ($customerPhone)" else ""}" to
+                    "التاريخ: ${FormatUtils.formatDateTime(timestamp)}"
+            )
+            add(
+                "طريقة الدفع: $paymentType" to
+                    "البائع: ${employeeName.ifBlank { "صاحب المحل" }}"
+            )
+            if (exchangeAccountName.isNotBlank() || transferRef.isNotBlank()) {
+                val exLabel = if (exchangeAccountName.isNotBlank()) "الصراف: $exchangeAccountName" else ""
+                val refLabel = if (transferRef.isNotBlank()) "رقم الحوالة: #$transferRef" else ""
+                add(exLabel to refLabel)
+            }
         }
-        y += maxOf(payH, exH) + 10f
-
-        canvas.drawLine(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y, linePaint)
-        y += 12f
-
-        drawSaleTableHeader()
+        y = drawMetaCard(canvas, y, metaRows)
+        y = drawAlignedFiveColHeader(canvas, y, "الكمية", "سعر الوحدة")
 
         items.forEachIndexed { index, item ->
-            val nameLayout = buildRtlStaticLayout(item.name, regularTp, 244f, Layout.Alignment.ALIGN_NORMAL)
+            val idxLayout = buildRtlStaticLayout("${index + 1}", regularTp, 22f, Layout.Alignment.ALIGN_CENTER)
+            val nameLayout = buildRtlStaticLayout(item.name, boldTp, 220f, Layout.Alignment.ALIGN_NORMAL)
             val detailsLayout = if (item.details.isNotBlank()) {
-                buildRtlStaticLayout(item.details, mutedSmallTp, 244f, Layout.Alignment.ALIGN_NORMAL)
+                buildRtlStaticLayout(item.details, mutedSmallTp, 220f, Layout.Alignment.ALIGN_NORMAL)
             } else null
-            val qtyLayout = buildRtlStaticLayout("${item.quantity} ${item.unit}", regularTp, 54f, Layout.Alignment.ALIGN_CENTER)
-            val unitPriceLayout = buildRtlStaticLayout(FormatUtils.formatNumber(item.unitPrice), regularTp, 72f, Layout.Alignment.ALIGN_CENTER)
-            val totalLayout = buildRtlStaticLayout("${FormatUtils.formatNumber(item.total)} $currency", boldTp, 92f, Layout.Alignment.ALIGN_OPPOSITE)
+            val qtyLayout = buildRtlStaticLayout("${item.quantity} ${item.unit}", regularTp, 62f, Layout.Alignment.ALIGN_CENTER)
+            val unitPriceLayout = buildRtlStaticLayout(FormatUtils.formatNumber(item.unitPrice), regularTp, 66f, Layout.Alignment.ALIGN_CENTER)
+            val totalLayout = buildRtlStaticLayout("${FormatUtils.formatNumber(item.total)} $currency", boldTp, 80f, Layout.Alignment.ALIGN_OPPOSITE)
 
-            val textBlockH = nameLayout.height + (if (detailsLayout != null) detailsLayout.height + 3 else 0)
-            val rowContentH = maxOf(textBlockH, qtyLayout.height, unitPriceLayout.height, totalLayout.height).toFloat()
-            val rowHeight = rowContentH + 10f
+            val textBlockH = nameLayout.height + (if (detailsLayout != null) detailsLayout.height + 2 else 0)
+            val rowContentH = maxOf(idxLayout.height, textBlockH, qtyLayout.height, unitPriceLayout.height, totalLayout.height).toFloat()
+            val rowHeight = rowContentH + 12f
 
             if (y + rowHeight > CONTENT_BOTTOM) {
                 nextSalePage(withTableHeader = true)
             }
 
-            if (index % 2 == 1) {
-                canvas.drawRect(MARGIN_X, y - 3f, PAGE_WIDTH - MARGIN_X, y + rowHeight - 3f, Paint().apply { color = Color.rgb(248, 250, 252) })
-            }
+            drawRowGridBorders(canvas, y, y + rowHeight, isOdd = index % 2 == 1)
 
-            drawWrappedLayout(canvas, nameLayout, 264f, y)
+            val cellY = y + 6f
+            drawWrappedLayout(canvas, idxLayout, 491f, cellY)
+            drawWrappedLayout(canvas, nameLayout, 262f, cellY)
             if (detailsLayout != null) {
-                drawWrappedLayout(canvas, detailsLayout, 264f, y + nameLayout.height + 3f)
+                drawWrappedLayout(canvas, detailsLayout, 262f, cellY + nameLayout.height + 2f)
             }
-            drawWrappedLayout(canvas, qtyLayout, 205f, y)
-            drawWrappedLayout(canvas, unitPriceLayout, 124f, y)
-            drawWrappedLayout(canvas, totalLayout, 30f, y)
+            drawWrappedLayout(canvas, qtyLayout, 190f, cellY)
+            drawWrappedLayout(canvas, unitPriceLayout, 116f, cellY)
+            drawWrappedLayout(canvas, totalLayout, 28f, cellY)
 
             y += rowHeight
-            canvas.drawLine(MARGIN_X, y - 3f, PAGE_WIDTH - MARGIN_X, y - 3f, Paint().apply {
-                color = Color.rgb(241, 245, 249)
-                strokeWidth = 0.8f
-            })
         }
 
-        val summaryNeeded = 155f + (if (discount > 0) 20f else 0f) + (if (previousDebt > 0.01) 46f else 0f)
+        val summaryNeeded = 175f + (if (discount > 0) 22f else 0f) + (if (previousDebt > 0.01) 48f else 0f)
         if (y + summaryNeeded > CONTENT_BOTTOM) {
             nextSalePage(withTableHeader = false)
         }
 
-        y += 8f
-        canvas.drawLine(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y, linePaint)
         y += 12f
-
-        fun drawSummaryRow(label: String, value: String, labelPaint: TextPaint = regularTp, valPaint: TextPaint = boldTp) {
-            val lH = measureWrappedHeight(label, labelPaint, 280f, Layout.Alignment.ALIGN_NORMAL)
-            val vH = measureWrappedHeight(value, valPaint, 180f, Layout.Alignment.ALIGN_OPPOSITE)
-            if (y + maxOf(lH, vH) + 8f > CONTENT_BOTTOM) nextSalePage(withTableHeader = false)
-            drawWrappedText(canvas, label, 230f, y, 280f, labelPaint, Layout.Alignment.ALIGN_NORMAL)
-            drawWrappedText(canvas, value, 32f, y, 180f, valPaint, Layout.Alignment.ALIGN_OPPOSITE)
-            y += maxOf(lH, vH) + 7f
-        }
-
-        drawSummaryRow("إجمالي الأصناف:", FormatUtils.formatCurrency(subtotal, currency))
+        val summaryStart = y
+        val summaryCardRows = mutableListOf<Triple<String, String, Int>>()
+        summaryCardRows.add(Triple("إجمالي الأصناف:", FormatUtils.formatCurrency(subtotal, currency), Color.rgb(15, 23, 42)))
         if (discount > 0) {
-            val discTp = makeTextPaint(Color.rgb(217, 119, 6), 10f, bold = true)
-            drawSummaryRow("الخصم الممنوح (-):", "- ${FormatUtils.formatCurrency(discount, currency)}", discTp, discTp)
+            summaryCardRows.add(Triple("الخصم الممنوح (-):", "- ${FormatUtils.formatCurrency(discount, currency)}", Color.rgb(217, 119, 6)))
         }
-
-        if (y + 34f > CONTENT_BOTTOM) nextSalePage(withTableHeader = false)
-        canvas.drawRoundRect(RectF(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y + 30f), 6f, 6f, Paint().apply { color = Color.rgb(240, 253, 244) })
-        val netTp = makeTextPaint(Color.rgb(22, 101, 52), 13f, bold = true)
-        drawWrappedText(canvas, "الصافي المطلوب:", 250f, y + 7f, 258f, netTp, Layout.Alignment.ALIGN_NORMAL)
-        drawWrappedText(canvas, FormatUtils.formatCurrency(netTotal, currency), 32f, y + 7f, 200f, netTp, Layout.Alignment.ALIGN_OPPOSITE)
-        y += 38f
-
-        if (cashPaid > 0) {
-            drawSummaryRow("المدفوع نقداً (كاش):", FormatUtils.formatCurrency(cashPaid, currency))
+        if (cashPaid > 0.01) {
+            summaryCardRows.add(Triple("المدفوع نقداً (كاش):", FormatUtils.formatCurrency(cashPaid, currency), Color.rgb(22, 101, 52)))
         }
-        if (transferPaid > 0) {
-            drawSummaryRow("المدفوع تحويل صرافة:", FormatUtils.formatCurrency(transferPaid, currency))
+        if (transferPaid > 0.01) {
+            summaryCardRows.add(Triple("المدفوع تحويل صرافة:", FormatUtils.formatCurrency(transferPaid, currency), Color.rgb(15, 118, 110)))
         }
-        if (debtAmount > 0) {
-            val debtTp = makeTextPaint(Color.rgb(220, 38, 38), 10.5f, bold = true)
-            drawSummaryRow("المبلغ المقيد ديناً على العميل:", FormatUtils.formatCurrency(debtAmount, currency), debtTp, debtTp)
+        if (debtAmount > 0.01) {
+            summaryCardRows.add(Triple("المبلغ المقيد ديناً على العميل:", FormatUtils.formatCurrency(debtAmount, currency), Color.rgb(220, 38, 38)))
         }
         if (previousDebt > 0.01) {
-            val totalRemaining = previousDebt + debtAmount
-            canvas.drawLine(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y, linePaint)
-            y += 10f
-            drawSummaryRow("الرصيد السابق للعميل:", FormatUtils.formatCurrency(previousDebt, currency), subTp, regularTp)
-            drawSummaryRow("إجمالي الرصيد المستحق بذمة العميل:", FormatUtils.formatCurrency(totalRemaining, currency), boldTp, boldTp)
+            summaryCardRows.add(Triple("الرصيد السابق للعميل:", FormatUtils.formatCurrency(previousDebt, currency), Color.rgb(100, 116, 139)))
+            summaryCardRows.add(Triple("إجمالي الرصيد المستحق بذمة العميل:", FormatUtils.formatCurrency(previousDebt + debtAmount, currency), Color.rgb(15, 30, 54)))
         }
 
-        if (y + 52f > CONTENT_BOTTOM) nextSalePage(withTableHeader = false)
-        y += 6f
-        canvas.drawLine(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y, linePaint)
-        y += 10f
-        y += drawWrappedText(canvas, footer, MARGIN_X, y, CONTENT_WIDTH, subTp, Layout.Alignment.ALIGN_CENTER) + 4f
-        drawWrappedText(canvas, "شكراً لتسوقكم معنا  •  نسعد بخدمتكم دائماً", MARGIN_X, y, CONTENT_WIDTH, subTp, Layout.Alignment.ALIGN_CENTER)
+        val cardH = 44f + (summaryCardRows.size * 22f) + 12f
+        val sumRect = RectF(MARGIN_X, summaryStart, PAGE_WIDTH - MARGIN_X, summaryStart + cardH)
+        canvas.drawRoundRect(sumRect, 8f, 8f, Paint().apply { color = Color.rgb(248, 250, 252) })
+        canvas.drawRoundRect(
+            sumRect, 8f, 8f,
+            Paint().apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 1f
+                color = Color.rgb(203, 213, 225)
+            }
+        )
+
+        // Highlighted Net Total Pill inside Summary Box
+        var sy = summaryStart + 10f
+        canvas.drawRoundRect(
+            RectF(MARGIN_X + 10f, sy, PAGE_WIDTH - MARGIN_X - 10f, sy + 30f),
+            6f, 6f,
+            Paint().apply { color = Color.rgb(220, 252, 231) }
+        )
+        val netTp = makeTextPaint(Color.rgb(22, 101, 52), 12.5f, bold = true)
+        drawWrappedText(canvas, "الصافي المطلوب للفاتورة:", 260f, sy + 7f, 240f, netTp, Layout.Alignment.ALIGN_NORMAL)
+        drawWrappedText(canvas, FormatUtils.formatCurrency(netTotal, currency), MARGIN_X + 18f, sy + 7f, 210f, netTp, Layout.Alignment.ALIGN_OPPOSITE)
+        sy += 38f
+
+        summaryCardRows.forEach { (k, v, col) ->
+            val kTp = makeTextPaint(Color.rgb(51, 65, 85), 9.8f, bold = false)
+            val vTp = makeTextPaint(col, 10f, bold = true)
+            drawWrappedText(canvas, k, 250f, sy, 250f, kTp, Layout.Alignment.ALIGN_NORMAL)
+            drawWrappedText(canvas, v, MARGIN_X + 14f, sy, 200f, vTp, Layout.Alignment.ALIGN_OPPOSITE)
+            sy += 22f
+        }
+        y = summaryStart + cardH + 12f
+
+        if (y + 56f > CONTENT_BOTTOM) nextSalePage(withTableHeader = false)
+        y += drawWrappedText(canvas, footer, MARGIN_X, y, CONTENT_WIDTH, subTp, Layout.Alignment.ALIGN_CENTER) + 6f
+        drawWrappedText(canvas, "توقيع العميل: ________________", 280f, y, 228f, regularTp, Layout.Alignment.ALIGN_NORMAL)
+        drawWrappedText(canvas, "ختم وتوقيع المحل: ________________", MARGIN_X + 8f, y, 228f, regularTp, Layout.Alignment.ALIGN_OPPOSITE)
 
         drawPageFooter(canvas, pageNumber, shopName, continued = false)
         pdfDocument.finishPage(page)
@@ -526,7 +620,7 @@ object InvoiceHelper {
     }
 
     // ==========================================
-    // 3. Purchase Invoice PDF (Multi-Page + Wrapped)
+    // 3. Purchase Invoice PDF (Single & Multi-Item — Unified Framed Layout)
     // ==========================================
 
     fun generatePurchaseInvoicePdf(
@@ -534,98 +628,37 @@ object InvoiceHelper {
         purchase: PurchaseRecord,
         settings: StoreSettings?
     ): File {
-        val pdfDocument = PdfDocument()
-        var pageNumber = 1
-        var page = pdfDocument.startPage(PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, pageNumber).create())
-        var canvas: Canvas = page.canvas
-
-        val titleTp = makeTextPaint(Color.rgb(15, 30, 54), 17f, bold = true)
-        val subTp = makeTextPaint(Color.rgb(100, 116, 139), 10.5f, bold = false)
-        val boldTp = makeTextPaint(Color.rgb(15, 23, 42), 11f, bold = true)
-        val regularTp = makeTextPaint(Color.rgb(51, 65, 85), 10.5f, bold = false)
-        val linePaint = Paint().apply {
-            color = Color.rgb(226, 232, 240)
-            strokeWidth = 1f
-        }
-
-        val shopName = settings?.shopNameAr?.ifBlank { "متجري" } ?: "متجري"
-        val currency = settings?.currency?.ifBlank { "ريال" } ?: "ريال"
-
-        fun nextPage() {
-            drawPageFooter(canvas, pageNumber, shopName, continued = true)
-            pdfDocument.finishPage(page)
-            pageNumber++
-            page = pdfDocument.startPage(PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, pageNumber).create())
-            canvas = page.canvas
-        }
-
-        drawStoreLogoIfPresent(canvas, settings, left = MARGIN_X, top = 18f, size = 40f)
-        var y = 26f
-        y += drawWrappedText(canvas, shopName, MARGIN_X + 50f, y, CONTENT_WIDTH - 100f, titleTp, Layout.Alignment.ALIGN_CENTER) + 4f
-        y += drawWrappedText(canvas, "سند قيد فاتورة مشتريات بضاعة للمستودع", MARGIN_X, y, CONTENT_WIDTH, subTp, Layout.Alignment.ALIGN_CENTER) + 8f
-        y = y.coerceAtLeast(66f)
-        canvas.drawLine(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y, linePaint)
-        y += 14f
-
-        fun drawKeyValueRow(label: String, value: String, valueTp: TextPaint = regularTp) {
-            val lH = measureWrappedHeight(label, boldTp, 170f, Layout.Alignment.ALIGN_NORMAL)
-            val vH = measureWrappedHeight(value, valueTp, 300f, Layout.Alignment.ALIGN_OPPOSITE)
-            val h = maxOf(lH, vH) + 10f
-            if (y + h > CONTENT_BOTTOM) {
-                nextPage()
-                y = 32f
-            }
-            drawWrappedText(canvas, label, 344f, y, 168f, boldTp, Layout.Alignment.ALIGN_NORMAL)
-            drawWrappedText(canvas, value, MARGIN_X, y, 300f, valueTp, Layout.Alignment.ALIGN_OPPOSITE)
-            y += h
-        }
-
-        val refStr = if (purchase.invoiceNumber.isNotBlank()) " | المرجع: ${purchase.invoiceNumber}" else ""
-        drawKeyValueRow("رقم الفاتورة:", "#${purchase.id}$refStr", boldTp)
-        drawKeyValueRow("تاريخ الفاتورة:", FormatUtils.formatDateTime(purchase.timestamp))
-        drawKeyValueRow("المورد:", purchase.supplierName, boldTp)
-        drawKeyValueRow("طريقة الدفع:", purchase.paymentMethod)
-
-        canvas.drawLine(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y, linePaint)
-        y += 12f
-
-        drawKeyValueRow("الصنف والقسم:", "${purchase.modelName} (${purchase.category})", boldTp)
-        drawKeyValueRow("المقاس واللون:", "${purchase.size} | ${purchase.color}")
-        val unitLabel = if (purchase.unit == "حبه") "${purchase.quantity} حبة" else "${purchase.unitCount.toInt()} ${purchase.unit} (${purchase.quantity} حبة)"
-        drawKeyValueRow("الكمية المستلمة:", unitLabel)
-        drawKeyValueRow("تكلفة شراء الحبة:", FormatUtils.formatCurrency(purchase.unitBuyPrice, currency))
-        drawKeyValueRow("سعر البيع المقترح:", FormatUtils.formatCurrency(purchase.unitSellPrice, currency))
-
-        canvas.drawLine(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y, linePaint)
-        y += 12f
-
-        drawKeyValueRow("إجمالي تكلفة الفاتورة:", FormatUtils.formatCurrency(purchase.totalCost, currency), boldTp)
-        drawKeyValueRow("المبلغ المدفوع للمورد:", FormatUtils.formatCurrency(purchase.paidAmount, currency))
-        if (purchase.remainingDebt > 0) {
-            val debtTp = makeTextPaint(Color.rgb(220, 38, 38), 11f, bold = true)
-            drawKeyValueRow("المتبقي دين مستحق للمورد:", FormatUtils.formatCurrency(purchase.remainingDebt, currency), debtTp)
-        }
-        if (purchase.notes.isNotBlank()) {
-            y += 6f
-            val notesH = measureWrappedHeight("ملاحظات: ${purchase.notes}", subTp, CONTENT_WIDTH, Layout.Alignment.ALIGN_NORMAL)
-            if (y + notesH > CONTENT_BOTTOM) {
-                nextPage()
-                y = 32f
-            }
-            y += drawWrappedText(canvas, "ملاحظات: ${purchase.notes}", MARGIN_X, y, CONTENT_WIDTH, subTp, Layout.Alignment.ALIGN_NORMAL) + 8f
-        }
-
-        drawPageFooter(canvas, pageNumber, shopName, continued = false)
-        pdfDocument.finishPage(page)
-
-        val invoicesDir = File(context.cacheDir, "invoices")
-        if (!invoicesDir.exists()) invoicesDir.mkdirs()
-        val file = File(invoicesDir, "مشتريات_${purchase.id}.pdf")
-        FileOutputStream(file).use { out ->
-            pdfDocument.writeTo(out)
-        }
-        pdfDocument.close()
-        return file
+        val invNo = purchase.invoiceNumber.ifBlank { "PUR-${purchase.id}" }
+        val mult = ClothingUnits.getMultiplier(purchase.unit).coerceAtLeast(1)
+        val count = purchase.unitCount.takeIf { it > 0.0 } ?: (purchase.quantity.toDouble() / mult)
+        val item = CartPurchaseItem(
+            category = purchase.category,
+            modelName = purchase.modelName,
+            color = purchase.color,
+            size = purchase.size,
+            unit = purchase.unit,
+            unitCount = count,
+            buyPricePerUnit = purchase.unitBuyPrice * mult,
+            sellPricePerUnit = purchase.unitSellPrice * mult,
+            colorsCount = purchase.colorsCount,
+            notes = purchase.notes
+        )
+        return generateMultiItemPurchaseInvoicePdf(
+            context = context,
+            invoiceNumber = invNo,
+            supplierName = purchase.supplierName,
+            paymentMethod = purchase.paymentMethod,
+            exchangeAccountName = purchase.exchangeAccountName,
+            transferRef = "",
+            items = listOf(item),
+            totalCost = purchase.totalCost,
+            cashPaid = purchase.cashPaid,
+            transferPaid = purchase.transferPaid,
+            debtAmount = purchase.remainingDebt,
+            timestamp = purchase.timestamp,
+            settings = settings,
+            notes = purchase.notes
+        )
     }
 
     fun generateMultiItemPurchaseInvoicePdf(
@@ -641,20 +674,15 @@ object InvoiceHelper {
         transferPaid: Double,
         debtAmount: Double,
         timestamp: Long,
-        settings: StoreSettings?
+        settings: StoreSettings?,
+        notes: String = ""
     ): File {
         val pdfDocument = PdfDocument()
 
-        val titleTp = makeTextPaint(Color.rgb(15, 30, 54), 17f, bold = true)
-        val subTp = makeTextPaint(Color.rgb(100, 116, 139), 10f, bold = false)
-        val boldTp = makeTextPaint(Color.rgb(15, 23, 42), 11f, bold = true)
-        val regularTp = makeTextPaint(Color.rgb(51, 65, 85), 10f, bold = false)
-        val mutedSmallTp = makeTextPaint(Color.rgb(100, 116, 139), 8.8f, bold = false)
-        val headerCellPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            textSize = 10f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        }
+        val subTp = makeTextPaint(Color.rgb(100, 116, 139), 9.5f, bold = false)
+        val boldTp = makeTextPaint(Color.rgb(15, 23, 42), 10f, bold = true)
+        val regularTp = makeTextPaint(Color.rgb(51, 65, 85), 9.5f, bold = false)
+        val mutedSmallTp = makeTextPaint(Color.rgb(100, 116, 139), 8.2f, bold = false)
         val linePaint = Paint().apply {
             color = Color.rgb(226, 232, 240)
             strokeWidth = 1f
@@ -662,25 +690,11 @@ object InvoiceHelper {
 
         val shopName = settings?.shopNameAr?.ifBlank { "متجري" } ?: "متجري"
         val currency = settings?.currency?.ifBlank { "ريال" } ?: "ريال"
-        val phone = settings?.phone ?: ""
-        val address = settings?.address ?: ""
 
         var pageNumber = 1
         var page = pdfDocument.startPage(PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, pageNumber).create())
         var canvas: Canvas = page.canvas
-        var y = 26f
-
-        fun drawPurchaseTableHeader() {
-            canvas.drawRect(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y + 24f, Paint().apply { color = Color.rgb(15, 30, 54) })
-            headerCellPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText("الصنف والمواصفات", 508f, y + 16f, headerCellPaint)
-            headerCellPaint.textAlign = Paint.Align.CENTER
-            canvas.drawText("الكمية / الوحدة", 232f, y + 16f, headerCellPaint)
-            canvas.drawText("سعر الشراء", 154f, y + 16f, headerCellPaint)
-            headerCellPaint.textAlign = Paint.Align.LEFT
-            canvas.drawText("الإجمالي", 32f, y + 16f, headerCellPaint)
-            y += 28f
-        }
+        var y: Float
 
         fun nextPurchasePage(withTableHeader: Boolean = true) {
             drawPageFooter(canvas, pageNumber, shopName, continued = true)
@@ -699,116 +713,136 @@ object InvoiceHelper {
                 Layout.Alignment.ALIGN_NORMAL
             ) + 8f
             canvas.drawLine(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y, linePaint)
-            y += 12f
-            if (withTableHeader) drawPurchaseTableHeader()
-        }
-
-        drawStoreLogoIfPresent(canvas, settings, left = MARGIN_X, top = 18f, size = 42f)
-        val headerLeft = MARGIN_X + 52f
-        val headerW = CONTENT_WIDTH - 104f
-        y += drawWrappedText(canvas, shopName, headerLeft, y, headerW, titleTp, Layout.Alignment.ALIGN_CENTER) + 4f
-        y += drawWrappedText(canvas, "سند قيد فاتورة مشتريات واستلام بضاعة للمستودع", headerLeft, y, headerW, subTp, Layout.Alignment.ALIGN_CENTER) + 3f
-        val contactLine = listOfNotNull(
-            address.takeIf { it.isNotBlank() },
-            phone.takeIf { it.isNotBlank() }?.let { "هاتف: $it" }
-        ).joinToString("  •  ")
-        if (contactLine.isNotBlank()) {
-            y += drawWrappedText(canvas, contactLine, headerLeft, y, headerW, subTp, Layout.Alignment.ALIGN_CENTER) + 4f
-        }
-        y = y.coerceAtLeast(66f)
-        canvas.drawLine(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y, linePaint)
-        y += 10f
-
-        val h1 = measureWrappedHeight("فاتورة مشتريات: $invoiceNumber", boldTp, 250f, Layout.Alignment.ALIGN_NORMAL)
-        val h2 = measureWrappedHeight("${FormatUtils.formatDate(timestamp)} - ${FormatUtils.formatTime(timestamp)}", regularTp, 225f, Layout.Alignment.ALIGN_OPPOSITE)
-        drawWrappedText(canvas, "فاتورة مشتريات: $invoiceNumber", 266f, y, 250f, boldTp, Layout.Alignment.ALIGN_NORMAL)
-        drawWrappedText(canvas, "${FormatUtils.formatDate(timestamp)} - ${FormatUtils.formatTime(timestamp)}", MARGIN_X, y, 225f, regularTp, Layout.Alignment.ALIGN_OPPOSITE)
-        y += maxOf(h1, h2) + 6f
-
-        val sH1 = measureWrappedHeight("المورد: ${supplierName.ifBlank { "مورد عام" }}", boldTp, 250f, Layout.Alignment.ALIGN_NORMAL)
-        val sH2 = measureWrappedHeight("طريقة الدفع: $paymentMethod", regularTp, 225f, Layout.Alignment.ALIGN_OPPOSITE)
-        drawWrappedText(canvas, "المورد: ${supplierName.ifBlank { "مورد عام" }}", 266f, y, 250f, boldTp, Layout.Alignment.ALIGN_NORMAL)
-        drawWrappedText(canvas, "طريقة الدفع: $paymentMethod", MARGIN_X, y, 225f, regularTp, Layout.Alignment.ALIGN_OPPOSITE)
-        y += maxOf(sH1, sH2) + 6f
-
-        if (exchangeAccountName.isNotBlank() || transferRef.isNotBlank()) {
-            val eH1 = if (exchangeAccountName.isNotBlank()) measureWrappedHeight("حساب الصراف: $exchangeAccountName", regularTp, 250f, Layout.Alignment.ALIGN_NORMAL) else 0f
-            val eH2 = if (transferRef.isNotBlank()) measureWrappedHeight("رقم الحوالة: #$transferRef", regularTp, 225f, Layout.Alignment.ALIGN_OPPOSITE) else 0f
-            if (exchangeAccountName.isNotBlank()) {
-                drawWrappedText(canvas, "حساب الصراف: $exchangeAccountName", 266f, y, 250f, regularTp, Layout.Alignment.ALIGN_NORMAL)
+            y += 10f
+            if (withTableHeader) {
+                y = drawAlignedFiveColHeader(canvas, y, "الكمية", "سعر الشراء")
             }
-            if (transferRef.isNotBlank()) {
-                drawWrappedText(canvas, "رقم الحوالة: #$transferRef", MARGIN_X, y, 225f, regularTp, Layout.Alignment.ALIGN_OPPOSITE)
-            }
-            y += maxOf(eH1, eH2) + 8f
         }
 
-        canvas.drawLine(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y, linePaint)
-        y += 12f
-        drawPurchaseTableHeader()
+        y = drawFramedInvoiceHeader(
+            canvas = canvas,
+            settings = settings,
+            documentTitle = "فاتورة مشتريات واستلام بضاعة",
+            documentNumber = invoiceNumber,
+            accentColor = Color.rgb(29, 78, 216),
+            bannerBg = Color.rgb(239, 246, 255)
+        )
+
+        val metaRows = buildList {
+            add(
+                "المورد / المعمل: ${supplierName.ifBlank { "مورد عام" }}" to
+                    "التاريخ: ${FormatUtils.formatDateTime(timestamp)}"
+            )
+            add(
+                "طريقة السداد: $paymentMethod" to
+                    "عدد الأصناف: ${items.size} صنف"
+            )
+            if (exchangeAccountName.isNotBlank() || transferRef.isNotBlank()) {
+                val exLabel = if (exchangeAccountName.isNotBlank()) "حساب الصراف: $exchangeAccountName" else ""
+                val refLabel = if (transferRef.isNotBlank()) "رقم الحوالة: #$transferRef" else ""
+                add(exLabel to refLabel)
+            }
+        }
+        y = drawMetaCard(canvas, y, metaRows)
+        y = drawAlignedFiveColHeader(canvas, y, "الكمية", "سعر الشراء")
 
         items.forEachIndexed { index, item ->
-            val titleLayout = buildRtlStaticLayout("${item.modelName} (${item.category})", regularTp, 232f, Layout.Alignment.ALIGN_NORMAL)
-            val specLayout = buildRtlStaticLayout("المقاس: ${item.size} | اللون: ${item.color}", mutedSmallTp, 232f, Layout.Alignment.ALIGN_NORMAL)
+            val idxLayout = buildRtlStaticLayout("${index + 1}", regularTp, 22f, Layout.Alignment.ALIGN_CENTER)
+            val titleLayout = buildRtlStaticLayout("${item.modelName} (${item.category})", boldTp, 220f, Layout.Alignment.ALIGN_NORMAL)
+            val specText = buildString {
+                append("المقاس: ${item.size} | اللون: ${item.color}")
+                if (item.sellPricePerUnit > 0) {
+                    append(" • بيع مقترح: ${FormatUtils.formatNumber(item.sellPricePerUnit)}")
+                }
+            }
+            val specLayout = buildRtlStaticLayout(specText, mutedSmallTp, 220f, Layout.Alignment.ALIGN_NORMAL)
             val unitStr = if (item.unit == "حبه") "${item.totalPieces} حبة" else "${item.unitCount.toInt()} ${item.unit} (${item.totalPieces} حبة)"
-            val unitLayout = buildRtlStaticLayout(unitStr, regularTp, 72f, Layout.Alignment.ALIGN_CENTER)
-            val buyLayout = buildRtlStaticLayout(FormatUtils.formatNumber(item.buyPricePerUnit), regularTp, 68f, Layout.Alignment.ALIGN_CENTER)
-            val totalLayout = buildRtlStaticLayout("${FormatUtils.formatNumber(item.lineCost)} $currency", boldTp, 88f, Layout.Alignment.ALIGN_OPPOSITE)
+            val unitLayout = buildRtlStaticLayout(unitStr, regularTp, 62f, Layout.Alignment.ALIGN_CENTER)
+            val buyLayout = buildRtlStaticLayout(FormatUtils.formatNumber(item.buyPricePerUnit), regularTp, 66f, Layout.Alignment.ALIGN_CENTER)
+            val totalLayout = buildRtlStaticLayout("${FormatUtils.formatNumber(item.lineCost)} $currency", boldTp, 80f, Layout.Alignment.ALIGN_OPPOSITE)
 
-            val leftBlockH = titleLayout.height + 3 + specLayout.height
-            val rowH = maxOf(leftBlockH, unitLayout.height, buyLayout.height, totalLayout.height).toFloat() + 10f
+            val centerBlockH = titleLayout.height + 2 + specLayout.height
+            val rowH = maxOf(idxLayout.height, centerBlockH, unitLayout.height, buyLayout.height, totalLayout.height).toFloat() + 12f
 
             if (y + rowH > CONTENT_BOTTOM) {
                 nextPurchasePage(withTableHeader = true)
             }
 
-            if (index % 2 == 1) {
-                canvas.drawRect(MARGIN_X, y - 3f, PAGE_WIDTH - MARGIN_X, y + rowH - 3f, Paint().apply { color = Color.rgb(248, 250, 252) })
-            }
+            drawRowGridBorders(canvas, y, y + rowH, isOdd = index % 2 == 1)
 
-            drawWrappedLayout(canvas, titleLayout, 276f, y)
-            drawWrappedLayout(canvas, specLayout, 276f, y + titleLayout.height + 3f)
-            drawWrappedLayout(canvas, unitLayout, 198f, y)
-            drawWrappedLayout(canvas, buyLayout, 122f, y)
-            drawWrappedLayout(canvas, totalLayout, 28f, y)
+            val cellY = y + 6f
+            drawWrappedLayout(canvas, idxLayout, 491f, cellY)
+            drawWrappedLayout(canvas, titleLayout, 262f, cellY)
+            drawWrappedLayout(canvas, specLayout, 262f, cellY + titleLayout.height + 2f)
+            drawWrappedLayout(canvas, unitLayout, 190f, cellY)
+            drawWrappedLayout(canvas, buyLayout, 116f, cellY)
+            drawWrappedLayout(canvas, totalLayout, 28f, cellY)
             y += rowH
-            canvas.drawLine(MARGIN_X, y - 3f, PAGE_WIDTH - MARGIN_X, y - 3f, Paint().apply {
-                color = Color.rgb(241, 245, 249)
-                strokeWidth = 0.8f
-            })
         }
 
-        if (y + 130f > CONTENT_BOTTOM) nextPurchasePage(withTableHeader = false)
-        y += 8f
-        canvas.drawLine(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y, linePaint)
+        val summaryRows = mutableListOf<Triple<String, String, Int>>()
+        if (cashPaid > 0.01) {
+            summaryRows.add(Triple("المدفوع نقداً من الصندوق:", FormatUtils.formatCurrency(cashPaid, currency), Color.rgb(22, 101, 52)))
+        }
+        if (transferPaid > 0.01) {
+            summaryRows.add(Triple("المدفوع تحويل عبر الصرافة:", FormatUtils.formatCurrency(transferPaid, currency), Color.rgb(15, 118, 110)))
+        }
+        if (debtAmount > 0.01) {
+            summaryRows.add(Triple("المتبقي دين مستحق للمورد:", FormatUtils.formatCurrency(debtAmount, currency), Color.rgb(220, 38, 38)))
+        }
+        if (notes.isNotBlank()) {
+            summaryRows.add(Triple("ملاحظات الفاتورة:", notes, Color.rgb(51, 65, 85)))
+        }
+
+        val kTp = makeTextPaint(Color.rgb(51, 65, 85), 9.8f, bold = false)
+        val measuredSummaryRows = summaryRows.map { (k, v, col) ->
+            val vTp = makeTextPaint(col, 10f, bold = true)
+            val kh = measureWrappedHeight(k, kTp, 245f, Layout.Alignment.ALIGN_NORMAL)
+            val vh = measureWrappedHeight(v, vTp, 200f, Layout.Alignment.ALIGN_OPPOSITE)
+            val rowH = maxOf(kh, vh) + 8f
+            Triple(k, v to vTp, rowH)
+        }
+        val dynamicRowsHeight = measuredSummaryRows.sumOf { it.third.toDouble() }.toFloat()
+        val neededSummaryHeight = 44f + dynamicRowsHeight + 70f
+        if (y + neededSummaryHeight > CONTENT_BOTTOM) nextPurchasePage(withTableHeader = false)
         y += 12f
 
-        fun drawTotalLine(label: String, value: String, tp: TextPaint = regularTp, valTp: TextPaint = boldTp) {
-            val lh = measureWrappedHeight(label, tp, 280f, Layout.Alignment.ALIGN_NORMAL)
-            val vh = measureWrappedHeight(value, valTp, 180f, Layout.Alignment.ALIGN_OPPOSITE)
-            if (y + maxOf(lh, vh) + 8f > CONTENT_BOTTOM) nextPurchasePage(withTableHeader = false)
-            drawWrappedText(canvas, label, 230f, y, 280f, tp, Layout.Alignment.ALIGN_NORMAL)
-            drawWrappedText(canvas, value, 32f, y, 180f, valTp, Layout.Alignment.ALIGN_OPPOSITE)
-            y += maxOf(lh, vh) + 7f
-        }
+        val sumStart = y
+        val sumH = 44f + dynamicRowsHeight + 12f
+        val sumRect = RectF(MARGIN_X, sumStart, PAGE_WIDTH - MARGIN_X, sumStart + sumH)
+        canvas.drawRoundRect(sumRect, 8f, 8f, Paint().apply { color = Color.rgb(248, 250, 252) })
+        canvas.drawRoundRect(
+            sumRect, 8f, 8f,
+            Paint().apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 1f
+                color = Color.rgb(203, 213, 225)
+            }
+        )
 
-        drawTotalLine("إجمالي تكلفة المشتريات (${items.size} أصناف):", FormatUtils.formatCurrency(totalCost, currency), boldTp, boldTp)
-        if (cashPaid > 0) {
-            drawTotalLine("المدفوع نقداً من الصندوق:", FormatUtils.formatCurrency(cashPaid, currency))
-        }
-        if (transferPaid > 0) {
-            drawTotalLine("المدفوع تحويل عبر الصرافة:", FormatUtils.formatCurrency(transferPaid, currency))
-        }
-        if (debtAmount > 0) {
-            val debtTp = makeTextPaint(Color.rgb(220, 38, 38), 11f, bold = true)
-            drawTotalLine("المبلغ المقيد ديناً للمورد (عليا زلط):", FormatUtils.formatCurrency(debtAmount, currency), debtTp, debtTp)
-        }
+        var sy = sumStart + 10f
+        canvas.drawRoundRect(
+            RectF(MARGIN_X + 10f, sy, PAGE_WIDTH - MARGIN_X - 10f, sy + 30f),
+            6f, 6f,
+            Paint().apply { color = Color.rgb(239, 246, 255) }
+        )
+        val totalPurchaseTp = makeTextPaint(Color.rgb(29, 78, 216), 12.5f, bold = true)
+        drawWrappedText(canvas, "إجمالي تكلفة المشتريات (${items.sumOf { it.totalPieces }} حبة):", 245f, sy + 7f, 255f, totalPurchaseTp, Layout.Alignment.ALIGN_NORMAL)
+        drawWrappedText(canvas, FormatUtils.formatCurrency(totalCost, currency), MARGIN_X + 18f, sy + 7f, 195f, totalPurchaseTp, Layout.Alignment.ALIGN_OPPOSITE)
+        sy += 38f
 
-        if (y + 42f > CONTENT_BOTTOM) nextPurchasePage(withTableHeader = false)
-        y += 6f
-        canvas.drawLine(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y, linePaint)
-        y += 10f
-        drawWrappedText(canvas, "تم استلام وإدخال الأصناف بنجاح لمخزون المستودع", MARGIN_X, y, CONTENT_WIDTH, subTp, Layout.Alignment.ALIGN_CENTER)
+        measuredSummaryRows.forEach { (k, vPair, rowH) ->
+            val (v, vTp) = vPair
+            drawWrappedText(canvas, k, 255f, sy, 245f, kTp, Layout.Alignment.ALIGN_NORMAL)
+            drawWrappedText(canvas, v, MARGIN_X + 14f, sy, 200f, vTp, Layout.Alignment.ALIGN_OPPOSITE)
+            sy += rowH
+        }
+        y = sumStart + sumH + 12f
+
+        if (y + 52f > CONTENT_BOTTOM) nextPurchasePage(withTableHeader = false)
+        y += drawWrappedText(canvas, "تم استلام ومطابقة البضاعة وإدخالها للمستودع بنجاح", MARGIN_X, y, CONTENT_WIDTH, subTp, Layout.Alignment.ALIGN_CENTER) + 8f
+        drawWrappedText(canvas, "توقيع المورد: ________________", 280f, y, 228f, regularTp, Layout.Alignment.ALIGN_NORMAL)
+        drawWrappedText(canvas, "أمين المستودع / المدير: ________________", MARGIN_X + 8f, y, 228f, regularTp, Layout.Alignment.ALIGN_OPPOSITE)
 
         drawPageFooter(canvas, pageNumber, shopName, continued = false)
         pdfDocument.finishPage(page)
@@ -1791,19 +1825,25 @@ object InvoiceHelper {
         canvas.drawLine(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y, linePaint)
         y += 12f
 
-        val eqRows = listOf(
-            "إجمالي المبيعات (${report.salesCount} فاتورة)" to FormatUtils.formatCurrency(report.totalSales, currency),
-            "  • مبيعات نقدية (كاش)" to FormatUtils.formatCurrency(report.cashSales, currency),
-            "  • مبيعات تحويل صرافة" to FormatUtils.formatCurrency(report.transferSales, currency),
-            "  • مبيعات آجلة (بالدين)" to FormatUtils.formatCurrency(report.debtSales, currency),
-            "تكلفة البضاعة المباعة" to "- ${FormatUtils.formatCurrency(report.cogs, currency)}",
-            "مجمل الربح التجاري" to FormatUtils.formatCurrency(report.grossProfit, currency),
-            "إجمالي المشتريات (${report.purchasesCount} فاتورة)" to FormatUtils.formatCurrency(report.totalPurchases, currency),
-            "التحصيلات من العملاء (سندات قبض)" to "+ ${FormatUtils.formatCurrency(report.collectionsTotal, currency)}",
-            "المدفوعات للموردين (سندات صرف)" to "- ${FormatUtils.formatCurrency(report.supplierPaymentsTotal, currency)}",
-            "المصروفات التشغيلية" to "- ${FormatUtils.formatCurrency(report.expensesTotal, currency)}",
-            "الرواتب والسلف والمكافآت" to "- ${FormatUtils.formatCurrency(report.salariesAndAdvancesTotal, currency)}"
-        )
+        val eqRows = buildList {
+            add("صافي المبيعات (${report.salesCount} فاتورة)" to FormatUtils.formatCurrency(report.totalSales, currency))
+            if (report.salesReturnsTotal > 0.01) {
+                add("  • مرتجعات المبيعات (${report.salesReturnsCount} مستند)" to "- ${FormatUtils.formatCurrency(report.salesReturnsTotal, currency)}")
+            }
+            add("  • مبيعات نقدية (كاش)" to FormatUtils.formatCurrency(report.cashSales, currency))
+            add("  • مبيعات تحويل صرافة" to FormatUtils.formatCurrency(report.transferSales, currency))
+            add("  • مبيعات آجلة (بالدين)" to FormatUtils.formatCurrency(report.debtSales, currency))
+            add("تكلفة البضاعة المباعة" to "- ${FormatUtils.formatCurrency(report.cogs, currency)}")
+            add("مجمل الربح التجاري" to FormatUtils.formatCurrency(report.grossProfit, currency))
+            add("صافي المشتريات (${report.purchasesCount} فاتورة)" to FormatUtils.formatCurrency(report.totalPurchases, currency))
+            if (report.purchaseReturnsTotal > 0.01) {
+                add("  • مرتجعات المشتريات (${report.purchaseReturnsCount} مستند)" to "- ${FormatUtils.formatCurrency(report.purchaseReturnsTotal, currency)}")
+            }
+            add("التحصيلات من العملاء (سندات قبض)" to "+ ${FormatUtils.formatCurrency(report.collectionsTotal, currency)}")
+            add("المدفوعات للموردين (سندات صرف)" to "- ${FormatUtils.formatCurrency(report.supplierPaymentsTotal, currency)}")
+            add("المصروفات التشغيلية" to "- ${FormatUtils.formatCurrency(report.expensesTotal, currency)}")
+            add("الرواتب والسلف والمكافآت" to "- ${FormatUtils.formatCurrency(report.salariesAndAdvancesTotal, currency)}")
+        }
 
         eqRows.forEachIndexed { idx, (label, value) ->
             val lh = measureWrappedHeight(label, regularTp, 280f, Layout.Alignment.ALIGN_NORMAL)
@@ -2111,6 +2151,187 @@ object InvoiceHelper {
         if (!vouchersDir.exists()) vouchersDir.mkdirs()
         val safeName = receipt.voucherNumber.replace(Regex("[^A-Za-z0-9_-]"), "_")
         val file = File(vouchersDir, "سند_صرف_$safeName.pdf")
+        FileOutputStream(file).use { out ->
+            pdfDocument.writeTo(out)
+        }
+        pdfDocument.close()
+        return file
+    }
+
+    fun generateReturnReceiptPdf(
+        context: Context,
+        records: List<ReturnRecord>,
+        settings: StoreSettings?
+    ): File {
+        require(records.isNotEmpty()) { "لا توجد بنود مرتجع لطباعتها" }
+        val first = records.first()
+        val isSaleReturn = first.returnType == ReturnTypes.SALE_RETURN
+        val pdfDocument = PdfDocument()
+
+        val shopName = settings?.shopNameAr?.ifBlank { "متجري" } ?: "متجري"
+        val shopPhone = settings?.phone?.ifBlank { "" } ?: ""
+        val shopAddress = settings?.address?.ifBlank { "" } ?: ""
+        val currency = settings?.currency?.ifBlank { "ريال" } ?: "ريال"
+
+        val titleTp = makeTextPaint(Color.rgb(15, 30, 54), 17.5f, bold = true)
+        val subTp = makeTextPaint(Color.rgb(100, 116, 139), 10f, bold = false)
+        val boldTp = makeTextPaint(Color.rgb(15, 23, 42), 10f, bold = true)
+        val regularTp = makeTextPaint(Color.rgb(51, 65, 85), 9.5f, bold = false)
+        val mutedSmallTp = makeTextPaint(Color.rgb(100, 116, 139), 8.2f, bold = false)
+        val linePaint = Paint().apply {
+            color = Color.rgb(226, 232, 240)
+            strokeWidth = 1f
+        }
+
+        var pageNumber = 1
+        var page = pdfDocument.startPage(PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, pageNumber).create())
+        var canvas = page.canvas
+        var y = 24f
+
+        fun drawReturnTableHeader() {
+            canvas.drawRect(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y + 22f, Paint().apply { color = Color.rgb(15, 30, 54) })
+            val thPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = 9.5f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            thPaint.textAlign = Paint.Align.RIGHT
+            canvas.drawText("#", 506f, y + 15f, thPaint)
+            canvas.drawText("الصنف والبيان", 480f, y + 15f, thPaint)
+            thPaint.textAlign = Paint.Align.CENTER
+            canvas.drawText("الكمية", 230f, y + 15f, thPaint)
+            canvas.drawText("سعر الفاتورة", 150f, y + 15f, thPaint)
+            thPaint.textAlign = Paint.Align.LEFT
+            canvas.drawText("الإجمالي", 32f, y + 15f, thPaint)
+            y += 26f
+        }
+
+        fun nextReturnPage() {
+            drawPageFooter(canvas, pageNumber, shopName, continued = true)
+            pdfDocument.finishPage(page)
+            pageNumber++
+            page = pdfDocument.startPage(PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, pageNumber).create())
+            canvas = page.canvas
+            y = 26f
+            y += drawWrappedText(
+                canvas,
+                "تابع إشعار المرتجع #${first.returnNumber} (صفحة $pageNumber)",
+                MARGIN_X,
+                y,
+                CONTENT_WIDTH,
+                boldTp,
+                Layout.Alignment.ALIGN_NORMAL
+            ) + 8f
+            drawReturnTableHeader()
+        }
+
+        drawStoreLogoIfPresent(canvas, settings, left = MARGIN_X, top = 16f, size = 40f)
+        y += drawWrappedText(canvas, shopName, MARGIN_X + 50f, y, CONTENT_WIDTH - 100f, titleTp, Layout.Alignment.ALIGN_CENTER) + 3f
+        val contact = listOfNotNull(shopAddress.takeIf { it.isNotBlank() }, shopPhone.takeIf { it.isNotBlank() }?.let { "هاتف: $it" }).joinToString(" • ")
+        if (contact.isNotBlank()) {
+            y += drawWrappedText(canvas, contact, MARGIN_X, y, CONTENT_WIDTH, subTp, Layout.Alignment.ALIGN_CENTER) + 4f
+        }
+        y = y.coerceAtLeast(64f)
+
+        val bannerBg = if (isSaleReturn) Color.rgb(255, 247, 237) else Color.rgb(239, 246, 255)
+        val bannerFg = if (isSaleReturn) Color.rgb(194, 65, 12) else Color.rgb(29, 78, 216)
+        canvas.drawRoundRect(RectF(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y + 30f), 6f, 6f, Paint().apply { color = bannerBg })
+        val bannerTp = makeTextPaint(bannerFg, 13f, bold = true)
+        val bannerTitle = if (isSaleReturn) "إشعار مرتجع مبيعات (من عميل)  •  #${first.returnNumber}" else "إشعار مرتجع مشتريات (إلى مورد)  •  #${first.returnNumber}"
+        drawWrappedText(canvas, bannerTitle, MARGIN_X, y + 7f, CONTENT_WIDTH, bannerTp, Layout.Alignment.ALIGN_CENTER)
+        y += 38f
+
+        val partyLabel = if (isSaleReturn) "العميل: ${first.partyName}" else "المورد: ${first.partyName}"
+        val dateLabel = "التاريخ: ${FormatUtils.formatDateTime(first.timestamp)}"
+        val rH1 = measureWrappedHeight(partyLabel, boldTp, 250f, Layout.Alignment.ALIGN_NORMAL)
+        val rH2 = measureWrappedHeight(dateLabel, regularTp, 225f, Layout.Alignment.ALIGN_OPPOSITE)
+        drawWrappedText(canvas, partyLabel, 266f, y, 250f, boldTp, Layout.Alignment.ALIGN_NORMAL)
+        drawWrappedText(canvas, dateLabel, MARGIN_X, y, 225f, regularTp, Layout.Alignment.ALIGN_OPPOSITE)
+        y += maxOf(rH1, rH2) + 5f
+
+        val invLabel = "بحسب الفاتورة الأصلية: #${first.originalInvoiceNumber}"
+        val methLabel = "التسوية: ${first.settlementMethod}"
+        val mH1 = measureWrappedHeight(invLabel, regularTp, 250f, Layout.Alignment.ALIGN_NORMAL)
+        val mH2 = measureWrappedHeight(methLabel, regularTp, 225f, Layout.Alignment.ALIGN_OPPOSITE)
+        drawWrappedText(canvas, invLabel, 266f, y, 250f, regularTp, Layout.Alignment.ALIGN_NORMAL)
+        drawWrappedText(canvas, methLabel, MARGIN_X, y, 225f, regularTp, Layout.Alignment.ALIGN_OPPOSITE)
+        y += maxOf(mH1, mH2) + 10f
+
+        drawReturnTableHeader()
+
+        records.forEachIndexed { idx, line ->
+            val unitPrice = if (isSaleReturn) line.unitSellPrice else line.unitBuyPrice
+            val idxL = buildRtlStaticLayout("${idx + 1}", regularTp, 22f, Layout.Alignment.ALIGN_CENTER)
+            val nameL = buildRtlStaticLayout(line.productName, boldTp, 200f, Layout.Alignment.ALIGN_NORMAL)
+            val descText = listOfNotNull(
+                line.category.takeIf { it.isNotBlank() },
+                line.size.takeIf { it.isNotBlank() }?.let { "مقاس: $it" },
+                line.color.takeIf { it.isNotBlank() }?.let { "لون: $it" }
+            ).joinToString(" | ")
+            val descL = if (descText.isNotBlank()) buildRtlStaticLayout(descText, mutedSmallTp, 200f, Layout.Alignment.ALIGN_NORMAL) else null
+            val qtyL = buildRtlStaticLayout("${line.quantity} حبة", regularTp, 60f, Layout.Alignment.ALIGN_CENTER)
+            val priceL = buildRtlStaticLayout(FormatUtils.formatNumber(unitPrice), regularTp, 75f, Layout.Alignment.ALIGN_CENTER)
+            val totL = buildRtlStaticLayout(FormatUtils.formatNumber(line.totalAmount), boldTp, 82f, Layout.Alignment.ALIGN_OPPOSITE)
+
+            val centerH = nameL.height + (if (descL != null) descL.height + 2 else 0)
+            val rowH = maxOf(idxL.height, centerH, qtyL.height, priceL.height, totL.height).toFloat() + 10f
+            if (y + rowH > CONTENT_BOTTOM) nextReturnPage()
+            if (idx % 2 == 1) {
+                canvas.drawRect(MARGIN_X, y - 3f, PAGE_WIDTH - MARGIN_X, y + rowH - 3f, Paint().apply { color = Color.rgb(248, 250, 252) })
+            }
+            drawWrappedLayout(canvas, idxL, 488f, y)
+            drawWrappedLayout(canvas, nameL, 275f, y)
+            if (descL != null) drawWrappedLayout(canvas, descL, 275f, y + nameL.height + 2f)
+            drawWrappedLayout(canvas, qtyL, 200f, y)
+            drawWrappedLayout(canvas, priceL, 115f, y)
+            drawWrappedLayout(canvas, totL, 28f, y)
+            y += rowH
+        }
+
+        val totalReturn = records.sumOf { it.totalAmount }
+        val totalCash = records.sumOf { it.cashAmount }
+        val totalTransfer = records.sumOf { it.transferAmount }
+        val totalDebtReduced = records.sumOf { it.debtReducedAmount }
+        val totalSurplus = records.sumOf { it.surplusCreditAmount }
+
+        if (y + 120f > CONTENT_BOTTOM) nextReturnPage()
+        y += 8f
+        canvas.drawLine(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y, linePaint)
+        y += 10f
+
+        canvas.drawRoundRect(RectF(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y + 34f), 6f, 6f, Paint().apply { color = bannerBg })
+        val totalTp = makeTextPaint(bannerFg, 13.5f, bold = true)
+        drawWrappedText(canvas, "إجمالي قيمة المرتجع (${records.sumOf { it.quantity }} حبة):", 240f, y + 9f, 266f, totalTp, Layout.Alignment.ALIGN_NORMAL)
+        drawWrappedText(canvas, FormatUtils.formatCurrency(totalReturn, currency), 32f, y + 9f, 195f, totalTp, Layout.Alignment.ALIGN_OPPOSITE)
+        y += 44f
+
+        val breakdownRows = buildList {
+            if (totalDebtReduced > 0.01) add("مخصوم من حساب الدين:" to FormatUtils.formatCurrency(totalDebtReduced, currency))
+            if (totalCash > 0.01) add((if (isSaleReturn) "مبلغ نقدي مُرجع للعميل:" else "مبلغ نقدي مستلم من المورد:") to FormatUtils.formatCurrency(totalCash, currency))
+            if (totalTransfer > 0.01) add("تسوية عبر الصراف (${first.exchangeAccountName}):" to FormatUtils.formatCurrency(totalTransfer, currency))
+            if (totalSurplus > 0.01) add("رصيد دائن متروك بالحساب:" to FormatUtils.formatCurrency(totalSurplus, currency))
+            if (first.notes.isNotBlank()) add("ملاحظات:" to first.notes)
+        }
+        breakdownRows.forEach { (k, v) ->
+            val h = maxOf(
+                measureWrappedHeight(k, regularTp, 230f, Layout.Alignment.ALIGN_NORMAL),
+                measureWrappedHeight(v, boldTp, 235f, Layout.Alignment.ALIGN_OPPOSITE)
+            ) + 8f
+            drawWrappedText(canvas, k, 275f, y, 230f, regularTp, Layout.Alignment.ALIGN_NORMAL)
+            drawWrappedText(canvas, v, 32f, y, 235f, boldTp, Layout.Alignment.ALIGN_OPPOSITE)
+            y += h
+        }
+
+        y += 14f
+        drawWrappedText(canvas, "توقيع الطرف الآخر: ________________", 280f, y, 228f, regularTp, Layout.Alignment.ALIGN_NORMAL)
+        drawWrappedText(canvas, "ختم وتوقيع المحل: ________________", 32f, y, 228f, regularTp, Layout.Alignment.ALIGN_OPPOSITE)
+        drawPageFooter(canvas, pageNumber, shopName, continued = false)
+        pdfDocument.finishPage(page)
+
+        val returnsDir = File(context.cacheDir, "vouchers")
+        if (!returnsDir.exists()) returnsDir.mkdirs()
+        val safeName = first.returnNumber.replace(Regex("[^A-Za-z0-9_-]"), "_")
+        val file = File(returnsDir, "مرتجع_$safeName.pdf")
         FileOutputStream(file).use { out ->
             pdfDocument.writeTo(out)
         }

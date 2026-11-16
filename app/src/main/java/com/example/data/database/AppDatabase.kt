@@ -26,9 +26,10 @@ import com.example.ui.util.PinSecurityManager
         PartyAccount::class,
         AuditLogRecord::class,
         StoreSettings::class,
-        StoreConfigItem::class
+        StoreConfigItem::class,
+        ReturnRecord::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -48,6 +49,44 @@ abstract class AppDatabase : RoomDatabase() {
                 ).addMigrations(*ALL_MIGRATIONS).build()
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        val MIGRATION_10_11 = object : androidx.room.migration.Migration(10, 11) {
+            override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE cash_movements ADD COLUMN referenceReturnId INTEGER")
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `return_records` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `returnType` TEXT NOT NULL,
+                        `returnNumber` TEXT NOT NULL,
+                        `originalInvoiceNumber` TEXT NOT NULL,
+                        `originalLineId` INTEGER NOT NULL,
+                        `productId` INTEGER NOT NULL,
+                        `productName` TEXT NOT NULL,
+                        `category` TEXT NOT NULL,
+                        `color` TEXT NOT NULL,
+                        `size` TEXT NOT NULL,
+                        `unit` TEXT NOT NULL,
+                        `quantity` INTEGER NOT NULL,
+                        `unitBuyPrice` REAL NOT NULL,
+                        `unitSellPrice` REAL NOT NULL,
+                        `totalAmount` REAL NOT NULL,
+                        `profitAdjustment` REAL NOT NULL,
+                        `partyName` TEXT NOT NULL,
+                        `partyPhone` TEXT NOT NULL,
+                        `settlementMethod` TEXT NOT NULL,
+                        `cashAmount` REAL NOT NULL,
+                        `transferAmount` REAL NOT NULL,
+                        `debtReducedAmount` REAL NOT NULL,
+                        `surplusCreditAmount` REAL NOT NULL,
+                        `exchangeAccountId` INTEGER NOT NULL,
+                        `exchangeAccountName` TEXT NOT NULL,
+                        `notes` TEXT NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        `shiftId` INTEGER NOT NULL
+                    )
+                """.trimIndent())
             }
         }
 
@@ -188,7 +227,8 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_6_7,
                 MIGRATION_7_8,
                 MIGRATION_8_9,
-                MIGRATION_9_10
+                MIGRATION_9_10,
+                MIGRATION_10_11
             )
         }
     }

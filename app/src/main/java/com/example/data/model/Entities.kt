@@ -241,7 +241,8 @@ data class CashDrawerMovement(
     val referenceSaleId: Long? = null,
     val referencePurchaseId: Long? = null,
     val referenceExpenseId: Long? = null,
-    val referenceEmployeeTxId: Long? = null
+    val referenceEmployeeTxId: Long? = null,
+    val referenceReturnId: Long? = null
 )
 
 @Entity(tableName = "exchange_accounts")
@@ -358,4 +359,72 @@ object PaymentMethods {
 
     val ALL = listOf(CASH, TRANSFER, SPLIT, CREDIT, CUSTOM_SPLIT)
 }
+
+object ReturnTypes {
+    const val SALE_RETURN = "SALE_RETURN"
+    const val PURCHASE_RETURN = "PURCHASE_RETURN"
+}
+
+object ReturnSettlementMethods {
+    const val CASH = "نقداً (كاش)"
+    const val TRANSFER = "تحويل عبر الصراف"
+    const val DEBT_DEDUCTION = "خصم من الدين"
+    const val PARTY_CREDIT = "رصيد دائن بالحساب"
+    const val MIXED = "تسوية مختلطة"
+}
+
+@Entity(tableName = "return_records")
+data class ReturnRecord(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val returnType: String, // "SALE_RETURN" or "PURCHASE_RETURN"
+    val returnNumber: String, // "RS-0001" or "RP-0001"
+    val originalInvoiceNumber: String, // e.g. "INV-0001" or "ID:15"
+    val originalLineId: Long, // SaleTransaction.id or PurchaseRecord.id
+    val productId: Long = 0L, // ProductItem.id
+    val productName: String,
+    val category: String = "",
+    val color: String = "",
+    val size: String = "",
+    val unit: String = "حبه",
+    val quantity: Int, // pieces returned
+    val unitBuyPrice: Double, // exact unitBuyPrice from original invoice
+    val unitSellPrice: Double, // exact effective unit price for SALE_RETURN or orig.unitSellPrice for PURCHASE_RETURN
+    val totalAmount: Double, // exact monetary total of returned line
+    val profitAdjustment: Double = 0.0, // for SALE_RETURN: totalAmount - (unitBuyPrice * quantity)
+    val partyName: String = "",
+    val partyPhone: String = "",
+    val settlementMethod: String = "",
+    val cashAmount: Double = 0.0,
+    val transferAmount: Double = 0.0,
+    val debtReducedAmount: Double = 0.0,
+    val surplusCreditAmount: Double = 0.0,
+    val exchangeAccountId: Long = 0L,
+    val exchangeAccountName: String = "",
+    val notes: String = "",
+    val timestamp: Long = System.currentTimeMillis(),
+    val shiftId: Long = 0L
+)
+
+data class ReturnLineRequest(
+    val originalLineId: Long,
+    val returnQuantity: Int
+)
+
+data class CompletedReturnResult(
+    val returnType: String,
+    val returnNumber: String,
+    val originalInvoiceNumber: String,
+    val partyName: String,
+    val settlementMethod: String,
+    val totalReturnAmount: Double,
+    val cashAmount: Double,
+    val transferAmount: Double,
+    val debtReducedAmount: Double,
+    val surplusCreditAmount: Double,
+    val exchangeAccountName: String = "",
+    val totalPiecesReturned: Int,
+    val records: List<ReturnRecord>,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 

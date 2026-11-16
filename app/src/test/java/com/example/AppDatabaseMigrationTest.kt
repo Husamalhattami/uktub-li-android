@@ -9,6 +9,10 @@ import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.database.AppDatabase
+import com.example.data.model.CashDrawerMovement
+import com.example.data.model.ReturnRecord
+import com.example.data.model.ReturnSettlementMethods
+import com.example.data.model.ReturnTypes
 import com.example.ui.StoreViewModel
 import com.example.ui.util.PinSecurityManager
 import kotlinx.coroutines.flow.first
@@ -57,6 +61,7 @@ class AppDatabaseMigrationTest {
                 if (targetVersion >= 7) upgrade6To7AndSeed(db)
                 if (targetVersion >= 8) upgrade7To8AndSeed(db)
                 if (targetVersion >= 9) upgrade8To9AndSeed(db)
+                if (targetVersion >= 10) upgrade9To10AndSeed(db, legacyPin)
             }
 
             override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
@@ -385,10 +390,15 @@ class AppDatabaseMigrationTest {
         db.execSQL("INSERT INTO store_config_items (id, type, name, createdAt) VALUES (1, 'PRODUCT_CATEGORY', 'أكوات ملكية', 1700000000000)")
     }
 
+    private fun upgrade9To10AndSeed(db: SupportSQLiteDatabase, legacyPin: String) {
+        AppDatabase.MIGRATION_9_10.migrate(db)
+        assertNotNull(legacyPin)
+    }
+
     @Test
-    fun testMigrateAllPreviousVersions2Through9To10PreservesEveryTableAndRow() = runBlocking {
-        for (startVersion in 2..9) {
-            val dbName = "migration_test_v${startVersion}_to_10.db"
+    fun testMigrateAllPreviousVersions2Through10To11PreservesEveryTableAndRow() = runBlocking {
+        for (startVersion in 2..10) {
+            val dbName = "migration_test_v${startVersion}_to_11.db"
             val legacyPin = if (startVersion == 7) "1234" else "8492"
             createVersionedSeededDb(dbName, startVersion, legacyPin)
 
@@ -446,6 +456,7 @@ class AppDatabaseMigrationTest {
                 val cashMovements = dao.getAllCashMovements().first()
                 assertEquals("v$startVersion cash_movements count", 1, cashMovements.size)
                 assertEquals(1L, cashMovements.first().referenceSaleId)
+                assertNull("Existing cash movements should default referenceReturnId to null", cashMovements.first().referenceReturnId)
 
                 val accounts = dao.getAllExchangeAccounts().first()
                 assertEquals("v$startVersion exchange_accounts count", 1, accounts.size)
@@ -483,6 +494,48 @@ class AppDatabaseMigrationTest {
                     assertEquals("v$startVersion store_config_items count", 1, configItems.size)
                     assertEquals("أكوات ملكية", configItems.first().name)
                 }
+
+                // Verify v11 return_records table and cash_movements.referenceReturnId column are operational
+                assertEquals(0, dao.getAllReturnsDirect().size)
+                val insertedRetId = dao.insertReturn(
+                    ReturnRecord(
+                        returnType = ReturnTypes.SALE_RETURN,
+                        returnNumber = "RS-MIG-$startVersion",
+                        originalInvoiceNumber = "INV-LEGACY-7",
+                        originalLineId = 1L,
+                        productId = 1L,
+                        productName = "كوت شتوي أصلي",
+                        quantity = 1,
+                        unitBuyPrice = 120.0,
+                        unitSellPrice = 200.0,
+                        totalAmount = 200.0,
+                        profitAdjustment = 80.0,
+                        partyName = "عميل قديم",
+                        settlementMethod = ReturnSettlementMethods.CASH,
+                        cashAmount = 200.0,
+                        timestamp = 1700000050000L,
+                        shiftId = 1L
+                    )
+                )
+                assertTrue(insertedRetId > 0L)
+                dao.insertCashMovement(
+                    CashDrawerMovement(
+                        shiftId = 1L,
+                        type = "SALE_RETURN_CASH",
+                        amount = 200.0,
+                        isIncome = false,
+                        title = "مرتجع اختبار هجرة",
+                        details = "RS-MIG-$startVersion",
+                        timestamp = 1700000050000L,
+                        referenceReturnId = insertedRetId
+                    )
+                )
+                val loadedReturns = dao.getAllReturnsDirect()
+                assertEquals(1, loadedReturns.size)
+                assertEquals("RS-MIG-$startVersion", loadedReturns.first().returnNumber)
+                val linkedCash = dao.getAllCashMovementsDirect().find { it.referenceReturnId == insertedRetId }
+                assertNotNull(linkedCash)
+                assertEquals(200.0, linkedCash!!.amount, 0.01)
             } finally {
                 db.close()
             }

@@ -34,6 +34,7 @@ import com.example.data.model.DebtRecord
 import com.example.data.model.ExchangeAccount
 import com.example.data.model.PartyAccount
 import com.example.data.model.PurchaseRecord
+import com.example.data.model.ReturnRecord
 import com.example.data.model.SaleTransaction
 import com.example.data.model.StoreSettings
 import com.example.ui.StoreViewModel
@@ -64,6 +65,7 @@ fun DebtsScreen(
     val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
     val sales by viewModel.sales.collectAsStateWithLifecycle()
     val purchases by viewModel.purchases.collectAsStateWithLifecycle()
+    val returns by viewModel.returns.collectAsStateWithLifecycle()
     val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
     val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
     val cashBalance by viewModel.currentCashBalance.collectAsStateWithLifecycle()
@@ -112,6 +114,19 @@ fun DebtsScreen(
         parties.filter { it.type == "SUPPLIER" }
     }
 
+    val partySummariesMap = remember(parties, sales, purchases, debts, debtPayments, returns) {
+        parties.associate { party ->
+            party.id to StatementHelper.buildPartyStatement(
+                party = party,
+                sales = sales,
+                purchases = purchases,
+                debts = debts,
+                payments = debtPayments,
+                returns = returns
+            )
+        }
+    }
+
     val totalActiveCustomerDebt = remember(debts) {
         debts.filter { it.type == "CUSTOMER" && !it.isSettled }.sumOf { it.remainingAmount }
     }
@@ -119,16 +134,20 @@ fun DebtsScreen(
         debts.filter { it.type == "SUPPLIER" && !it.isSettled }.sumOf { it.remainingAmount }
     }
 
-    val indebtedCustomersCount = remember(customerParties, customerDebtsMap) {
+    val indebtedCustomersCount = remember(customerParties, customerDebtsMap, partySummariesMap) {
         customerParties.count { party ->
             val pDebts = customerDebtsMap[party.name.trim().lowercase()] ?: emptyList()
-            pDebts.filter { !it.isSettled }.sumOf { it.remainingAmount } > 0.01
+            val openDebt = pDebts.filter { !it.isSettled }.sumOf { it.remainingAmount }
+            val netBal = partySummariesMap[party.id]?.netBalance ?: openDebt
+            maxOf(openDebt, netBal) > 0.01
         }
     }
-    val indebtedSuppliersCount = remember(supplierParties, supplierDebtsMap) {
+    val indebtedSuppliersCount = remember(supplierParties, supplierDebtsMap, partySummariesMap) {
         supplierParties.count { party ->
             val pDebts = supplierDebtsMap[party.name.trim().lowercase()] ?: emptyList()
-            pDebts.filter { !it.isSettled }.sumOf { it.remainingAmount } > 0.01
+            val openDebt = pDebts.filter { !it.isSettled }.sumOf { it.remainingAmount }
+            val netBal = partySummariesMap[party.id]?.netBalance ?: openDebt
+            maxOf(openDebt, netBal) > 0.01
         }
     }
 
@@ -419,8 +438,9 @@ fun DebtsScreen(
                             party.phone.contains(searchQuery, ignoreCase = true)
 
                     val pDebts = customerDebtsMap[party.name.trim().lowercase()] ?: emptyList()
-                    val totalDebt = pDebts.filter { !it.isSettled }.sumOf { it.remainingAmount }
-                    val isIndebted = totalDebt > 0.01
+                    val openDebt = pDebts.filter { !it.isSettled }.sumOf { it.remainingAmount }
+                    val netBal = partySummariesMap[party.id]?.netBalance ?: openDebt
+                    val isIndebted = maxOf(openDebt, netBal) > 0.01
 
                     val matchStatus = when (filterStatus) {
                         "INDEBTED" -> isIndebted
@@ -465,13 +485,16 @@ fun DebtsScreen(
                 } else {
                     items(filteredCustomers, key = { it.id }) { party ->
                         val pDebts = customerDebtsMap[party.name.trim().lowercase()] ?: emptyList()
-                        val activeDebts = pDebts.filter { !it.isSettled }
-                        val remainingDebt = activeDebts.sumOf { it.remainingAmount }
+                        val remainingDebt = pDebts.filter { !it.isSettled }.sumOf { it.remainingAmount }
+                        val summary = partySummariesMap[party.id]
 
                         val contextCard = LocalContext.current
                         PartyAccountCard(
                             party = party,
                             remainingDebt = remainingDebt,
+                            netBalance = summary?.netBalance ?: remainingDebt,
+                            invoicesCount = summary?.invoicesCount ?: 0,
+                            paymentsCount = summary?.paymentsCount ?: 0,
                             isCustomer = true,
                             onCollectOrPay = {
                                 collectionInitialParty = party
@@ -479,8 +502,8 @@ fun DebtsScreen(
                             },
                             onShowStatement = { statementParty = party },
                             onShareWhatsApp = {
-                                val summary = StatementHelper.buildPartyStatement(party, sales, purchases, debts, debtPayments)
-                                val txt = StatementHelper.formatPartyStatementText(summary, StatementMode.DETAILED, storeSettings)
+                                val st = summary ?: StatementHelper.buildPartyStatement(party, sales, purchases, debts, debtPayments, returns)
+                                val txt = StatementHelper.formatPartyStatementText(st, StatementMode.DETAILED, storeSettings)
                                 StatementHelper.shareText(contextCard, txt, "كشف حساب ${party.name}")
                             },
                             onAddDebt = { addingDebtForParty = party },
@@ -499,8 +522,9 @@ fun DebtsScreen(
                             party.phone.contains(searchQuery, ignoreCase = true)
 
                     val pDebts = supplierDebtsMap[party.name.trim().lowercase()] ?: emptyList()
-                    val totalDebt = pDebts.filter { !it.isSettled }.sumOf { it.remainingAmount }
-                    val isIndebted = totalDebt > 0.01
+                    val openDebt = pDebts.filter { !it.isSettled }.sumOf { it.remainingAmount }
+                    val netBal = partySummariesMap[party.id]?.netBalance ?: openDebt
+                    val isIndebted = maxOf(openDebt, netBal) > 0.01
 
                     val matchStatus = when (filterStatus) {
                         "INDEBTED" -> isIndebted
@@ -545,13 +569,16 @@ fun DebtsScreen(
                 } else {
                     items(filteredSuppliers, key = { it.id }) { party ->
                         val pDebts = supplierDebtsMap[party.name.trim().lowercase()] ?: emptyList()
-                        val activeDebts = pDebts.filter { !it.isSettled }
-                        val remainingDebt = activeDebts.sumOf { it.remainingAmount }
+                        val remainingDebt = pDebts.filter { !it.isSettled }.sumOf { it.remainingAmount }
+                        val summary = partySummariesMap[party.id]
 
                         val contextCard = LocalContext.current
                         PartyAccountCard(
                             party = party,
                             remainingDebt = remainingDebt,
+                            netBalance = summary?.netBalance ?: remainingDebt,
+                            invoicesCount = summary?.invoicesCount ?: 0,
+                            paymentsCount = summary?.paymentsCount ?: 0,
                             isCustomer = false,
                             onCollectOrPay = {
                                 supplierPayInitialParty = party
@@ -559,8 +586,8 @@ fun DebtsScreen(
                             },
                             onShowStatement = { statementParty = party },
                             onShareWhatsApp = {
-                                val summary = StatementHelper.buildPartyStatement(party, sales, purchases, debts, debtPayments)
-                                val txt = StatementHelper.formatPartyStatementText(summary, StatementMode.DETAILED, storeSettings)
+                                val st = summary ?: StatementHelper.buildPartyStatement(party, sales, purchases, debts, debtPayments, returns)
+                                val txt = StatementHelper.formatPartyStatementText(st, StatementMode.DETAILED, storeSettings)
                                 StatementHelper.shareText(contextCard, txt, "كشف حساب ${party.name}")
                             },
                             onAddDebt = { addingDebtForParty = party },
@@ -762,6 +789,7 @@ fun DebtsScreen(
             purchases = purchases,
             debts = debts,
             payments = debtPayments,
+            returns = returns,
             settings = storeSettings,
             onDismiss = { statementParty = null }
         )
@@ -1349,6 +1377,9 @@ fun DebtsScreen(
 fun PartyAccountCard(
     party: PartyAccount,
     remainingDebt: Double,
+    netBalance: Double = remainingDebt,
+    invoicesCount: Int = 0,
+    paymentsCount: Int = 0,
     isCustomer: Boolean,
     onCollectOrPay: () -> Unit,
     onShowStatement: () -> Unit,
@@ -1358,26 +1389,53 @@ fun PartyAccountCard(
     onDelete: () -> Unit
 ) {
     val context = LocalContext.current
-    val hasDebt = remainingDebt > 0.01
-    val advanceCredit = if (!hasDebt && party.initialBalance < -0.01) kotlin.math.abs(party.initialBalance) else 0.0
+    var showOverflowMenu by remember { mutableStateOf(false) }
+
+    val effectiveDebt = maxOf(netBalance, remainingDebt).takeIf { netBalance >= -0.01 } ?: 0.0
+    val hasDebt = effectiveDebt > 0.01
+    val hasSurplusCredit = netBalance < -0.01
+    val displayAmount = if (hasSurplusCredit) kotlin.math.abs(netBalance) else effectiveDebt
+
+    val statusLabel = when {
+        hasDebt && isCustomer -> "عليه للمحل"
+        hasDebt && !isCustomer -> "له علينا"
+        hasSurplusCredit && isCustomer -> "له فائض عندنا"
+        hasSurplusCredit && !isCustomer -> "لنا عنده فائض"
+        else -> "الحساب خالص"
+    }
+    val statusBg = when {
+        hasDebt && isCustomer -> GoldContainer
+        hasDebt && !isCustomer -> RubyLight
+        hasSurplusCredit -> BrandBlueBg
+        else -> EmeraldLight
+    }
+    val statusColor = when {
+        hasDebt && isCustomer -> PdfGoldDark
+        hasDebt && !isCustomer -> RubyExpense
+        hasSurplusCredit -> BrandBlue
+        else -> EmeraldProfit
+    }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onShowStatement),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Header: Avatar, Name, Phone, and Balance Badge
+            // 1. Clear Top Row: Avatar + Name/Phone + Prominent Balance Box
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
                     modifier = Modifier.weight(1f),
@@ -1387,86 +1445,94 @@ fun PartyAccountCard(
                     Surface(
                         shape = CircleShape,
                         color = if (isCustomer) GoldContainer else RubyLight,
-                        modifier = Modifier.size(44.dp)
+                        modifier = Modifier.size(46.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = if (isCustomer) Icons.Default.Person else Icons.Default.Storefront,
                                 contentDescription = null,
-                                tint = if (isCustomer) LuxuryGold else RubyExpense,
+                                tint = if (isCustomer) PdfGoldDark else RubyExpense,
                                 modifier = Modifier.size(24.dp)
                             )
                         }
                     }
 
-                    Column {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
                             text = party.name,
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = SlateTextPrimary
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         if (party.phone.isNotBlank()) {
                             Text(
-                                text = "هاتف: ${party.phone}",
-                                style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted)
+                                text = party.phone,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = SlateTextSecondary,
+                                    fontSize = 12.sp
+                                ),
+                                maxLines = 1
                             )
                         }
-                        if (party.address.isNotBlank() || party.notes.isNotBlank()) {
-                            val subtext = listOf(party.address, party.notes).filter { it.isNotBlank() }.joinToString(" • ")
+                        if (invoicesCount > 0 || paymentsCount > 0) {
                             Text(
-                                text = subtext,
-                                style = MaterialTheme.typography.bodySmall.copy(color = SlateMuted, fontSize = 11.sp),
+                                text = "فواتير: $invoicesCount • سندات: $paymentsCount",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = SlateMuted,
+                                    fontSize = 11.sp
+                                ),
                                 maxLines = 1
+                            )
+                        } else if (party.address.isNotBlank()) {
+                            Text(
+                                text = party.address,
+                                style = MaterialTheme.typography.labelSmall.copy(color = SlateMuted, fontSize = 11.sp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
                 }
 
-                // Balance Badge
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Clear High-Contrast Balance Pill
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = when {
-                        hasDebt && isCustomer -> GoldContainer
-                        hasDebt && !isCustomer -> RubyLight
-                        advanceCredit > 0.01 -> Color(0xFFEFF6FF)
-                        else -> EmeraldLight
-                    }
+                    shape = RoundedCornerShape(12.dp),
+                    color = statusBg,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, statusColor.copy(alpha = 0.25f))
                 ) {
                     Column(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         horizontalAlignment = Alignment.End
                     ) {
                         Text(
-                            text = when {
-                                hasDebt && isCustomer -> "عليه زلط"
-                                hasDebt && !isCustomer -> "عليا زلط له"
-                                advanceCredit > 0.01 && isCustomer -> "له رصيد فائض"
-                                advanceCredit > 0.01 && !isCustomer -> "لنا رصيد مقدم"
-                                else -> "الحساب خالص"
-                            },
+                            text = statusLabel,
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontWeight = FontWeight.Bold,
-                                color = when {
-                                    hasDebt && isCustomer -> LuxuryGold
-                                    hasDebt && !isCustomer -> RubyExpense
-                                    advanceCredit > 0.01 -> BrandBlue
-                                    else -> EmeraldProfit
-                                }
+                                color = statusColor,
+                                fontSize = 11.sp
                             )
                         )
-                        if (hasDebt) {
+                        if (hasDebt || hasSurplusCredit) {
                             Text(
-                                text = FormatUtils.formatCurrency(remainingDebt),
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isCustomer) LuxuryGold else RubyExpense
+                                text = FormatUtils.formatCurrency(displayAmount),
+                                style = MaterialTheme.typography.titleSmall.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = statusColor,
+                                    fontSize = 14.sp
                                 )
                             )
-                        } else if (advanceCredit > 0.01) {
+                        } else {
                             Text(
-                                text = FormatUtils.formatCurrency(advanceCredit),
-                                style = MaterialTheme.typography.bodyMedium.copy(
+                                text = "0.00 ✓",
+                                style = MaterialTheme.typography.titleSmall.copy(
                                     fontWeight = FontWeight.Bold,
-                                    color = BrandBlue
+                                    color = EmeraldProfit,
+                                    fontSize = 13.sp
                                 )
                             )
                         }
@@ -1474,91 +1540,133 @@ fun PartyAccountCard(
                 }
             }
 
-            HorizontalDivider(color = SlateBorder)
+            HorizontalDivider(color = SlateBorder.copy(alpha = 0.7f))
 
-            // Actions Row
+            // 2. Simple, Accessible 48dp Actions Bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // Pay / Collect Button
-                    if (hasDebt) {
-                        Button(
-                            onClick = onCollectOrPay,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isCustomer) LuxuryGold else RubyExpense
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            modifier = Modifier.testTag("btn_pay_collect_${party.id}")
-                        ) {
-                            Icon(
-                                imageVector = if (isCustomer) Icons.Default.Download else Icons.Default.Upload,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (isCustomer) "قبض زلط" else "سداد دفعة",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
+                OutlinedButton(
+                    onClick = onShowStatement,
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, PdfHeaderNavy.copy(alpha = 0.45f)),
+                    contentPadding = PaddingValues(horizontal = 10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("btn_statement_${party.id}")
+                ) {
+                    Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = PdfHeaderNavy, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("كشف الحساب", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = PdfHeaderNavy, maxLines = 1)
+                }
 
-                    // Statement Button (كشف الحساب)
-                    OutlinedButton(
-                        onClick = onShowStatement,
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                        modifier = Modifier.testTag("btn_statement_${party.id}")
+                if (hasDebt) {
+                    Button(
+                        onClick = onCollectOrPay,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isCustomer) EmeraldProfit else RubyExpense
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                            .testTag("btn_pay_collect_${party.id}")
                     ) {
-                        Icon(Icons.Default.ReceiptLong, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("كشف الحساب", fontSize = 11.sp)
+                        Icon(
+                            imageVector = if (isCustomer) Icons.Default.Download else Icons.Default.Upload,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isCustomer) "قبض زلط" else "سداد دفعة",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
                     }
-
-                    // Quick WhatsApp Statement Share Button
-                    IconButton(
-                        onClick = onShareWhatsApp,
-                        modifier = Modifier.size(34.dp).testTag("btn_whatsapp_party_${party.id}")
-                    ) {
-                        Icon(Icons.Default.Forum, contentDescription = "مشاركة كشف الحساب واتساب", tint = EmeraldProfit, modifier = Modifier.size(18.dp))
-                    }
-
-                    // Add Debt Button
-                    IconButton(
+                } else {
+                    FilledTonalButton(
                         onClick = onAddDebt,
-                        modifier = Modifier.size(34.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
                     ) {
-                        Icon(Icons.Default.AddCircleOutline, contentDescription = "إضافة دين", tint = MaterialTheme.colorScheme.primary)
-                    }
-
-                    // Call Button
-                    if (party.phone.isNotBlank()) {
-                        IconButton(
-                            onClick = {
-                                val intent = Intent(Intent.ACTION_DIAL).apply {
-                                    data = Uri.parse("tel:${party.phone}")
-                                }
-                                context.startActivity(intent)
-                            },
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            Icon(Icons.Default.Phone, contentDescription = "اتصال", tint = EmeraldProfit)
-                        }
+                        Icon(Icons.Default.AddCircleOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("+ قيد دين", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                     }
                 }
 
-                // Edit and Delete Menu
-                Row {
-                    IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Edit, contentDescription = "تعديل", tint = SlateMuted, modifier = Modifier.size(18.dp))
+                FilledTonalIconButton(
+                    onClick = onShareWhatsApp,
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = FintechEmeraldBg,
+                        contentColor = EmeraldProfit
+                    ),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("btn_whatsapp_party_${party.id}")
+                ) {
+                    Icon(Icons.Default.Forum, contentDescription = "مشاركة كشف الحساب واتساب", modifier = Modifier.size(20.dp))
+                }
+
+                Box {
+                    IconButton(
+                        onClick = { showOverflowMenu = true },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("btn_more_party_${party.id}")
+                    ) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "المزيد من الخيارات", tint = SlateTextSecondary)
                     }
-                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.DeleteOutline, contentDescription = "حذف", tint = SlateMuted, modifier = Modifier.size(18.dp))
+                    DropdownMenu(
+                        expanded = showOverflowMenu,
+                        onDismissRequest = { showOverflowMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("إضافة دين / رصيد جديد") },
+                            leadingIcon = { Icon(Icons.Default.AddCircleOutline, contentDescription = null, tint = PdfHeaderNavy) },
+                            onClick = {
+                                showOverflowMenu = false
+                                onAddDebt()
+                            }
+                        )
+                        if (party.phone.isNotBlank()) {
+                            DropdownMenuItem(
+                                text = { Text("اتصال بالهاتف (${party.phone})") },
+                                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = EmeraldProfit) },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    val intent = Intent(Intent.ACTION_DIAL).apply {
+                                        data = Uri.parse("tel:${party.phone}")
+                                    }
+                                    context.startActivity(intent)
+                                }
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("تعديل بيانات الحساب") },
+                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = SlateTextSecondary) },
+                            onClick = {
+                                showOverflowMenu = false
+                                onEdit()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("حذف الحساب", color = RubyExpense) },
+                            leadingIcon = { Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = RubyExpense) },
+                            onClick = {
+                                showOverflowMenu = false
+                                onDelete()
+                            }
+                        )
                     }
                 }
             }
@@ -1978,6 +2086,7 @@ fun PartyStatementDialog(
     purchases: List<PurchaseRecord>,
     debts: List<DebtRecord>,
     payments: List<DebtPayment>,
+    returns: List<ReturnRecord> = emptyList(),
     settings: StoreSettings?,
     onDismiss: () -> Unit
 ) {
@@ -1985,13 +2094,14 @@ fun PartyStatementDialog(
     val currency = settings?.currency?.ifBlank { "ريال" } ?: "ريال"
     var mode by remember { mutableStateOf(StatementMode.DETAILED) }
 
-    val summary = remember(party, sales, purchases, debts, payments) {
+    val summary = remember(party, sales, purchases, debts, payments, returns) {
         StatementHelper.buildPartyStatement(
             party = party,
             sales = sales,
             purchases = purchases,
             debts = debts,
-            payments = payments
+            payments = payments,
+            returns = returns
         )
     }
 

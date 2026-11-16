@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,6 +30,7 @@ import com.example.data.model.CartSaleItem
 import com.example.data.model.ExchangeAccount
 import com.example.data.model.ProductItem
 import com.example.data.model.PurchaseRecord
+import com.example.data.model.ReturnTypes
 import com.example.data.model.SaleTransaction
 import com.example.ui.StoreViewModel
 import com.example.ui.components.DialogInfoBanner
@@ -251,6 +253,10 @@ fun TransactionsManagerScreen(
                                     items = group,
                                     onEdit = { saleGroupToEdit = group },
                                     onDelete = { saleGroupToDelete = group },
+                                    onReturn = {
+                                        val key = if (first.invoiceNumber.isNotBlank()) first.invoiceNumber.trim() else "ID:${first.id}"
+                                        viewModel.openReturnsScreen(ReturnTypes.SALE_RETURN, key)
+                                    },
                                     onPrintPdf = {
                                         InvoiceHelper.printPdfFile(context, buildSalePdf(), "فاتورة_$invNo")
                                     },
@@ -365,6 +371,10 @@ fun TransactionsManagerScreen(
                                     items = group,
                                     onEdit = { purchaseGroupToEdit = group },
                                     onDelete = { purchaseGroupToDelete = group },
+                                    onReturn = {
+                                        val key = if (first.invoiceNumber.isNotBlank()) first.invoiceNumber.trim() else "ID:${first.id}"
+                                        viewModel.openReturnsScreen(ReturnTypes.PURCHASE_RETURN, key)
+                                    },
                                     onPrintPdf = {
                                         InvoiceHelper.printPdfFile(context, buildPurchasePdf(), "مشتريات_$invNo")
                                     },
@@ -1239,6 +1249,7 @@ private fun SaleInvoiceGroupCard(
     items: List<SaleTransaction>,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onReturn: () -> Unit,
     onPrintPdf: () -> Unit,
     onSharePdf: () -> Unit,
     onShareText: () -> Unit
@@ -1378,32 +1389,49 @@ private fun SaleInvoiceGroupCard(
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onPrintPdf, modifier = Modifier.size(30.dp)) {
+                    IconButton(onClick = onPrintPdf, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Default.Print, contentDescription = "طباعة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(16.dp))
                     }
-                    IconButton(onClick = onSharePdf, modifier = Modifier.size(30.dp)) {
+                    IconButton(onClick = onSharePdf, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Default.Share, contentDescription = "مشاركة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(16.dp))
                     }
-                    IconButton(onClick = onShareText, modifier = Modifier.size(30.dp)) {
+                    IconButton(onClick = onShareText, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Default.Chat, contentDescription = "مشاركة نص للواتساب", tint = EmeraldProfit, modifier = Modifier.size(16.dp))
                     }
-                    TextButton(
-                        onClick = onEdit,
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(modifier = Modifier.width(2.dp))
-                        Text("تعديل", fontSize = 11.sp)
-                    }
-                    TextButton(
-                        onClick = onDelete,
-                        colors = ButtonDefaults.textButtonColors(contentColor = RubyExpense),
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(modifier = Modifier.width(2.dp))
-                        Text("حذف", fontSize = 11.sp)
-                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(
+                    onClick = onReturn,
+                    colors = ButtonDefaults.textButtonColors(contentColor = FintechAmber),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.testTag("btn_card_return_sale_$invLabel")
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text("مرتجع", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+                TextButton(
+                    onClick = onEdit,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text("تعديل", fontSize = 11.sp)
+                }
+                TextButton(
+                    onClick = onDelete,
+                    colors = ButtonDefaults.textButtonColors(contentColor = RubyExpense),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text("حذف", fontSize = 11.sp)
                 }
             }
         }
@@ -1415,6 +1443,7 @@ private fun PurchaseInvoiceGroupCard(
     items: List<PurchaseRecord>,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onReturn: () -> Unit,
     onPrintPdf: () -> Unit,
     onSharePdf: () -> Unit,
     onShareText: () -> Unit
@@ -1554,32 +1583,49 @@ private fun PurchaseInvoiceGroupCard(
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onPrintPdf, modifier = Modifier.size(30.dp)) {
+                    IconButton(onClick = onPrintPdf, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Default.Print, contentDescription = "طباعة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(16.dp))
                     }
-                    IconButton(onClick = onSharePdf, modifier = Modifier.size(30.dp)) {
+                    IconButton(onClick = onSharePdf, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Default.Share, contentDescription = "مشاركة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(16.dp))
                     }
-                    IconButton(onClick = onShareText, modifier = Modifier.size(30.dp)) {
+                    IconButton(onClick = onShareText, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Default.Chat, contentDescription = "مشاركة نص للواتساب", tint = EmeraldProfit, modifier = Modifier.size(16.dp))
                     }
-                    TextButton(
-                        onClick = onEdit,
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(modifier = Modifier.width(2.dp))
-                        Text("تعديل", fontSize = 11.sp)
-                    }
-                    TextButton(
-                        onClick = onDelete,
-                        colors = ButtonDefaults.textButtonColors(contentColor = RubyExpense),
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(modifier = Modifier.width(2.dp))
-                        Text("حذف", fontSize = 11.sp)
-                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(
+                    onClick = onReturn,
+                    colors = ButtonDefaults.textButtonColors(contentColor = BrandBlue),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.testTag("btn_card_return_purchase_$invLabel")
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text("مرتجع", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+                TextButton(
+                    onClick = onEdit,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text("تعديل", fontSize = 11.sp)
+                }
+                TextButton(
+                    onClick = onDelete,
+                    colors = ButtonDefaults.textButtonColors(contentColor = RubyExpense),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text("حذف", fontSize = 11.sp)
                 }
             }
         }

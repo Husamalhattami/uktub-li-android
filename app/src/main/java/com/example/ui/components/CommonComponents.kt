@@ -726,158 +726,323 @@ fun StatCard(
 @Composable
 fun SaleReceiptDialog(
     receipt: CompletedSaleReceipt,
+    settings: StoreSettings? = null,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     val sale = receipt.sale
+    val shopName = settings?.shopNameAr?.ifBlank { "متجري" } ?: "متجري"
+    val shopPhone = settings?.phone?.trim().orEmpty()
+    val shopAddress = settings?.address?.trim().orEmpty()
+    val currency = settings?.currency?.ifBlank { "ريال" } ?: "ريال"
+    val invLabel = sale.invoiceNumber.ifBlank { "#${sale.id}" }
 
-    val receiptText = buildString {
-        appendLine("══════════════════════════")
-        appendLine("      الجرادي للملابس الجاهزة     ")
-        appendLine("          هاتف: 778383570         ")
-        appendLine("       فاتورة بيع رقم #${sale.id}      ")
-        appendLine("══════════════════════════")
-        appendLine("التاريخ: ${receipt.dateStr}  ${receipt.timeStr}")
-        appendLine("البائع: ${sale.employeeName}")
-        if (sale.customerName.isNotBlank()) {
-            appendLine("الزبون: ${sale.customerName}")
-        }
-        appendLine("طريقة الدفع: ${sale.paymentType}")
-        appendLine("──────────────────────────")
-        appendLine("القطعة: ${sale.productName}")
-        appendLine("اللون: ${sale.color} | القياس: ${sale.size}")
-        appendLine("الكمية: ${sale.quantity} × ${FormatUtils.formatCurrency(sale.unitSellPrice)}")
-        if (sale.discount > 0) {
-            appendLine("الخصم: ${FormatUtils.formatCurrency(sale.discount)}")
-        }
-        appendLine("──────────────────────────")
-        appendLine("الإجمالي الصافي: ${FormatUtils.formatCurrency(sale.totalAmount)}")
-        appendLine("══════════════════════════")
-        appendLine("شكراً لزيارتكم! أهلاً وسهلاً بكم")
-    }
+    val receiptText = InvoiceHelper.generateThermalReceiptText(
+        storeName = shopName,
+        phoneNumber = shopPhone,
+        address = shopAddress,
+        invoiceId = sale.id,
+        timestamp = sale.timestamp,
+        customerName = sale.customerName,
+        cashierName = sale.employeeName,
+        items = listOf(
+            "${sale.productName} (${sale.color} - ${sale.size})" to Triple(
+                sale.quantity,
+                sale.unitSellPrice,
+                sale.totalAmount
+            )
+        ),
+        totalAmount = sale.totalAmount,
+        discount = sale.discount,
+        paymentType = sale.paymentType,
+        headerNote = settings?.invoiceHeader.orEmpty(),
+        footerNote = settings?.invoiceFooter.orEmpty()
+    )
+
+    fun buildSingleSalePdf(): java.io.File = InvoiceHelper.generateSaleInvoicePdf(
+        context = context,
+        invoiceNumber = invLabel,
+        customerName = sale.customerName,
+        customerPhone = sale.customerPhone,
+        employeeName = sale.employeeName,
+        paymentType = sale.paymentType,
+        items = listOf(
+            InvoiceHelper.PdfSaleLineItem(
+                name = sale.productName,
+                details = listOfNotNull(
+                    sale.category.takeIf { it.isNotBlank() },
+                    sale.color.takeIf { it.isNotBlank() }?.let { "لون: $it" },
+                    sale.size.takeIf { it.isNotBlank() }?.let { "مقاس: $it" }
+                ).joinToString(" | "),
+                quantity = sale.quantity,
+                unitPrice = sale.unitSellPrice,
+                total = sale.totalAmount,
+                unit = sale.unit
+            )
+        ),
+        subtotal = sale.unitSellPrice * sale.quantity,
+        discount = sale.discount,
+        netTotal = sale.totalAmount,
+        cashPaid = sale.cashAmount,
+        transferPaid = sale.transferAmount,
+        debtAmount = sale.debtAmount,
+        exchangeAccountName = sale.exchangeAccountName,
+        transferRef = sale.transferRef,
+        timestamp = sale.timestamp,
+        settings = settings
+    )
 
     StoreOperationDialog(
         onDismissRequest = onDismiss,
         title = "تمت عملية البيع بنجاح!",
-        subtitle = "فاتورة بيع رقم #${sale.id}",
+        subtitle = "فاتورة بيع: $invLabel • ${receipt.dateStr}",
         icon = Icons.Default.CheckCircle,
         accentColor = FintechEmerald,
         footer = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Button(
-                    onClick = {
-                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, receiptText)
-                        }
-                        context.startActivity(Intent.createChooser(shareIntent, "مشاركة الفاتورة عبر"))
-                    },
-                    shape = RoundedCornerShape(13.dp),
-                    modifier = Modifier
-                        .weight(1.3f)
-                        .heightIn(min = 48.dp)
-                        .testTag("share_receipt_button"),
-                    colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(imageVector = Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("مشاركة الفاتورة", fontWeight = FontWeight.Bold)
+                    Button(
+                        onClick = {
+                            InvoiceHelper.printPdfFile(context, buildSingleSalePdf(), "فاتورة_$invLabel")
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = PdfGoldDark),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                            .testTag("print_receipt_pdf_button")
+                    ) {
+                        Icon(imageVector = Icons.Default.Print, contentDescription = null, modifier = Modifier.size(17.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("طباعة PDF", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            InvoiceHelper.sharePdfFile(context, buildSingleSalePdf(), "مشاركة فاتورة $invLabel")
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                            .testTag("share_receipt_pdf_button")
+                    ) {
+                        Icon(imageVector = Icons.Default.PictureAsPdf, contentDescription = null, tint = PdfHeaderNavy, modifier = Modifier.size(17.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("مشاركة PDF", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = PdfHeaderNavy)
+                    }
                 }
-                OutlinedButton(
-                    onClick = onDismiss,
-                    shape = RoundedCornerShape(13.dp),
-                    border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                    colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White, contentColor = SlateTextSecondary),
-                    modifier = Modifier
-                        .weight(0.85f)
-                        .heightIn(min = 48.dp)
-                        .testTag("close_receipt_button")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("إغلاق", fontWeight = FontWeight.Bold)
+                    Button(
+                        onClick = {
+                            StatementHelper.shareText(context, receiptText, "مشاركة فاتورة $invLabel")
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(1.3f)
+                            .heightIn(min = 48.dp)
+                            .testTag("share_receipt_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = FintechEmerald)
+                    ) {
+                        Icon(imageVector = Icons.Default.Chat, contentDescription = null, modifier = Modifier.size(17.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("مشاركة واتساب / نص", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White, contentColor = SlateTextSecondary),
+                        modifier = Modifier
+                            .weight(0.8f)
+                            .heightIn(min = 48.dp)
+                            .testTag("close_receipt_button")
+                    ) {
+                        Text("إغلاق", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
     ) {
         Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = SlateBg,
+            shape = RoundedCornerShape(16.dp),
+            color = Color.White,
             border = BorderStroke(1.dp, SlateBorder),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(
-                modifier = Modifier
-                    .padding(14.dp)
-                    .fillMaxWidth()
-            ) {
-                Text(
-                    text = "فاتورة بيع رقم #${sale.id}",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                HorizontalDivider(color = SlateBorder)
-                Spacer(modifier = Modifier.height(6.dp))
-
-                ReceiptRow("الصنف:", sale.productName)
-                ReceiptRow("اللون والمقاس:", "${sale.color} - ${sale.size}")
-                ReceiptRow("الكمية:", "${sale.quantity} قطعة (${sale.unit})")
-                ReceiptRow("سعر الوحدة:", FormatUtils.formatCurrency(sale.unitSellPrice))
-                if (sale.discount > 0) {
-                    ReceiptRow("الخصم الممنوح:", "- " + FormatUtils.formatCurrency(sale.discount), color = FintechRose)
-                }
-                ReceiptRow("طريقة الدفع:", sale.paymentType, isBold = true)
-                if (sale.customerName.isNotBlank()) {
-                    ReceiptRow("الزبون:", sale.customerName)
-                }
-                if (sale.employeeName.isNotBlank()) {
-                    ReceiptRow("البائع:", sale.employeeName)
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-                HorizontalDivider(color = SlateBorder)
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "المبلغ الإجمالي:",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                    Text(
-                        text = FormatUtils.formatCurrency(sale.totalAmount),
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = FintechEmerald
-                        )
-                    )
-                }
-
-                Surface(
-                    color = FintechEmeraldBg,
-                    shape = RoundedCornerShape(8.dp),
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Framed Invoice Header Strip
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 10.dp)
+                        .background(PdfHeaderNavy)
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "الربح المحقق:",
-                            style = MaterialTheme.typography.bodySmall.copy(color = FintechEmerald, fontWeight = FontWeight.Bold)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = shopName,
+                                color = Color.White,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (shopPhone.isNotBlank()) {
+                                Text(
+                                    text = "هاتف: $shopPhone",
+                                    color = Color(0xFF93C5FD),
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = PdfGoldPrimary.copy(alpha = 0.2f)
+                        ) {
+                            Text(
+                                text = "فاتورة $invLabel",
+                                color = PdfGoldPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .padding(14.dp)
+                        .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    ReceiptRow("التاريخ والوقت:", "${receipt.dateStr} • ${receipt.timeStr}")
+                    ReceiptRow("الزبون:", sale.customerName.ifBlank { "زبون نقدي" }, isBold = true)
+                    if (sale.employeeName.isNotBlank()) {
+                        ReceiptRow("البائع:", sale.employeeName)
+                    }
+                    ReceiptRow("طريقة الدفع:", sale.paymentType, isBold = true)
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    HorizontalDivider(color = SlateBorder)
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Item Box
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = SlateBg,
+                        border = BorderStroke(1.dp, SlateBorder.copy(alpha = 0.8f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = sale.productName,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = SlateTextPrimary,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = FormatUtils.formatCurrency(sale.unitSellPrice * sale.quantity, currency),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = SlateTextPrimary
+                                )
+                            }
+                            Text(
+                                text = "${sale.color} - ${sale.size} • ${sale.quantity} ${sale.unit} × ${FormatUtils.formatNumber(sale.unitSellPrice)}",
+                                fontSize = 11.sp,
+                                color = SlateTextSecondary
+                            )
+                        }
+                    }
+
+                    if (sale.discount > 0) {
+                        ReceiptRow("الخصم الممنوح:", "- " + FormatUtils.formatCurrency(sale.discount, currency), color = FintechRose, isBold = true)
+                    }
+                    if (sale.cashAmount > 0.01 && (sale.transferAmount > 0.01 || sale.debtAmount > 0.01)) {
+                        ReceiptRow("المدفوع كاش:", FormatUtils.formatCurrency(sale.cashAmount, currency))
+                    }
+                    if (sale.transferAmount > 0.01) {
+                        ReceiptRow(
+                            "تحويل (${sale.exchangeAccountName.ifBlank { "صراف" }}):",
+                            FormatUtils.formatCurrency(sale.transferAmount, currency)
                         )
-                        Text(
-                            text = "+ " + FormatUtils.formatCurrency(sale.profit),
-                            style = MaterialTheme.typography.bodySmall.copy(color = FintechEmerald, fontWeight = FontWeight.Bold)
-                        )
+                    }
+                    if (sale.debtAmount > 0.01) {
+                        ReceiptRow("المبلغ الآجل (دين):", FormatUtils.formatCurrency(sale.debtAmount, currency), color = FintechRose, isBold = true)
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    HorizontalDivider(color = SlateBorder)
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = FintechEmeraldBg,
+                        border = BorderStroke(1.dp, FintechEmeraldBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "الصافي الإجمالي:",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = FintechEmerald)
+                            )
+                            Text(
+                                text = FormatUtils.formatCurrency(sale.totalAmount, currency),
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = FintechEmerald
+                                )
+                            )
+                        }
+                    }
+
+                    if (settings?.showProfitInReports != false) {
+                        Surface(
+                            color = SlateBg,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "الربح التقديري:",
+                                    style = MaterialTheme.typography.bodySmall.copy(color = SlateTextSecondary, fontWeight = FontWeight.Bold)
+                                )
+                                Text(
+                                    text = "+ " + FormatUtils.formatCurrency(sale.profit, currency),
+                                    style = MaterialTheme.typography.bodySmall.copy(color = FintechEmerald, fontWeight = FontWeight.Bold)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -886,7 +1051,7 @@ fun SaleReceiptDialog(
 }
 
 @Composable
-private fun ReceiptRow(label: String, value: String, isBold: Boolean = false, color: Color = Color.Unspecified) {
+internal fun ReceiptRow(label: String, value: String, isBold: Boolean = false, color: Color = Color.Unspecified) {
     Row(
         modifier = Modifier
             .fillMaxWidth()

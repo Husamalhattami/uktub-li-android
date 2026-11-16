@@ -305,8 +305,51 @@ interface StoreDao {
     @Query("DELETE FROM cash_movements WHERE referenceEmployeeTxId = :txId")
     suspend fun deleteCashMovementsForEmployeeTx(txId: Long)
 
+    @Query("DELETE FROM cash_movements WHERE referenceReturnId = :returnId")
+    suspend fun deleteCashMovementsForReturn(returnId: Long)
+
+    @Query("DELETE FROM cash_movements WHERE referenceReturnId IN (:returnIds)")
+    suspend fun deleteCashMovementsForReturns(returnIds: List<Long>)
+
     @Query("DELETE FROM cash_movements")
     suspend fun deleteAllCashMovements()
+
+    // --- Returns (Sales Returns & Purchase Returns) ---
+    @Query("SELECT * FROM return_records ORDER BY timestamp DESC, id DESC")
+    fun getAllReturns(): Flow<List<ReturnRecord>>
+
+    @Query("SELECT * FROM return_records ORDER BY id ASC")
+    suspend fun getAllReturnsDirect(): List<ReturnRecord>
+
+    @Query("SELECT * FROM return_records WHERE returnNumber = :returnNumber ORDER BY id ASC")
+    suspend fun getReturnsByReturnNumber(returnNumber: String): List<ReturnRecord>
+
+    @Query("SELECT * FROM return_records WHERE returnType = :returnType AND originalInvoiceNumber = :originalInvoiceNumber ORDER BY id ASC")
+    suspend fun getReturnsByOriginalInvoice(returnType: String, originalInvoiceNumber: String): List<ReturnRecord>
+
+    @Query("SELECT * FROM return_records WHERE returnType = :returnType AND originalLineId IN (:lineIds)")
+    suspend fun getReturnsByOriginalLineIds(returnType: String, lineIds: List<Long>): List<ReturnRecord>
+
+    @Query("SELECT COUNT(*) FROM return_records WHERE LOWER(TRIM(returnNumber)) = LOWER(TRIM(:returnNumber))")
+    suspend fun countReturnsByReturnNumber(returnNumber: String): Int
+
+    @Query("SELECT returnNumber FROM return_records WHERE returnNumber != ''")
+    suspend fun getAllReturnNumbers(): List<String>
+
+    @Query("SELECT COUNT(*) FROM return_records WHERE LOWER(TRIM(partyName)) = LOWER(TRIM(:partyName))")
+    suspend fun countReturnsByPartyName(partyName: String): Int
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertReturn(record: ReturnRecord): Long
+
+    @Query("DELETE FROM return_records WHERE id = :id")
+    suspend fun deleteReturnById(id: Long)
+
+    @Query("DELETE FROM return_records WHERE returnNumber = :returnNumber")
+    suspend fun deleteReturnsByReturnNumber(returnNumber: String)
+
+    @Query("DELETE FROM return_records")
+    suspend fun deleteAllReturns()
 
     // --- Exchange Accounts & Wallets ---
     @Query("SELECT * FROM exchange_accounts WHERE isArchived = 0 ORDER BY balance DESC, name ASC")

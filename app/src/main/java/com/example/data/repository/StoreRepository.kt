@@ -30,7 +30,8 @@ data class StoreBackupSnapshot(
     val exchangeTransfers: List<ExchangeTransfer>,
     val auditLogs: List<AuditLogRecord>,
     val storeSettings: StoreSettings?,
-    val configItems: List<StoreConfigItem>
+    val configItems: List<StoreConfigItem>,
+    val returnRecords: List<ReturnRecord> = emptyList()
 )
 
 sealed class PinVerificationResult {
@@ -73,6 +74,7 @@ class StoreRepository(
     val allAuditLogs: Flow<List<AuditLogRecord>> = dao.getAllAuditLogs()
     val storeSettings: Flow<StoreSettings?> = dao.getStoreSettings()
     val allConfigItems: Flow<List<StoreConfigItem>> = dao.getAllConfigItems()
+    val allReturns: Flow<List<ReturnRecord>> = dao.getAllReturns()
 
     suspend fun getStoreSettingsDirect(): StoreSettings? = dao.getStoreSettingsDirect()
 
@@ -277,6 +279,17 @@ class StoreRepository(
             return trimmed
         }
         return nextSequentialCode(dao.getAllPurchaseInvoiceNumbers(), "PUR")
+    }
+
+    private suspend fun resolveReturnNumber(input: String, prefix: String): String {
+        val trimmed = input.trim()
+        if (trimmed.isNotBlank()) {
+            if (dao.countReturnsByReturnNumber(trimmed) > 0) {
+                throw IllegalArgumentException("رقم مستند المرتجع ($trimmed) مستخدم مسبقاً! يرجى إدخال رقم آخر أو تركه فارغاً للتوليد التلقائي.")
+            }
+            return trimmed
+        }
+        return nextSequentialCode(dao.getAllReturnNumbers(), prefix)
     }
 
     suspend fun addConfigItem(type: String, name: String): Boolean {
@@ -885,6 +898,11 @@ class StoreRepository(
         val firstSale = items.first()
         val label = firstSale.invoiceNumber.ifBlank { "#${firstSale.id}" }
 
+        // 0. Protect invoices that have return records linked to them
+        if (dao.getReturnsByOriginalLineIds(ReturnTypes.SALE_RETURN, saleIds).isNotEmpty()) {
+            throw IllegalStateException("لا يمكن حذف فاتورة البيع ($label) لوجود مرتجعات مسجلة عليها! يرجى حذف حركة المرتجع أولاً.")
+        }
+
         // 1. Protect debts that already have collected payments
         val linkedDebts = dao.getDebtsBySaleIds(saleIds)
         for (debt in linkedDebts) {
@@ -1032,6 +1050,10 @@ class StoreRepository(
         if (oldItems.isEmpty()) throw IllegalArgumentException("فاتورة البيع غير موجودة!")
         val oldIds = oldItems.map { it.id }
         val oldFirst = oldItems.first()
+        val label = oldFirst.invoiceNumber.ifBlank { "#${oldFirst.id}" }
+        if (dao.getReturnsByOriginalLineIds(ReturnTypes.SALE_RETURN, oldIds).isNotEmpty()) {
+            throw IllegalStateException("لا يمكن تعديل فاتورة البيع ($label) لوجود مرتجعات مسجلة عليها! يرجى حذف حركة المرتجع أولاً.")
+        }
 
         val excludeNum = if (originalInvoiceKey.startsWith("ID:")) oldFirst.invoiceNumber else originalInvoiceKey
         val finalInvoiceNumber = resolveSaleInvoiceNumber(newInvoiceNumber, excludeInvoiceNumber = excludeNum)
@@ -1714,6 +1736,11 @@ class StoreRepository(
         val firstPurchase = items.first()
         val label = firstPurchase.invoiceNumber.ifBlank { "#${firstPurchase.id}" }
 
+        // 0. Protect invoices that have return records linked to them
+        if (dao.getReturnsByOriginalLineIds(ReturnTypes.PURCHASE_RETURN, purchaseIds).isNotEmpty()) {
+            throw IllegalStateException("لا يمكن حذف فاتورة الشراء ($label) لوجود مرتجعات مسجلة عليها! يرجى حذف حركة المرتجع أولاً.")
+        }
+
         // 1. Protect supplier debts that already have payments recorded
         val linkedDebts = dao.getDebtsByPurchaseIds(purchaseIds)
         for (debt in linkedDebts) {
@@ -1874,6 +1901,10 @@ class StoreRepository(
         if (oldItems.isEmpty()) throw IllegalArgumentException("فاتورة الشراء غير موجودة!")
         val oldIds = oldItems.map { it.id }
         val oldFirst = oldItems.first()
+        val label = oldFirst.invoiceNumber.ifBlank { "#${oldFirst.id}" }
+        if (dao.getReturnsByOriginalLineIds(ReturnTypes.PURCHASE_RETURN, oldIds).isNotEmpty()) {
+            throw IllegalStateException("لا يمكن تعديل فاتورة الشراء ($label) لوجود مرتجعات مسجلة عليها! يرجى حذف حركة المرتجع أولاً.")
+        }
 
         val excludeNum = if (originalInvoiceKey.startsWith("ID:")) oldFirst.invoiceNumber else originalInvoiceKey
         val finalInvoiceNumber = resolvePurchaseInvoiceNumber(newInvoiceNumber, excludeInvoiceNumber = excludeNum)
@@ -2814,7 +2845,8 @@ class StoreRepository(
             val hasLinks = dao.countDebtsByPartyName(party.name) > 0 ||
                 dao.countPaymentsByPartyName(party.name) > 0 ||
                 dao.countSalesByCustomerName(party.name) > 0 ||
-                dao.countPurchasesBySupplierName(party.name) > 0
+                dao.countPurchasesBySupplierName(party.name) > 0 ||
+                dao.countReturnsByPartyName(party.name) > 0
             if (hasLinks) {
                 dao.updateParty(party.copy(isArchived = true))
                 logAudit("أرشفة حساب طرف", "المدير", "تم أرشفة (${party.name}) للحفاظ على الفواتير والديون والسندات المرتبطة به")
@@ -3352,6 +3384,7 @@ class StoreRepository(
     // --- Reset / Clear Data ---
     suspend fun clearTransactionsOnly() {
         runInTransaction {
+            dao.deleteAllReturns()
             dao.deleteAllSales()
             dao.deleteAllPurchases()
             dao.deleteAllExpenses()
@@ -3366,6 +3399,7 @@ class StoreRepository(
 
     suspend fun clearEverythingCompletely(clearConfigDictionaries: Boolean = false) {
         runInTransaction {
+            dao.deleteAllReturns()
             dao.deleteAllSales()
             dao.deleteAllPurchases()
             dao.deleteAllExpenses()
@@ -3402,6 +3436,7 @@ class StoreRepository(
         runInTransaction {
             val now = System.currentTimeMillis()
             if (resetTransactions) {
+                dao.deleteAllReturns()
                 dao.deleteAllSales()
                 dao.deleteAllPurchases()
                 dao.deleteAllExpenses()
@@ -3956,7 +3991,8 @@ class StoreRepository(
             exchangeTransfers = dao.getAllExchangeTransfersDirect(),
             auditLogs = dao.getAllAuditLogsDirect(),
             storeSettings = dao.getStoreSettingsDirect(),
-            configItems = dao.getAllConfigItemsDirect()
+            configItems = dao.getAllConfigItemsDirect(),
+            returnRecords = dao.getAllReturnsDirect()
         )
     }
 
@@ -3965,6 +4001,7 @@ class StoreRepository(
             val currentSettings = dao.getStoreSettingsDirect()
 
             // Clear all existing tables strictly inside transaction AFTER validation passed
+            dao.deleteAllReturns()
             dao.deleteAllSales()
             dao.deleteAllPurchases()
             dao.deleteAllExpenses()
@@ -3983,7 +4020,7 @@ class StoreRepository(
                 dao.deleteAllConfigItems()
             }
 
-            // Insert all 16 tables preserving original primary IDs & foreign keys
+            // Insert all 17 tables preserving original primary IDs & foreign keys
             snapshot.products.forEach { dao.insertProduct(it) }
             snapshot.exchangeAccounts.forEach { dao.insertExchangeAccount(it) }
             snapshot.parties.forEach { dao.insertParty(it) }
@@ -3999,6 +4036,7 @@ class StoreRepository(
             snapshot.exchangeTransfers.forEach { dao.insertExchangeTransfer(it) }
             snapshot.auditLogs.forEach { dao.insertAuditLog(it) }
             snapshot.configItems.forEach { dao.insertConfigItem(it) }
+            snapshot.returnRecords.forEach { dao.insertReturn(it) }
 
             snapshot.storeSettings?.let { restoredSettings ->
                 val mergedSettings = if (restoredSettings.managerPinHash.isBlank() && currentSettings != null && currentSettings.managerPinHash.isNotBlank()) {
@@ -4053,5 +4091,669 @@ class StoreRepository(
         }
         val parsed = com.example.ui.util.BackupManager.validateAndParseBackup(root.toString()).getOrThrow()
         restoreFullBackupSnapshot(parsed.snapshot)
+    }
+
+    // ====================================================================
+    // Sales & Purchase Returns (المرتجعات حسب الفاتورة الأصلية)
+    // ====================================================================
+
+    private suspend fun reducePartyOpenDebtsForReturn(
+        debtType: String,
+        partyName: String,
+        linkedDebts: List<DebtRecord>,
+        amountToReduce: Double
+    ) {
+        if (amountToReduce <= 0.001) return
+        val linkedIds = linkedDebts.map { it.id }.toSet()
+        val partyDebts = dao.getAllDebtsDirect()
+            .filter {
+                it.type == debtType &&
+                    !it.isSettled &&
+                    it.remainingAmount > 0.001 &&
+                    it.id !in linkedIds &&
+                    it.partyName.trim().equals(partyName.trim(), ignoreCase = true)
+            }
+            .sortedBy { it.createdAt }
+        val orderedTargets = (linkedDebts.filter { !it.isSettled && it.remainingAmount > 0.001 }.sortedBy { it.createdAt }) + partyDebts
+        val totalAvailable = orderedTargets.sumOf { it.remainingAmount }
+        if (amountToReduce > totalAvailable + 0.01) {
+            val label = if (debtType == "CUSTOMER") "العميل" else "المورد"
+            throw IllegalStateException(
+                "مبلغ خصم الدين (${FormatUtils.formatCurrency(amountToReduce)}) يتجاوز إجمالي الديون المفتوحة لـ$label (${FormatUtils.formatCurrency(totalAvailable)})!"
+            )
+        }
+        var remaining = amountToReduce
+        for (debt in orderedTargets) {
+            if (remaining <= 0.001) break
+            val fresh = dao.getDebtById(debt.id) ?: continue
+            val applyNow = minOf(remaining, fresh.remainingAmount)
+            if (applyNow > 0.001) {
+                val newPaid = fresh.paidAmount + applyNow
+                val newRemaining = (fresh.originalAmount - newPaid).coerceAtLeast(0.0)
+                dao.updateDebt(
+                    fresh.copy(
+                        paidAmount = newPaid,
+                        remainingAmount = newRemaining,
+                        isSettled = newRemaining <= 0.001
+                    )
+                )
+                remaining -= applyNow
+            }
+        }
+    }
+
+    private suspend fun restorePartyDebtsFromDeletedReturn(
+        debtType: String,
+        partyName: String,
+        linkedDebts: List<DebtRecord>,
+        amountToRestore: Double
+    ) {
+        if (amountToRestore <= 0.001) return
+        val linkedIds = linkedDebts.map { it.id }.toSet()
+        val otherPartyDebts = if (partyName.isNotBlank()) {
+            dao.getAllDebtsDirect()
+                .filter {
+                    it.type == debtType &&
+                        it.paidAmount > 0.001 &&
+                        it.id !in linkedIds &&
+                        it.partyName.trim().equals(partyName.trim(), ignoreCase = true)
+                }
+                .sortedBy { it.createdAt }
+        } else emptyList()
+        val orderedTargets = (linkedDebts.filter { it.paidAmount > 0.001 }.sortedBy { it.createdAt }) + otherPartyDebts
+        var remaining = amountToRestore
+        for (debt in orderedTargets) {
+            if (remaining <= 0.001) break
+            val fresh = dao.getDebtById(debt.id) ?: continue
+            val restoreNow = minOf(remaining, fresh.paidAmount)
+            if (restoreNow > 0.001) {
+                val newPaid = (fresh.paidAmount - restoreNow).coerceAtLeast(0.0)
+                val newRemaining = (fresh.originalAmount - newPaid).coerceAtLeast(0.0)
+                dao.updateDebt(
+                    fresh.copy(
+                        paidAmount = newPaid,
+                        remainingAmount = newRemaining,
+                        isSettled = newRemaining <= 0.001
+                    )
+                )
+                remaining -= restoreNow
+            }
+        }
+    }
+
+    suspend fun executeSaleReturn(
+        originalInvoiceKey: String,
+        lines: List<ReturnLineRequest>,
+        returnNumberInput: String = "",
+        settlementMethod: String,
+        cashAmount: Double = 0.0,
+        transferAmount: Double = 0.0,
+        debtReducedAmount: Double = 0.0,
+        surplusCreditAmount: Double = 0.0,
+        exchangeAccount: ExchangeAccount? = null,
+        notes: String = "",
+        timestamp: Long = System.currentTimeMillis()
+    ): CompletedReturnResult {
+        val mergedRequests = lines
+            .filter { it.returnQuantity > 0 }
+            .groupBy { it.originalLineId }
+            .map { (lineId, reqs) -> ReturnLineRequest(lineId, reqs.sumOf { it.returnQuantity }) }
+        if (mergedRequests.isEmpty()) {
+            throw IllegalArgumentException("يرجى تحديد كمية الإرجاع لصنف واحد على الأقل من الفاتورة.")
+        }
+        if (cashAmount < 0.0 || transferAmount < 0.0 || debtReducedAmount < 0.0 || surplusCreditAmount < 0.0) {
+            throw IllegalArgumentException("لا يمكن إدخال مبالغ تسوية سالبة.")
+        }
+
+        return runInTransaction {
+            val originalLines = if (originalInvoiceKey.startsWith("ID:")) {
+                val saleId = originalInvoiceKey.removePrefix("ID:").toLongOrNull()
+                    ?: throw IllegalArgumentException("معرف الفاتورة غير صالح!")
+                listOfNotNull(dao.getSaleById(saleId))
+            } else {
+                dao.getSalesByInvoiceNumber(originalInvoiceKey)
+            }
+            if (originalLines.isEmpty()) {
+                throw IllegalArgumentException("فاتورة البيع الأصلية غير موجودة!")
+            }
+
+            val firstSale = originalLines.first()
+            val invoiceLabel = firstSale.invoiceNumber.ifBlank { "ID:${firstSale.id}" }
+            val partyName = firstSale.customerName.trim()
+            val partyPhone = firstSale.customerPhone.trim()
+
+            val priorReturns = dao.getReturnsByOriginalLineIds(
+                ReturnTypes.SALE_RETURN,
+                originalLines.map { it.id }
+            )
+            val prevQtyByLine = priorReturns.groupBy { it.originalLineId }
+                .mapValues { (_, list) -> list.sumOf { it.quantity } }
+            val prevAmountByLine = priorReturns.groupBy { it.originalLineId }
+                .mapValues { (_, list) -> list.sumOf { it.totalAmount } }
+
+            data class PreparedSaleReturnLine(
+                val orig: SaleTransaction,
+                val returnQty: Int,
+                val effectiveNetUnitPrice: Double,
+                val lineTotal: Double,
+                val profitAdj: Double
+            )
+
+            val preparedLines = mergedRequests.map { req ->
+                val orig = originalLines.find { it.id == req.originalLineId }
+                    ?: throw IllegalArgumentException("الصنف المطلوب إرجاعه غير موجود ضمن فاتورة البيع ($invoiceLabel)!")
+                val alreadyReturnedQty = prevQtyByLine[orig.id] ?: 0
+                val remainingQty = orig.quantity - alreadyReturnedQty
+                if (req.returnQuantity > remainingQty) {
+                    throw IllegalStateException(
+                        "الكمية المطلوب إرجاعها من (${orig.productName}) هي ${req.returnQuantity} حبة، والمتبقي القابل للإرجاع في هذه الفاتورة هو $remainingQty حبة فقط!"
+                    )
+                }
+                val effectiveNetUnitPrice = if (orig.quantity > 0) orig.totalAmount / orig.quantity else orig.unitSellPrice
+                val alreadyReturnedAmount = prevAmountByLine[orig.id] ?: 0.0
+                val lineTotal = if (req.returnQuantity == remainingQty) {
+                    (orig.totalAmount - alreadyReturnedAmount).coerceAtLeast(0.0)
+                } else {
+                    effectiveNetUnitPrice * req.returnQuantity
+                }
+                val profitAdj = lineTotal - (orig.unitBuyPrice * req.returnQuantity)
+                PreparedSaleReturnLine(
+                    orig = orig,
+                    returnQty = req.returnQuantity,
+                    effectiveNetUnitPrice = effectiveNetUnitPrice,
+                    lineTotal = lineTotal,
+                    profitAdj = profitAdj
+                )
+            }
+
+            val totalReturnAmount = preparedLines.sumOf { it.lineTotal }
+            val settlementSum = cashAmount + transferAmount + debtReducedAmount + surplusCreditAmount
+            if (kotlin.math.abs(settlementSum - totalReturnAmount) > 0.01) {
+                throw IllegalArgumentException(
+                    "مجموع التسوية (${FormatUtils.formatCurrency(settlementSum)}) يجب أن يطابق إجمالي المرتجع (${FormatUtils.formatCurrency(totalReturnAmount)})."
+                )
+            }
+            if (transferAmount > 0.001 && (exchangeAccount == null || exchangeAccount.id <= 0L)) {
+                throw IllegalArgumentException("يجب اختيار حساب الصراف أو المحفظة عند رد المبلغ عبر الصراف.")
+            }
+            if ((debtReducedAmount > 0.001 || surplusCreditAmount > 0.001) && partyName.isBlank()) {
+                throw IllegalArgumentException("لا يمكن خصم دين أو حفظ رصيد دائن لزبون بدون اسم! يرجى اختيار الرد النقدي أو عبر الصراف.")
+            }
+
+            requireSufficientCash(cashAmount)
+            if (transferAmount > 0.001 && exchangeAccount != null) {
+                requireSufficientExchange(exchangeAccount.id, transferAmount)
+            }
+
+            if (debtReducedAmount > 0.001) {
+                val linkedDebts = dao.getDebtsBySaleIds(originalLines.map { it.id })
+                reducePartyOpenDebtsForReturn(
+                    debtType = "CUSTOMER",
+                    partyName = partyName,
+                    linkedDebts = linkedDebts,
+                    amountToReduce = debtReducedAmount
+                )
+            }
+
+            val activeShiftObj = dao.getActiveShift().firstOrNull()
+            val shiftId = activeShiftObj?.id ?: 0L
+            val finalReturnNumber = resolveReturnNumber(returnNumberInput, "RS")
+            val allProds = dao.getAllProductsDirect().toMutableList()
+            val insertedRecords = mutableListOf<ReturnRecord>()
+            var firstReturnId = 0L
+
+            for (item in preparedLines) {
+                val orig = item.orig
+                var targetProductId = orig.productId
+                val byId = if (targetProductId > 0L) dao.getProductById(targetProductId) else null
+                if (byId != null) {
+                    dao.incrementStock(byId.id, item.returnQty)
+                } else {
+                    val matched = allProds.find {
+                        it.modelName.trim().equals(orig.productName.trim(), ignoreCase = true) &&
+                            it.color.trim().equals(orig.color.trim(), ignoreCase = true) &&
+                            it.size.trim().equals(orig.size.trim(), ignoreCase = true)
+                    }
+                    if (matched != null) {
+                        targetProductId = matched.id
+                        dao.incrementStock(matched.id, item.returnQty)
+                    } else {
+                        val recreated = ProductItem(
+                            category = orig.category,
+                            modelName = orig.productName,
+                            color = orig.color,
+                            size = orig.size,
+                            quantity = item.returnQty,
+                            buyPrice = orig.unitBuyPrice,
+                            sellPrice = orig.unitSellPrice,
+                            notes = "صنف مُرجع من فاتورة #$invoiceLabel",
+                            unit = orig.unit
+                        )
+                        targetProductId = dao.insertProduct(recreated)
+                        allProds.add(recreated.copy(id = targetProductId))
+                    }
+                }
+
+                val ratio = if (totalReturnAmount > 0.0001) item.lineTotal / totalReturnAmount else (1.0 / preparedLines.size)
+                val record = ReturnRecord(
+                    returnType = ReturnTypes.SALE_RETURN,
+                    returnNumber = finalReturnNumber,
+                    originalInvoiceNumber = invoiceLabel,
+                    originalLineId = orig.id,
+                    productId = targetProductId,
+                    productName = orig.productName,
+                    category = orig.category,
+                    color = orig.color,
+                    size = orig.size,
+                    unit = orig.unit,
+                    quantity = item.returnQty,
+                    unitBuyPrice = orig.unitBuyPrice,
+                    unitSellPrice = item.effectiveNetUnitPrice,
+                    totalAmount = item.lineTotal,
+                    profitAdjustment = item.profitAdj,
+                    partyName = partyName.ifBlank { "زبون نقدي" },
+                    partyPhone = partyPhone,
+                    settlementMethod = settlementMethod,
+                    cashAmount = cashAmount * ratio,
+                    transferAmount = transferAmount * ratio,
+                    debtReducedAmount = debtReducedAmount * ratio,
+                    surplusCreditAmount = surplusCreditAmount * ratio,
+                    exchangeAccountId = exchangeAccount?.id ?: 0L,
+                    exchangeAccountName = exchangeAccount?.name ?: "",
+                    notes = notes.trim(),
+                    timestamp = timestamp,
+                    shiftId = shiftId
+                )
+                val savedId = dao.insertReturn(record)
+                if (firstReturnId == 0L) firstReturnId = savedId
+                insertedRecords.add(record.copy(id = savedId))
+            }
+
+            val totalPieces = preparedLines.sumOf { it.returnQty }
+            val partyLabel = partyName.ifBlank { "زبون نقدي" }
+
+            if (cashAmount > 0.001) {
+                dao.insertCashMovement(
+                    CashDrawerMovement(
+                        shiftId = shiftId,
+                        type = "SALE_RETURN_CASH",
+                        amount = cashAmount,
+                        isIncome = false,
+                        title = "مرتجع مبيعات #$finalReturnNumber (فاتورة #$invoiceLabel)",
+                        details = "العميل: $partyLabel | $totalPieces حبة",
+                        timestamp = timestamp,
+                        referenceReturnId = firstReturnId
+                    )
+                )
+            }
+
+            if (transferAmount > 0.001 && exchangeAccount != null) {
+                dao.updateExchangeBalance(exchangeAccount.id, -transferAmount)
+                dao.insertExchangeTransfer(
+                    ExchangeTransfer(
+                        accountId = exchangeAccount.id,
+                        accountName = exchangeAccount.name,
+                        type = "مرتجع مبيعات",
+                        amount = transferAmount,
+                        isCredit = false,
+                        title = "رد مبلغ مرتجع مبيعات #$finalReturnNumber",
+                        referenceNumber = finalReturnNumber,
+                        notes = "مرتجع فاتورة بيع #$invoiceLabel | العميل: $partyLabel",
+                        timestamp = timestamp,
+                        referenceType = ReturnTypes.SALE_RETURN,
+                        referenceId = firstReturnId
+                    )
+                )
+            }
+
+            dao.insertAuditLog(
+                AuditLogRecord(
+                    action = "مرتجع مبيعات",
+                    actor = "المدير",
+                    details = "مرتجع #$finalReturnNumber على فاتورة بيع #$invoiceLabel للعميل ($partyLabel) | $totalPieces حبة بقيمة ${FormatUtils.formatCurrency(totalReturnAmount)} ($settlementMethod)",
+                    timestamp = timestamp
+                )
+            )
+
+            CompletedReturnResult(
+                returnType = ReturnTypes.SALE_RETURN,
+                returnNumber = finalReturnNumber,
+                originalInvoiceNumber = invoiceLabel,
+                partyName = partyLabel,
+                settlementMethod = settlementMethod,
+                totalReturnAmount = totalReturnAmount,
+                cashAmount = cashAmount,
+                transferAmount = transferAmount,
+                debtReducedAmount = debtReducedAmount,
+                surplusCreditAmount = surplusCreditAmount,
+                exchangeAccountName = exchangeAccount?.name ?: "",
+                totalPiecesReturned = totalPieces,
+                records = insertedRecords,
+                timestamp = timestamp
+            )
+        }
+    }
+
+    suspend fun executePurchaseReturn(
+        originalInvoiceKey: String,
+        lines: List<ReturnLineRequest>,
+        returnNumberInput: String = "",
+        settlementMethod: String,
+        cashAmount: Double = 0.0,
+        transferAmount: Double = 0.0,
+        debtReducedAmount: Double = 0.0,
+        surplusCreditAmount: Double = 0.0,
+        exchangeAccount: ExchangeAccount? = null,
+        notes: String = "",
+        timestamp: Long = System.currentTimeMillis()
+    ): CompletedReturnResult {
+        val mergedRequests = lines
+            .filter { it.returnQuantity > 0 }
+            .groupBy { it.originalLineId }
+            .map { (lineId, reqs) -> ReturnLineRequest(lineId, reqs.sumOf { it.returnQuantity }) }
+        if (mergedRequests.isEmpty()) {
+            throw IllegalArgumentException("يرجى تحديد كمية الإرجاع لصنف واحد على الأقل من فاتورة الشراء.")
+        }
+        if (cashAmount < 0.0 || transferAmount < 0.0 || debtReducedAmount < 0.0 || surplusCreditAmount < 0.0) {
+            throw IllegalArgumentException("لا يمكن إدخال مبالغ تسوية سالبة.")
+        }
+
+        return runInTransaction {
+            val originalLines = if (originalInvoiceKey.startsWith("ID:")) {
+                val purId = originalInvoiceKey.removePrefix("ID:").toLongOrNull()
+                    ?: throw IllegalArgumentException("معرف فاتورة الشراء غير صالح!")
+                listOfNotNull(dao.getPurchaseById(purId))
+            } else {
+                dao.getPurchasesByInvoiceNumber(originalInvoiceKey)
+            }
+            if (originalLines.isEmpty()) {
+                throw IllegalArgumentException("فاتورة الشراء الأصلية غير موجودة!")
+            }
+
+            val firstPurchase = originalLines.first()
+            val invoiceLabel = firstPurchase.invoiceNumber.ifBlank { "ID:${firstPurchase.id}" }
+            val partyName = firstPurchase.supplierName.trim()
+
+            val priorReturns = dao.getReturnsByOriginalLineIds(
+                ReturnTypes.PURCHASE_RETURN,
+                originalLines.map { it.id }
+            )
+            val prevQtyByLine = priorReturns.groupBy { it.originalLineId }
+                .mapValues { (_, list) -> list.sumOf { it.quantity } }
+            val prevAmountByLine = priorReturns.groupBy { it.originalLineId }
+                .mapValues { (_, list) -> list.sumOf { it.totalAmount } }
+
+            val allProds = dao.getAllProductsDirect()
+
+            data class PreparedPurchaseReturnLine(
+                val orig: PurchaseRecord,
+                val product: ProductItem,
+                val returnQty: Int,
+                val effectiveUnitBuyPrice: Double,
+                val lineTotal: Double
+            )
+
+            val preparedLines = mergedRequests.map { req ->
+                val orig = originalLines.find { it.id == req.originalLineId }
+                    ?: throw IllegalArgumentException("الصنف المطلوب إرجاعه غير موجود ضمن فاتورة الشراء ($invoiceLabel)!")
+                val alreadyReturnedQty = prevQtyByLine[orig.id] ?: 0
+                val remainingQty = orig.quantity - alreadyReturnedQty
+                if (req.returnQuantity > remainingQty) {
+                    throw IllegalStateException(
+                        "الكمية المطلوب إرجاعها من (${orig.modelName}) هي ${req.returnQuantity} حبة، والمتبقي القابل للإرجاع في هذه الفاتورة هو $remainingQty حبة فقط!"
+                    )
+                }
+                val prod = allProds.find {
+                    it.modelName.trim().equals(orig.modelName.trim(), ignoreCase = true) &&
+                        it.color.trim().equals(orig.color.trim(), ignoreCase = true) &&
+                        it.size.trim().equals(orig.size.trim(), ignoreCase = true)
+                } ?: throw IllegalStateException(
+                    "الصنف (${orig.modelName} - ${orig.color} - ${orig.size}) غير موجود في المخزون لإتمام الإرجاع للمورد!"
+                )
+                val effectiveUnitBuyPrice = if (orig.quantity > 0) orig.totalCost / orig.quantity else orig.unitBuyPrice
+                val alreadyReturnedAmount = prevAmountByLine[orig.id] ?: 0.0
+                val lineTotal = if (req.returnQuantity == remainingQty) {
+                    (orig.totalCost - alreadyReturnedAmount).coerceAtLeast(0.0)
+                } else {
+                    effectiveUnitBuyPrice * req.returnQuantity
+                }
+                PreparedPurchaseReturnLine(
+                    orig = orig,
+                    product = prod,
+                    returnQty = req.returnQuantity,
+                    effectiveUnitBuyPrice = effectiveUnitBuyPrice,
+                    lineTotal = lineTotal
+                )
+            }
+
+            // Verify aggregate stock availability if multiple lines map to same product
+            preparedLines.groupBy { it.product.id }.forEach { (_, group) ->
+                val prod = group.first().product
+                val totalNeeded = group.sumOf { it.returnQty }
+                if (prod.quantity < totalNeeded) {
+                    throw IllegalStateException(
+                        "الكمية المتوفرة في المخزون من (${prod.modelName}) هي ${prod.quantity} حبة فقط ولا تكفي لإرجاع $totalNeeded حبة للمورد!"
+                    )
+                }
+            }
+
+            val totalReturnAmount = preparedLines.sumOf { it.lineTotal }
+            val settlementSum = cashAmount + transferAmount + debtReducedAmount + surplusCreditAmount
+            if (kotlin.math.abs(settlementSum - totalReturnAmount) > 0.01) {
+                throw IllegalArgumentException(
+                    "مجموع التسوية (${FormatUtils.formatCurrency(settlementSum)}) يجب أن يطابق إجمالي المرتجع (${FormatUtils.formatCurrency(totalReturnAmount)})."
+                )
+            }
+            if (transferAmount > 0.001 && (exchangeAccount == null || exchangeAccount.id <= 0L)) {
+                throw IllegalArgumentException("يجب اختيار حساب الصراف أو المحفظة المستلم للمبلغ من المورد.")
+            }
+            if ((debtReducedAmount > 0.001 || surplusCreditAmount > 0.001) && partyName.isBlank()) {
+                throw IllegalArgumentException("لا يمكن خصم دين أو تسجيل رصيد دائن لمورد بدون اسم!")
+            }
+
+            if (debtReducedAmount > 0.001) {
+                val linkedDebts = dao.getDebtsByPurchaseIds(originalLines.map { it.id })
+                reducePartyOpenDebtsForReturn(
+                    debtType = "SUPPLIER",
+                    partyName = partyName,
+                    linkedDebts = linkedDebts,
+                    amountToReduce = debtReducedAmount
+                )
+            }
+
+            val activeShiftObj = dao.getActiveShift().firstOrNull()
+            val shiftId = activeShiftObj?.id ?: 0L
+            val finalReturnNumber = resolveReturnNumber(returnNumberInput, "RP")
+            val insertedRecords = mutableListOf<ReturnRecord>()
+            var firstReturnId = 0L
+
+            for (item in preparedLines) {
+                val updatedRows = dao.decrementStockSafe(item.product.id, item.returnQty, timestamp)
+                if (updatedRows == 0) {
+                    throw IllegalStateException(
+                        "الكمية المتوفرة في المخزون من (${item.product.modelName}) لا تكفي لإتمام الإرجاع للمورد!"
+                    )
+                }
+                val orig = item.orig
+                val ratio = if (totalReturnAmount > 0.0001) item.lineTotal / totalReturnAmount else (1.0 / preparedLines.size)
+                val record = ReturnRecord(
+                    returnType = ReturnTypes.PURCHASE_RETURN,
+                    returnNumber = finalReturnNumber,
+                    originalInvoiceNumber = invoiceLabel,
+                    originalLineId = orig.id,
+                    productId = item.product.id,
+                    productName = orig.modelName,
+                    category = orig.category,
+                    color = orig.color,
+                    size = orig.size,
+                    unit = orig.unit,
+                    quantity = item.returnQty,
+                    unitBuyPrice = item.effectiveUnitBuyPrice,
+                    unitSellPrice = orig.unitSellPrice,
+                    totalAmount = item.lineTotal,
+                    profitAdjustment = 0.0,
+                    partyName = partyName.ifBlank { "مورد عام" },
+                    partyPhone = "",
+                    settlementMethod = settlementMethod,
+                    cashAmount = cashAmount * ratio,
+                    transferAmount = transferAmount * ratio,
+                    debtReducedAmount = debtReducedAmount * ratio,
+                    surplusCreditAmount = surplusCreditAmount * ratio,
+                    exchangeAccountId = exchangeAccount?.id ?: 0L,
+                    exchangeAccountName = exchangeAccount?.name ?: "",
+                    notes = notes.trim(),
+                    timestamp = timestamp,
+                    shiftId = shiftId
+                )
+                val savedId = dao.insertReturn(record)
+                if (firstReturnId == 0L) firstReturnId = savedId
+                insertedRecords.add(record.copy(id = savedId))
+            }
+
+            val totalPieces = preparedLines.sumOf { it.returnQty }
+            val partyLabel = partyName.ifBlank { "مورد عام" }
+
+            if (cashAmount > 0.001) {
+                dao.insertCashMovement(
+                    CashDrawerMovement(
+                        shiftId = shiftId,
+                        type = "PURCHASE_RETURN_CASH",
+                        amount = cashAmount,
+                        isIncome = true,
+                        title = "مرتجع مشتريات #$finalReturnNumber (فاتورة #$invoiceLabel)",
+                        details = "المورد: $partyLabel | $totalPieces حبة",
+                        timestamp = timestamp,
+                        referenceReturnId = firstReturnId
+                    )
+                )
+            }
+
+            if (transferAmount > 0.001 && exchangeAccount != null) {
+                dao.updateExchangeBalance(exchangeAccount.id, transferAmount)
+                dao.insertExchangeTransfer(
+                    ExchangeTransfer(
+                        accountId = exchangeAccount.id,
+                        accountName = exchangeAccount.name,
+                        type = "مرتجع مشتريات",
+                        amount = transferAmount,
+                        isCredit = true,
+                        title = "استلام مبلغ مرتجع مشتريات #$finalReturnNumber",
+                        referenceNumber = finalReturnNumber,
+                        notes = "مرتجع فاتورة شراء #$invoiceLabel | المورد: $partyLabel",
+                        timestamp = timestamp,
+                        referenceType = ReturnTypes.PURCHASE_RETURN,
+                        referenceId = firstReturnId
+                    )
+                )
+            }
+
+            dao.insertAuditLog(
+                AuditLogRecord(
+                    action = "مرتجع مشتريات",
+                    actor = "المدير",
+                    details = "مرتجع #$finalReturnNumber على فاتورة شراء #$invoiceLabel للمورد ($partyLabel) | $totalPieces حبة بقيمة ${FormatUtils.formatCurrency(totalReturnAmount)} ($settlementMethod)",
+                    timestamp = timestamp
+                )
+            )
+
+            CompletedReturnResult(
+                returnType = ReturnTypes.PURCHASE_RETURN,
+                returnNumber = finalReturnNumber,
+                originalInvoiceNumber = invoiceLabel,
+                partyName = partyLabel,
+                settlementMethod = settlementMethod,
+                totalReturnAmount = totalReturnAmount,
+                cashAmount = cashAmount,
+                transferAmount = transferAmount,
+                debtReducedAmount = debtReducedAmount,
+                surplusCreditAmount = surplusCreditAmount,
+                exchangeAccountName = exchangeAccount?.name ?: "",
+                totalPiecesReturned = totalPieces,
+                records = insertedRecords,
+                timestamp = timestamp
+            )
+        }
+    }
+
+    suspend fun deleteReturn(returnNumber: String) {
+        runInTransaction {
+            val records = dao.getReturnsByReturnNumber(returnNumber)
+            if (records.isEmpty()) return@runInTransaction
+
+            val first = records.first()
+            val returnIds = records.map { it.id }
+            val origLineIds = records.map { it.originalLineId }.distinct()
+            val totalCash = records.sumOf { it.cashAmount }
+            val totalTransfer = records.sumOf { it.transferAmount }
+            val totalDebtReduced = records.sumOf { it.debtReducedAmount }
+            val now = System.currentTimeMillis()
+
+            if (first.returnType == ReturnTypes.SALE_RETURN) {
+                // Returning items to stock had incremented inventory; deleting return must decrement stock safely
+                for (r in records) {
+                    val decremented = if (r.productId > 0L) dao.decrementStockSafe(r.productId, r.quantity, now) else 0
+                    if (decremented == 0) {
+                        throw IllegalStateException(
+                            "لا يمكن حذف مرتجع المبيعات #$returnNumber لأن الكمية المُرجعة من (${r.productName}) تم بيعها مرة أخرى!"
+                        )
+                    }
+                }
+                dao.deleteCashMovementsForReturns(returnIds)
+                reverseLinkedTransfersOrFallback(
+                    refType = ReturnTypes.SALE_RETURN,
+                    refIds = returnIds,
+                    fallbackRefNumber = returnNumber,
+                    fallbackAccountId = first.exchangeAccountId,
+                    fallbackAmount = totalTransfer,
+                    fallbackWasCredit = false,
+                    reason = "إلغاء مرتجع مبيعات #$returnNumber",
+                    timestamp = now
+                )
+                val linkedDebts = dao.getDebtsBySaleIds(origLineIds)
+                restorePartyDebtsFromDeletedReturn(
+                    debtType = "CUSTOMER",
+                    partyName = first.partyName,
+                    linkedDebts = linkedDebts,
+                    amountToRestore = totalDebtReduced
+                )
+            } else {
+                // Purchase return had brought cash/transfer IN and removed stock
+                requireSufficientCash(totalCash)
+                dao.deleteCashMovementsForReturns(returnIds)
+                reverseLinkedTransfersOrFallback(
+                    refType = ReturnTypes.PURCHASE_RETURN,
+                    refIds = returnIds,
+                    fallbackRefNumber = returnNumber,
+                    fallbackAccountId = first.exchangeAccountId,
+                    fallbackAmount = totalTransfer,
+                    fallbackWasCredit = true,
+                    reason = "إلغاء مرتجع مشتريات #$returnNumber",
+                    timestamp = now
+                )
+                for (r in records) {
+                    if (r.productId > 0L && dao.getProductById(r.productId) != null) {
+                        dao.incrementStock(r.productId, r.quantity)
+                    }
+                }
+                val linkedDebts = dao.getDebtsByPurchaseIds(origLineIds)
+                restorePartyDebtsFromDeletedReturn(
+                    debtType = "SUPPLIER",
+                    partyName = first.partyName,
+                    linkedDebts = linkedDebts,
+                    amountToRestore = totalDebtReduced
+                )
+            }
+
+            dao.deleteReturnsByReturnNumber(returnNumber)
+            val labelAr = if (first.returnType == ReturnTypes.SALE_RETURN) "مرتجع مبيعات" else "مرتجع مشتريات"
+            dao.insertAuditLog(
+                AuditLogRecord(
+                    action = "إلغاء مرتجع",
+                    actor = "المدير",
+                    details = "تم حذف وإلغاء $labelAr #$returnNumber وعكس كافة الأرصدة والمخزون",
+                    timestamp = now
+                )
+            )
+        }
     }
 }

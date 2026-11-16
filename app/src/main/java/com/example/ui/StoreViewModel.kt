@@ -30,6 +30,7 @@ enum class AppScreen {
     TRANSACTIONS_LOG,
     STORE_AUDIT,
     OPENING_BALANCES,
+    RETURNS,
     SETTINGS,
     AUDIT_LOGS
 }
@@ -50,9 +51,23 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     private val _isInitialized = MutableStateFlow(false)
     val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
 
-    // --- Navigation State ---
+    private val _isSetupCompleted = MutableStateFlow(false)
+
+    // --- Navigation State with True Backstack ---
+    private val _backStack = MutableStateFlow(listOf(AppScreen.HOME))
     private val _currentScreen = MutableStateFlow(AppScreen.HOME)
     val currentScreen: StateFlow<AppScreen> = _currentScreen.asStateFlow()
+
+    private val _openingBalancesAuthorized = MutableStateFlow(false)
+    val openingBalancesAuthorized: StateFlow<Boolean> = _openingBalancesAuthorized.asStateFlow()
+
+    fun authorizeOpeningBalancesSession() {
+        _openingBalancesAuthorized.value = true
+    }
+
+    fun revokeOpeningBalancesSession() {
+        _openingBalancesAuthorized.value = false
+    }
 
     init {
         viewModelScope.launch {
@@ -83,31 +98,57 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 existing
             }
+            _isSetupCompleted.value = settings.isSetupCompleted
             if (!settings.isSetupCompleted) {
+                _backStack.value = listOf(AppScreen.SETUP)
                 _currentScreen.value = AppScreen.SETUP
             }
             _isInitialized.value = true
         }
     }
 
-    fun navigateTo(screen: AppScreen) {
-        _currentScreen.value = screen
+    fun navigateTo(screen: AppScreen, resetToRoot: Boolean = false) {
+        val prev = _currentScreen.value
+        if (prev == AppScreen.OPENING_BALANCES && screen != AppScreen.OPENING_BALANCES) {
+            _openingBalancesAuthorized.value = false
+        }
+        if (screen == prev) return
+
+        val newStack = when {
+            screen == AppScreen.HOME || resetToRoot -> listOf(screen)
+            else -> {
+                val current = _backStack.value
+                if (current.lastOrNull() == screen) current
+                else (current + screen).takeLast(30)
+            }
+        }
+        _backStack.value = newStack
+        _currentScreen.value = newStack.last()
     }
 
     fun openSetupWizard() {
-        _currentScreen.value = AppScreen.SETUP
+        navigateTo(AppScreen.SETUP)
     }
 
     fun navigateBack(): Boolean {
-        if (_currentScreen.value == AppScreen.SETUP) {
-            val completed = storeSettings.value?.isSetupCompleted == true
-            if (completed) {
-                _currentScreen.value = AppScreen.HOME
-                return true
-            }
+        val current = _currentScreen.value
+        val setupDone = _isSetupCompleted.value || (storeSettings.value?.isSetupCompleted == true)
+        if (current == AppScreen.SETUP && !setupDone) {
             return false
         }
-        if (_currentScreen.value != AppScreen.HOME) {
+        if (current == AppScreen.OPENING_BALANCES) {
+            _openingBalancesAuthorized.value = false
+        }
+
+        val stack = _backStack.value
+        if (stack.size > 1) {
+            val popped = stack.dropLast(1)
+            _backStack.value = popped
+            _currentScreen.value = popped.last()
+            return true
+        }
+        if (current != AppScreen.HOME) {
+            _backStack.value = listOf(AppScreen.HOME)
             _currentScreen.value = AppScreen.HOME
             return true
         }
@@ -298,8 +339,44 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     val auditLogs: StateFlow<List<AuditLogRecord>> = repository.allAuditLogs
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val returns: StateFlow<List<ReturnRecord>> = repository.allReturns
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _pendingReturnTarget = MutableStateFlow<Pair<String, String?>?>(null)
+    val pendingReturnTarget: StateFlow<Pair<String, String?>?> = _pendingReturnTarget.asStateFlow()
+
+    fun openReturnsScreen(returnType: String = ReturnTypes.SALE_RETURN, invoiceKey: String? = null) {
+        _pendingReturnTarget.value = returnType to invoiceKey
+        navigateTo(AppScreen.RETURNS)
+    }
+
+    fun clearPendingReturnTarget() {
+        _pendingReturnTarget.value = null
+    }
+
+    private val _completedReturnResult = MutableStateFlow<CompletedReturnResult?>(null)
+    val completedReturnResult: StateFlow<CompletedReturnResult?> = _completedReturnResult.asStateFlow()
+
+    fun dismissReturnReceipt() {
+        _completedReturnResult.value = null
+    }
+
     val storeSettings: StateFlow<StoreSettings?> = repository.storeSettings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val canNavigateBack: StateFlow<Boolean> = combine(
+        _backStack,
+        _currentScreen,
+        _isSetupCompleted,
+        storeSettings
+    ) { stack, current, setupDoneFlag, settings ->
+        val setupDone = setupDoneFlag || (settings?.isSetupCompleted == true)
+        if (current == AppScreen.SETUP && !setupDone) {
+            false
+        } else {
+            stack.size > 1 || current != AppScreen.HOME
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val isPinConfigured: StateFlow<Boolean> = storeSettings.map { settings ->
         settings != null && PinSecurityManager.isPinConfigured(settings)
@@ -1357,6 +1434,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                     settings.copy(id = 1, isSetupCompleted = true)
                 }
                 repository.saveStoreSettings(targetSettings)
+                _isSetupCompleted.value = true
                 repository.replaceConfigItemsForSetup(
                     categories = categories,
                     sizes = sizes,
@@ -1365,6 +1443,16 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                     colors = colors,
                     roles = roles
                 )
+                if (targetScreenAfterSetup == AppScreen.OPENING_BALANCES) {
+                    if (rawManagerPin.isNotBlank() || !alreadyHasPin) {
+                        _openingBalancesAuthorized.value = true
+                    }
+                    _backStack.value = listOf(AppScreen.HOME, AppScreen.OPENING_BALANCES)
+                } else if (targetScreenAfterSetup == AppScreen.HOME) {
+                    _backStack.value = listOf(AppScreen.HOME)
+                } else {
+                    _backStack.value = listOf(AppScreen.HOME, targetScreenAfterSetup)
+                }
                 _currentScreen.value = targetScreenAfterSetup
                 _userMessage.value = "تم حفظ تهيئة «${settings.shopNameAr}» وبدء تشغيل النظام بنجاح"
                 onCompleted()
@@ -1542,6 +1630,98 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
                 val err = "حدث خطأ أثناء الاستعادة: ${e.message}"
                 reportError(err)
                 onResult(Result.failure(e))
+            }
+        }
+    }
+
+    // ====================================================================
+    // Invoice-Based Sales & Purchase Returns (المرتجعات حسب الفاتورة)
+    // ====================================================================
+
+    fun executeSaleReturn(
+        originalInvoiceKey: String,
+        lines: List<ReturnLineRequest>,
+        returnNumberInput: String = "",
+        settlementMethod: String,
+        cashAmount: Double = 0.0,
+        transferAmount: Double = 0.0,
+        debtReducedAmount: Double = 0.0,
+        surplusCreditAmount: Double = 0.0,
+        exchangeAccount: ExchangeAccount? = null,
+        notes: String = "",
+        timestamp: Long = System.currentTimeMillis(),
+        onSuccess: (CompletedReturnResult) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            try {
+                val result = repository.executeSaleReturn(
+                    originalInvoiceKey = originalInvoiceKey,
+                    lines = lines,
+                    returnNumberInput = returnNumberInput,
+                    settlementMethod = settlementMethod,
+                    cashAmount = cashAmount,
+                    transferAmount = transferAmount,
+                    debtReducedAmount = debtReducedAmount,
+                    surplusCreditAmount = surplusCreditAmount,
+                    exchangeAccount = exchangeAccount,
+                    notes = notes,
+                    timestamp = timestamp
+                )
+                _completedReturnResult.value = result
+                _userMessage.value = "تم توثيق مرتجع المبيعات #${result.returnNumber} بنجاح"
+                onSuccess(result)
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر تنفيذ مرتجع المبيعات")
+            }
+        }
+    }
+
+    fun executePurchaseReturn(
+        originalInvoiceKey: String,
+        lines: List<ReturnLineRequest>,
+        returnNumberInput: String = "",
+        settlementMethod: String,
+        cashAmount: Double = 0.0,
+        transferAmount: Double = 0.0,
+        debtReducedAmount: Double = 0.0,
+        surplusCreditAmount: Double = 0.0,
+        exchangeAccount: ExchangeAccount? = null,
+        notes: String = "",
+        timestamp: Long = System.currentTimeMillis(),
+        onSuccess: (CompletedReturnResult) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            try {
+                val result = repository.executePurchaseReturn(
+                    originalInvoiceKey = originalInvoiceKey,
+                    lines = lines,
+                    returnNumberInput = returnNumberInput,
+                    settlementMethod = settlementMethod,
+                    cashAmount = cashAmount,
+                    transferAmount = transferAmount,
+                    debtReducedAmount = debtReducedAmount,
+                    surplusCreditAmount = surplusCreditAmount,
+                    exchangeAccount = exchangeAccount,
+                    notes = notes,
+                    timestamp = timestamp
+                )
+                _completedReturnResult.value = result
+                _userMessage.value = "تم توثيق مرتجع المشتريات #${result.returnNumber} بنجاح"
+                onSuccess(result)
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر تنفيذ مرتجع المشتريات")
+            }
+        }
+    }
+
+    fun deleteReturn(returnNumber: String, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                repository.deleteReturn(returnNumber)
+                _userMessage.value = "تم إلغاء وحذف حركة المرتجع #$returnNumber وعكس آثارها المالية والمخزنية"
+                onSuccess()
+            } catch (e: Exception) {
+                reportError(e.message ?: "تعذر إلغاء حركة المرتجع")
             }
         }
     }

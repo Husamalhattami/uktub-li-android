@@ -28,6 +28,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -382,7 +383,14 @@ fun SettingsScreen(
                         }
 
                         OutlinedButton(
-                            onClick = { viewModel.openSetupWizard() },
+                            onClick = {
+                                if (hasConfiguredPin) {
+                                    pendingPinTitle = "التحقق من صلاحية المدير — معالج التهيئة"
+                                    pendingPinAction = { viewModel.openSetupWizard() }
+                                } else {
+                                    viewModel.openSetupWizard()
+                                }
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(48.dp)
@@ -395,16 +403,29 @@ fun SettingsScreen(
                         }
 
                         OutlinedButton(
-                            onClick = onOpenOpeningBalances,
+                            onClick = {
+                                pendingPinTitle = "حماية المدير — الأرصدة الافتتاحية"
+                                pendingPinAction = {
+                                    viewModel.authorizeOpeningBalancesSession()
+                                    onOpenOpeningBalances()
+                                }
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(48.dp)
+                                .heightIn(min = 50.dp)
                                 .testTag("settings_opening_balances_btn"),
-                            shape = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.2.dp, PdfHeaderNavy.copy(alpha = 0.55f))
                         ) {
-                            Icon(imageVector = Icons.Default.Verified, contentDescription = null, tint = PdfHeaderNavy)
+                            Icon(imageVector = Icons.Default.Lock, contentDescription = null, tint = PdfHeaderNavy)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("معالج الأرصدة الافتتاحية للمحل (صندوق، بضاعة، أطراف)", fontWeight = FontWeight.Bold, color = PdfHeaderNavy)
+                            Text(
+                                text = "الأرصدة الافتتاحية للمحل (محمي برمز المدير)",
+                                fontWeight = FontWeight.Bold,
+                                color = PdfHeaderNavy,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
@@ -986,10 +1007,10 @@ fun SettingsScreen(
                 ) {
                     Text(
                         text = "• المنتجات: ${p.productsCount} | المبيعات: ${p.salesCount} | المشتريات: ${p.purchasesCount}\n" +
-                            "• المصروفات: ${p.expensesCount} | العمال: ${p.employeesCount} | حركات العمال: ${p.employeeTransactionsCount}\n" +
-                            "• العملاء والموردين: ${p.partiesCount} | الديون: ${p.debtsCount} | الدفعات: ${p.debtPaymentsCount}\n" +
-                            "• الورديات: ${p.shiftsCount} | الصندوق: ${p.cashMovementsCount} | الصرافون: ${p.exchangeAccountsCount}\n" +
-                            "• التحويلات: ${p.exchangeTransfersCount} | التدقيق: ${p.auditLogsCount} | القوائم: ${p.configItemsCount}",
+                            "• المرتجعات: ${p.returnRecordsCount} | المصروفات: ${p.expensesCount} | العمال: ${p.employeesCount}\n" +
+                            "• حركات العمال: ${p.employeeTransactionsCount} | العملاء والموردين: ${p.partiesCount} | الديون: ${p.debtsCount}\n" +
+                            "• الدفعات: ${p.debtPaymentsCount} | الورديات: ${p.shiftsCount} | الصندوق: ${p.cashMovementsCount}\n" +
+                            "• الصرافون: ${p.exchangeAccountsCount} | التحويلات: ${p.exchangeTransfersCount} | التدقيق: ${p.auditLogsCount} | القوائم: ${p.configItemsCount}",
                         fontSize = 11.sp,
                         color = SlateTextPrimary,
                         modifier = Modifier.padding(12.dp)

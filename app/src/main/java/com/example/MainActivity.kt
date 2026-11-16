@@ -28,6 +28,7 @@ import com.example.ui.theme.FintechRose
 import com.example.ui.AppScreen
 import com.example.ui.StoreViewModel
 import com.example.ui.components.CollectionSuccessDialog
+import com.example.ui.components.CompletedReturnDialog
 import com.example.ui.components.PdfBottomNavigation
 import com.example.ui.components.PdfNavigationRail
 import com.example.ui.components.SaleReceiptDialog
@@ -54,9 +55,11 @@ class MainActivity : ComponentActivity() {
 fun MainAppContent(viewModel: StoreViewModel) {
     val isInitialized by viewModel.isInitialized.collectAsStateWithLifecycle()
     val currentScreen by viewModel.currentScreen.collectAsStateWithLifecycle()
+    val canNavigateBack by viewModel.canNavigateBack.collectAsStateWithLifecycle()
     val completedReceipt by viewModel.completedReceipt.collectAsStateWithLifecycle()
     val completedCollectionReceipt by viewModel.completedCollectionReceipt.collectAsStateWithLifecycle()
     val completedSupplierPaymentReceipt by viewModel.completedSupplierPaymentReceipt.collectAsStateWithLifecycle()
+    val completedReturnResult by viewModel.completedReturnResult.collectAsStateWithLifecycle()
     val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
     val userMessage by viewModel.userMessage.collectAsStateWithLifecycle()
     val errorDialogMessage by viewModel.errorDialogMessage.collectAsStateWithLifecycle()
@@ -72,8 +75,8 @@ fun MainAppContent(viewModel: StoreViewModel) {
         return
     }
 
-    // System Back button handling
-    BackHandler(enabled = currentScreen != AppScreen.HOME && currentScreen != AppScreen.SETUP) {
+    // System Back button handling (preserves exact page-by-page backstack)
+    BackHandler(enabled = canNavigateBack) {
         viewModel.navigateBack()
     }
 
@@ -190,6 +193,10 @@ fun MainAppContent(viewModel: StoreViewModel) {
                             viewModel = viewModel,
                             onBack = { viewModel.navigateBack() }
                         )
+                        AppScreen.RETURNS -> ReturnsScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.navigateBack() }
+                        )
                         AppScreen.SETTINGS, AppScreen.AUDIT_LOGS -> SettingsScreen(
                             viewModel = viewModel,
                             onOpenOpeningBalances = { viewModel.navigateTo(AppScreen.OPENING_BALANCES) },
@@ -205,6 +212,7 @@ fun MainAppContent(viewModel: StoreViewModel) {
     completedReceipt?.let { receipt ->
         SaleReceiptDialog(
             receipt = receipt,
+            settings = storeSettings,
             onDismiss = { viewModel.dismissReceipt() }
         )
     }
@@ -224,6 +232,15 @@ fun MainAppContent(viewModel: StoreViewModel) {
             receipt = receipt,
             settings = storeSettings,
             onDismiss = { viewModel.dismissSupplierPaymentReceipt() }
+        )
+    }
+
+    // Completed Sale/Purchase Return Receipt Dialog
+    completedReturnResult?.let { result ->
+        CompletedReturnDialog(
+            result = result,
+            settings = storeSettings,
+            onDismiss = { viewModel.dismissReturnReceipt() }
         )
     }
 

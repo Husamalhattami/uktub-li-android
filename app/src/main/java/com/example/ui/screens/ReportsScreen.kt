@@ -32,6 +32,7 @@ fun ReportsScreen(
     onBack: () -> Unit
 ) {
     val sales by viewModel.sales.collectAsStateWithLifecycle()
+    val returns by viewModel.returns.collectAsStateWithLifecycle()
     val expenses by viewModel.expenses.collectAsStateWithLifecycle()
     val employeeTransactions by viewModel.employeeTransactions.collectAsStateWithLifecycle()
     val purchases by viewModel.purchases.collectAsStateWithLifecycle()
@@ -69,6 +70,7 @@ fun ReportsScreen(
     }
 
     val filteredSales = remember(sales, selectedPeriod) { sales.filter { matchesSelectedPeriod(it.timestamp) } }
+    val filteredReturns = remember(returns, selectedPeriod) { returns.filter { matchesSelectedPeriod(it.timestamp) } }
     val filteredPurchases = remember(purchases, selectedPeriod) { purchases.filter { matchesSelectedPeriod(it.timestamp) } }
     val filteredExpenses = remember(expenses, selectedPeriod) { expenses.filter { matchesSelectedPeriod(it.timestamp) } }
     val filteredEmployeeTx = remember(employeeTransactions, selectedPeriod) { employeeTransactions.filter { matchesSelectedPeriod(it.timestamp) } }
@@ -77,6 +79,7 @@ fun ReportsScreen(
     val reportSummary = remember(
         selectedPeriod,
         filteredSales,
+        filteredReturns,
         filteredPurchases,
         filteredExpenses,
         filteredEmployeeTx,
@@ -96,7 +99,8 @@ fun ReportsScreen(
             allDebts = debts,
             allProducts = products,
             currentCashBalance = cashBalance,
-            currentExchangeBalance = totalExchangeBalance
+            currentExchangeBalance = totalExchangeBalance,
+            filteredReturns = filteredReturns
         )
     }
 
@@ -343,7 +347,13 @@ fun ReportsScreen(
 
                         HorizontalDivider(color = Color.White.copy(alpha = 0.15f))
 
-                        EquationLine(label = "إجمالي المبيعات", value = FormatUtils.formatCurrency(totalSales), isPositive = true)
+                        EquationLine(label = "صافي المبيعات (بعد المرتجعات)", value = FormatUtils.formatCurrency(totalSales), isPositive = true)
+                        if (reportSummary.salesReturnsTotal > 0.01) {
+                            EquationLine(label = "  • مرتجعات المبيعات (${reportSummary.salesReturnsCount} مستند)", value = "- " + FormatUtils.formatCurrency(reportSummary.salesReturnsTotal), isPositive = false)
+                        }
+                        if (reportSummary.purchaseReturnsTotal > 0.01) {
+                            EquationLine(label = "  • مرتجعات المشتريات (${reportSummary.purchaseReturnsCount} مستند)", value = FormatUtils.formatCurrency(reportSummary.purchaseReturnsTotal), isPositive = true)
+                        }
                         EquationLine(label = "- تكلفة البضاعة المباعة (رأس المال)", value = "- " + FormatUtils.formatCurrency(cogs), isPositive = false)
                         EquationLine(label = "- إجمالي المصروفات التشغيلية", value = "- " + FormatUtils.formatCurrency(totalExpensesAmount), isPositive = false)
                         EquationLine(label = "- الرواتب والسلف المدفوعة", value = "- " + FormatUtils.formatCurrency(totalSalariesAmount), isPositive = false)

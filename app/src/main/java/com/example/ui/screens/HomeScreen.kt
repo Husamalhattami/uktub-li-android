@@ -12,6 +12,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,8 +30,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.CashDrawerMovement
+import com.example.data.model.CashDrawerShift
+import com.example.data.model.DebtRecord
 import com.example.data.model.Employee
 import com.example.data.model.ExchangeAccount
+import com.example.data.model.ProductItem
+import com.example.data.model.ReturnTypes
 import com.example.ui.AppScreen
 import com.example.ui.StoreViewModel
 import com.example.ui.components.CollectionReceiptDialog
@@ -62,13 +67,37 @@ fun HomeScreen(
     val supplierParties by viewModel.supplierParties.collectAsStateWithLifecycle()
     val debts by viewModel.debts.collectAsStateWithLifecycle()
     val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
+    val products by viewModel.products.collectAsStateWithLifecycle()
+    val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
+    val isPinConfigured by viewModel.isPinConfigured.collectAsStateWithLifecycle()
 
     // Accounting Fix: Actual liquidity is cash + exchange/wallet balances only (excluding unsold inventory)
     val actualLiquidity = cashBalance + totalExchangeBalance
     // Total Assets = actual liquidity + inventory + customer debts - supplier debts
     val totalAssets = actualLiquidity + inventoryValue + totalCustomerDebts - totalSupplierDebts
 
+    val storeAlerts = remember(
+        products,
+        debts,
+        totalCustomerDebts,
+        totalSupplierDebts,
+        isPinConfigured,
+        activeShift,
+        cashBalance
+    ) {
+        buildStoreAlerts(
+            products = products,
+            debts = debts,
+            totalCustomerDebts = totalCustomerDebts,
+            totalSupplierDebts = totalSupplierDebts,
+            isPinConfigured = isPinConfigured,
+            activeShift = activeShift,
+            cashBalance = cashBalance
+        )
+    }
+
     var showQuickAddSheet by remember { mutableStateOf(false) }
+    var showNotificationsSheet by remember { mutableStateOf(false) }
     var showCollectionDialog by remember { mutableStateOf(false) }
     var showSupplierPaymentDialog by remember { mutableStateOf(false) }
     var showAddPartyDialog by remember { mutableStateOf<String?>(null) } // "CUSTOMER" or "SUPPLIER"
@@ -99,22 +128,34 @@ fun HomeScreen(
                 trailingAction = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(
-                            onClick = { /* Notification modal or shortcut */ },
+                            onClick = { showNotificationsSheet = true },
                             modifier = Modifier.testTag("btn_notifications_topbar")
                         ) {
-                            Box {
+                            Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.Notifications,
-                                    contentDescription = "الإشعارات",
+                                    contentDescription = "تنبيهات وإشعارات المحل",
                                     tint = Color.White
                                 )
-                                Box(
-                                    modifier = Modifier
-                                        .size(7.dp)
-                                        .clip(CircleShape)
-                                        .background(PdfGoldPrimary)
-                                        .align(Alignment.TopEnd)
-                                )
+                                if (storeAlerts.isNotEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .offset(x = 4.dp, y = (-3).dp)
+                                            .sizeIn(minWidth = 16.dp, minHeight = 16.dp)
+                                            .clip(CircleShape)
+                                            .background(FintechRose)
+                                            .padding(horizontal = 3.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = if (storeAlerts.size > 9) "9+" else "${storeAlerts.size}",
+                                            color = Color.White,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
                             }
                         }
                         IconButton(
@@ -604,18 +645,18 @@ fun HomeScreen(
                         )
                     }
 
-                    // Row 3: الأرصدة الافتتاحية الشاملة للمحل
+                    // Row 3: المرتجعات حسب الفاتورة (مبيعات من عميل / مشتريات لمورد)
                     QuickEntityButton(
-                        title = "الأرصدة الافتتاحية للمحل (صندوق، بضاعة، عملاء، موردين، عمال)",
-                        subtitle = "إدخال ما بالمحل بالكامل كرصيد افتتاحي بدون أي خصم من الصندوق",
-                        icon = Icons.Default.Verified,
-                        color = PdfHeaderNavy,
-                        bg = Color(0xFFEEF2FF),
-                        border = Color(0xFFC7D2FE),
+                        title = "المرتجعات حسب الفاتورة (من عميل / إلى مورد)",
+                        subtitle = "إرجاع مبيعات أو مشتريات بالسعر الفعلي للفاتورة الأصلية وتسوية الحساب",
+                        icon = Icons.AutoMirrored.Filled.Undo,
+                        color = FintechAmber,
+                        bg = FintechAmberBg,
+                        border = FintechAmberBorder,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .testTag("btn_home_opening_balances"),
-                        onClick = { onNavigate(AppScreen.OPENING_BALANCES) }
+                            .testTag("btn_home_returns"),
+                        onClick = { viewModel.openReturnsScreen(ReturnTypes.SALE_RETURN, null) }
                     )
                 }
             }
@@ -724,20 +765,6 @@ fun HomeScreen(
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    // 00. الأرصدة الافتتاحية الشاملة للمحل
-                    QuickSheetActionRow(
-                        title = "إدخال الأرصدة الافتتاحية الشاملة للمحل",
-                        subtitle = "الصندوق، الصرافين، المخزن، العملاء، الموردين، والعمال بدون خصم من الصندوق",
-                        icon = Icons.Default.Verified,
-                        iconColor = PdfHeaderNavy,
-                        iconBg = Color(0xFFEEF2FF),
-                        modifier = Modifier.testTag("sheet_opening_balances"),
-                        onClick = {
-                            showQuickAddSheet = false
-                            onNavigate(AppScreen.OPENING_BALANCES)
-                        }
-                    )
-
                     // 0. تحصيل زلط / سند قبض
                     QuickSheetActionRow(
                         title = "تحصيل زلط (سند قبض)",
@@ -761,6 +788,34 @@ fun HomeScreen(
                         onClick = {
                             showQuickAddSheet = false
                             showSupplierPaymentDialog = true
+                        }
+                    )
+
+                    // 0c. مرتجع مبيعات من عميل (حسب الفاتورة)
+                    QuickSheetActionRow(
+                        title = "مرتجع مبيعات من عميل (حسب الفاتورة)",
+                        subtitle = "إرجاع أصناف من فاتورة بيع بسعر نفس الفاتورة وتحديث المخزون والرصيد",
+                        icon = Icons.AutoMirrored.Filled.Undo,
+                        iconColor = FintechAmber,
+                        iconBg = FintechAmberBg,
+                        modifier = Modifier.testTag("sheet_sale_return"),
+                        onClick = {
+                            showQuickAddSheet = false
+                            viewModel.openReturnsScreen(ReturnTypes.SALE_RETURN, null)
+                        }
+                    )
+
+                    // 0d. مرتجع مشتريات إلى مورد (حسب الفاتورة)
+                    QuickSheetActionRow(
+                        title = "مرتجع مشتريات إلى مورد (حسب الفاتورة)",
+                        subtitle = "إرجاع بضاعة لمورد بسعر فاتورة الشراء الأصلية وخصم الدين أو استرداد المبلغ",
+                        icon = Icons.Default.Inventory2,
+                        iconColor = BrandBlue,
+                        iconBg = BrandBlueBg,
+                        modifier = Modifier.testTag("sheet_purchase_return"),
+                        onClick = {
+                            showQuickAddSheet = false
+                            viewModel.openReturnsScreen(ReturnTypes.PURCHASE_RETURN, null)
                         }
                     )
 
@@ -856,6 +911,113 @@ fun HomeScreen(
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
+        }
+
+        // ==========================================
+        // ModalBottomSheet: مركز تنبيهات وإشعارات المحل
+        // ==========================================
+        if (showNotificationsSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showNotificationsSheet = false },
+                containerColor = Color.White,
+                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                modifier = Modifier.testTag("store_notifications_sheet")
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 12.dp)
+                        .navigationBarsPadding(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "مركز تنبيهات المحل",
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF0F172A),
+                                    fontSize = 18.sp
+                                )
+                            )
+                            Text(
+                                text = "يراقب نواقص البضاعة، الديون المستحقة، الأمان، وحالة الوردية تلقائياً",
+                                style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF64748B), fontSize = 12.sp)
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (storeAlerts.isEmpty()) FintechEmeraldBg else FintechRoseBg
+                        ) {
+                            Text(
+                                text = if (storeAlerts.isEmpty()) "آمن ✓" else "${storeAlerts.size} تنبيه",
+                                color = if (storeAlerts.isEmpty()) FintechEmerald else FintechRose,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = SlateBorder)
+
+                    if (storeAlerts.isEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = FintechEmeraldBg,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, FintechEmeraldBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = FintechEmerald,
+                                    modifier = Modifier.size(30.dp)
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        text = "وضع المحل ممتاز ولا توجد تنبيهات عاجلة",
+                                        fontWeight = FontWeight.Bold,
+                                        color = FintechEmerald,
+                                        fontSize = 14.sp
+                                    )
+                                    Text(
+                                        text = "يظهر هنا أي صنف نفد أو قارب على النفاد، الديون المتأخرة أو المستحقة، تنبيهات رمز المدير، والورديات المفتوحة طويلاً.",
+                                        fontSize = 12.sp,
+                                        color = SlateTextSecondary
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        storeAlerts.forEach { alert ->
+                            QuickSheetActionRow(
+                                title = alert.title,
+                                subtitle = alert.message,
+                                icon = alert.icon,
+                                iconColor = alert.accentColor,
+                                iconBg = alert.containerColor,
+                                onClick = {
+                                    showNotificationsSheet = false
+                                    onNavigate(alert.targetScreen)
+                                }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
                 }
             }
         }
@@ -1504,4 +1666,145 @@ fun PdfMovementRow(movement: CashDrawerMovement) {
             )
         }
     }
+}
+
+internal data class StoreAlertItem(
+    val id: String,
+    val title: String,
+    val message: String,
+    val icon: ImageVector,
+    val accentColor: Color,
+    val containerColor: Color,
+    val targetScreen: AppScreen
+)
+
+internal fun buildStoreAlerts(
+    products: List<ProductItem>,
+    debts: List<DebtRecord>,
+    totalCustomerDebts: Double,
+    totalSupplierDebts: Double,
+    isPinConfigured: Boolean,
+    activeShift: CashDrawerShift?,
+    cashBalance: Double,
+    nowMillis: Long = System.currentTimeMillis()
+): List<StoreAlertItem> {
+    val list = mutableListOf<StoreAlertItem>()
+
+    if (!isPinConfigured) {
+        list.add(
+            StoreAlertItem(
+                id = "pin_missing",
+                title = "رمز حماية المدير (PIN) غير مضبوط",
+                message = "اضبط رمز المدير الآن لحماية الأرصدة الافتتاحية والنسخ الاحتياطي والحذف.",
+                icon = Icons.Default.Lock,
+                accentColor = FintechRose,
+                containerColor = FintechRoseBg,
+                targetScreen = AppScreen.SETTINGS
+            )
+        )
+    }
+
+    val outOfStock = products.count { it.quantity <= 0 }
+    if (outOfStock > 0) {
+        list.add(
+            StoreAlertItem(
+                id = "out_of_stock",
+                title = "أصناف نافدة من المخزن ($outOfStock صنف)",
+                message = "يوجد $outOfStock صنف رصيده صفر حالياً — اضغط لمراجعة المخزون وتوريد كميات.",
+                icon = Icons.Default.WarningAmber,
+                accentColor = FintechRose,
+                containerColor = FintechRoseBg,
+                targetScreen = AppScreen.INVENTORY
+            )
+        )
+    }
+
+    val lowStock = products.count { it.quantity in 1..3 }
+    if (lowStock > 0) {
+        list.add(
+            StoreAlertItem(
+                id = "low_stock",
+                title = "أصناف قاربت على النفاد ($lowStock صنف)",
+                message = "رصيدها 3 قطع أو أقل بالمخزن — يوصى بإعادة التوريد قريباً.",
+                icon = Icons.Default.Inventory2,
+                accentColor = FintechAmber,
+                containerColor = FintechAmberBg,
+                targetScreen = AppScreen.INVENTORY
+            )
+        )
+    }
+
+    val overdueCustomerDebts = debts.filter {
+        it.type == "CUSTOMER" && !it.isSettled && it.dueDate > 0L && it.dueDate < nowMillis
+    }
+    if (overdueCustomerDebts.isNotEmpty()) {
+        val overdueSum = overdueCustomerDebts.sumOf { it.remainingAmount }
+        list.add(
+            StoreAlertItem(
+                id = "overdue_debts",
+                title = "ديون عملاء حلّ موعد استحقاقها (${overdueCustomerDebts.size})",
+                message = "مبالغ متأخرة بقيمة ${FormatUtils.formatCurrency(overdueSum)} تستحق المتابعة والتحصيل.",
+                icon = Icons.Default.EventBusy,
+                accentColor = FintechRose,
+                containerColor = FintechRoseBg,
+                targetScreen = AppScreen.DEBTS
+            )
+        )
+    } else if (totalCustomerDebts > 0.01) {
+        list.add(
+            StoreAlertItem(
+                id = "open_customer_debts",
+                title = "مبالغ آجلة لنا عند العملاء",
+                message = "إجمالي المستحق تحصيله من العملاء: ${FormatUtils.formatCurrency(totalCustomerDebts)}.",
+                icon = Icons.Default.People,
+                accentColor = PdfGoldDark,
+                containerColor = GoldContainer,
+                targetScreen = AppScreen.DEBTS
+            )
+        )
+    }
+
+    if (totalSupplierDebts > 0.01) {
+        list.add(
+            StoreAlertItem(
+                id = "open_supplier_debts",
+                title = "مستحقات آجلة للموردين",
+                message = "إجمالي المطلوب سداده للموردين: ${FormatUtils.formatCurrency(totalSupplierDebts)}.",
+                icon = Icons.Default.LocalShipping,
+                accentColor = BrandBlue,
+                containerColor = BrandBlueBg,
+                targetScreen = AppScreen.DEBTS
+            )
+        )
+    }
+
+    if (activeShift != null && (nowMillis - activeShift.openedAt) > 24L * 60L * 60L * 1000L) {
+        list.add(
+            StoreAlertItem(
+                id = "long_shift",
+                title = "وردية الصندوق مفتوحة منذ أكثر من 24 ساعة",
+                message = "يُفضل جرد وإغلاق الوردية الحالية وبدء وردية جديدة لضبط الحساب اليومي.",
+                icon = Icons.Default.Schedule,
+                accentColor = FintechAmber,
+                containerColor = FintechAmberBg,
+                targetScreen = AppScreen.CASH_DRAWER
+            )
+        )
+    }
+
+    if (cashBalance < -0.01) {
+        list.add(
+            StoreAlertItem(
+                id = "negative_cash",
+                title = "تنبيه: رصيد الصندوق بالسالب",
+                message = "الرصيد الحالي ${FormatUtils.formatCurrency(cashBalance)} — يرجى مراجعة حركات الصندوق والرصيد الافتتاحي.",
+                icon = Icons.Default.ErrorOutline,
+                accentColor = FintechRose,
+                containerColor = FintechRoseBg,
+                targetScreen = AppScreen.CASH_DRAWER
+            )
+        )
+    }
+
+    return list
 }

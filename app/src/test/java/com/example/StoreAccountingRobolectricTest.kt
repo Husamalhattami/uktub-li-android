@@ -15,6 +15,11 @@ import com.example.ui.util.InvoiceHelper
 import com.example.ui.util.PinSecurityManager
 import com.example.ui.util.StatementHelper
 import com.example.ui.util.StatementMode
+import android.app.Application
+import android.os.Looper
+import com.example.ui.AppScreen
+import com.example.ui.StoreViewModel
+import com.example.ui.screens.buildStoreAlerts
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.runBlocking
@@ -22,6 +27,7 @@ import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import org.robolectric.Shadows.shadowOf
 import org.junit.runner.RunWith
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -1951,5 +1957,597 @@ class StoreAccountingRobolectricTest {
             settings = StoreSettings(shopNameAr = "متجر النور")
         )
         assertTrue(empPdf.exists() && empPdf.length() > 50L)
+    }
+
+    @Test
+    @Config(sdk = [36], shadows = [TestPdfDocumentShadow::class, TestPdfDocumentPageShadow::class])
+    fun testInvoiceBasedSaleAndPurchaseReturnsVaryingPricesSettlementsGuardsAndReports() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dao = db.storeDao()
+
+        // 1. Setup Opening Cash, Exchange Account, Supplier, Customer, and Two Purchase Invoices at Different Buy Prices
+        repository.setOpeningCashBalance(
+            amount = 20_000.0,
+            replaceExistingBalance = true,
+            notes = "رصيد افتتاحي للاختبار"
+        )
+        val accId = repository.saveOpeningExchangeAccount(
+            name = "بنك الكريمي",
+            type = "حساب بنكي",
+            accountNumber = "100200",
+            phone = "770000100",
+            openingBalance = 15_000.0
+        )
+
+        val customerId = dao.insertParty(
+            PartyAccount(type = "CUSTOMER", name = "أحمد السالمي", phone = "771001001", address = "صنعاء")
+        )
+        val supplierId = dao.insertParty(
+            PartyAccount(type = "SUPPLIER", name = "معمل الأناقة", phone = "772002002", address = "عدن")
+        )
+
+        // Purchase 1: 10 pcs @ 100 buy, 200 sell (credit/debt 1000)
+        val pur1Id = repository.recordPurchase(
+            supplierName = "معمل الأناقة",
+            category = "بدل",
+            modelName = "بدلة رسمية",
+            color = "كحلي",
+            size = ClothingSizes.BIG,
+            unit = ClothingUnits.PIECE,
+            unitCount = 10.0,
+            buyPricePerUnit = 100.0,
+            sellPricePerUnit = 200.0,
+            paidAmount = 0.0,
+            invoiceNumber = "PUR-PRICE-1",
+            paymentMethod = "آجل (دين)",
+            barcode = "",
+            notes = "دفعة أولى بسعر 100",
+            colorsCount = 1,
+            colorDetails = "كحلي"
+        )
+        // Purchase 2: 6 pcs @ 140 buy, 260 sell (paid 240 cash, remaining 600 debt)
+        val pur2Id = repository.recordPurchase(
+            supplierName = "معمل الأناقة",
+            category = "بدل",
+            modelName = "بدلة رسمية",
+            color = "كحلي",
+            size = ClothingSizes.BIG,
+            unit = ClothingUnits.PIECE,
+            unitCount = 6.0,
+            buyPricePerUnit = 140.0,
+            sellPricePerUnit = 260.0,
+            paidAmount = 240.0,
+            invoiceNumber = "PUR-PRICE-2",
+            paymentMethod = "نقداً (كاش)",
+            barcode = "",
+            notes = "دفعة ثانية بسعر 140",
+            colorsCount = 1,
+            colorDetails = "كحلي"
+        )
+        val cashAfterPurchases = dao.getAvailableCashBalance()
+        assertEquals(19_760.0, cashAfterPurchases, 0.01)
+
+        var product = dao.getAllProductsDirect().first { it.modelName == "بدلة رسمية" }
+        assertEquals(16, product.quantity)
+
+        // 2. Two Sales Invoices to same customer at DIFFERENT net unit prices
+        // Sale Invoice A (INV-PRICE-1): 5 pcs @ 200 with 100 discount => net total 900 => 180.0 / pc (on credit/debt)
+        val sale1 = repository.executeSale(
+            product = product,
+            quantity = 5,
+            sellPrice = 200.0,
+            discount = 100.0,
+            customerName = "أحمد السالمي",
+            customerPhone = "771001001",
+            paymentType = "آجل (دين)",
+            employee = null,
+            customInvoiceNumber = "INV-PRICE-1"
+        )
+        // Sale Invoice B (INV-PRICE-2): 3 pcs @ 260, no discount => 260.0 / pc (cash)
+        product = dao.getProductById(product.id)!!
+        val sale2 = repository.executeSale(
+            product = product,
+            quantity = 3,
+            sellPrice = 260.0,
+            discount = 0.0,
+            customerName = "أحمد السالمي",
+            customerPhone = "771001001",
+            paymentType = "نقداً (كاش)",
+            employee = null,
+            customInvoiceNumber = "INV-PRICE-2"
+        )
+        // Now update catalog product sellPrice to 999.0 to ensure returns NEVER read catalog price!
+        dao.updateProduct(dao.getProductById(product.id)!!.copy(sellPrice = 999.0, buyPrice = 888.0))
+        assertEquals(8, dao.getProductById(product.id)!!.quantity)
+        assertEquals(20_540.0, dao.getAvailableCashBalance(), 0.01) // 19760 + 780
+
+        // 3. Partial Sale Return on INV-PRICE-1 (2 pcs out of 5 => must value at 2 * 180 = 360.0, settled as debt deduction)
+        val saleRet1 = repository.executeSaleReturn(
+            originalInvoiceKey = "INV-PRICE-1",
+            lines = listOf(ReturnLineRequest(originalLineId = sale1.id, returnQuantity = 2)),
+            settlementMethod = ReturnSettlementMethods.DEBT_DEDUCTION,
+            debtReducedAmount = 360.0,
+            notes = "مرتجع جزئي من الفاتورة الأولى"
+        )
+        assertEquals(360.0, saleRet1.totalReturnAmount, 0.01)
+        assertEquals(180.0, saleRet1.records.first().unitSellPrice, 0.01)
+        assertEquals(10, dao.getProductById(product.id)!!.quantity)
+        // Customer debt from sale1 was 900 -> after 360 return deduction should be 540 remaining
+        val sale1Debt = dao.getAllDebtsDirect().first { it.referenceSaleId == sale1.id }
+        assertEquals(540.0, sale1Debt.remainingAmount, 0.01)
+        assertEquals(360.0, sale1Debt.paidAmount, 0.01)
+
+        // Over-returning remaining qty (asking 4 when only 3 remain) must fail
+        var overReturnFailed = false
+        try {
+            repository.executeSaleReturn(
+                originalInvoiceKey = "INV-PRICE-1",
+                lines = listOf(ReturnLineRequest(originalLineId = sale1.id, returnQuantity = 4)),
+                settlementMethod = ReturnSettlementMethods.CASH,
+                cashAmount = 720.0
+            )
+        } catch (_: IllegalStateException) {
+            overReturnFailed = true
+        }
+        assertTrue("Over-returning remaining quantity must be blocked", overReturnFailed)
+
+        // Modifying or deleting original sale invoice INV-PRICE-1 while return exists must be blocked
+        var deleteReturnedSaleFailed = false
+        try {
+            repository.deleteSaleInvoice("INV-PRICE-1")
+        } catch (_: IllegalStateException) {
+            deleteReturnedSaleFailed = true
+        }
+        assertTrue("Deleting original invoice with active return must be blocked", deleteReturnedSaleFailed)
+
+        // Partial Sale Return on INV-PRICE-2 (1 pc @ 260.0 refunded via transfer from exchange account)
+        val saleRet2 = repository.executeSaleReturn(
+            originalInvoiceKey = "INV-PRICE-2",
+            lines = listOf(ReturnLineRequest(originalLineId = sale2.id, returnQuantity = 1)),
+            settlementMethod = ReturnSettlementMethods.TRANSFER,
+            transferAmount = 260.0,
+            exchangeAccount = dao.getExchangeAccountById(accId)!!,
+            notes = "استبدال مالي بحوالة"
+        )
+        assertEquals(260.0, saleRet2.totalReturnAmount, 0.01)
+        assertEquals(14_740.0, dao.getExchangeAccountById(accId)!!.balance, 0.01)
+        assertEquals(11, dao.getProductById(product.id)!!.quantity)
+
+        // Generate Return PDF & WhatsApp text
+        val returnPdf = InvoiceHelper.generateReturnReceiptPdf(
+            context = context,
+            records = saleRet1.records,
+            settings = StoreSettings(shopNameAr = "متجر النور", currency = "ريال")
+        )
+        assertTrue(returnPdf.exists() && returnPdf.length() > 50L)
+        val returnPdfContent = returnPdf.readText(Charsets.UTF_8)
+        assertTrue(
+            "Return PDF must finish at least 1 page",
+            Regex("FinishedPages=(\\d+)").find(returnPdfContent)?.groupValues?.get(1)?.toIntOrNull()?.let { it >= 1 } == true
+        )
+        val whatsappText = StatementHelper.formatReturnReceiptText(saleRet1.records, StoreSettings(shopNameAr = "متجر النور"))
+        assertTrue(whatsappText.contains(saleRet1.returnNumber))
+        assertTrue(whatsappText.contains("INV-PRICE-1"))
+
+        // 4. Purchase Return on PUR-PRICE-2 (3 pcs out of 6 @ exact 140.0/pc => 420.0, settled as debt deduction on supplier)
+        val purRet1 = repository.executePurchaseReturn(
+            originalInvoiceKey = "PUR-PRICE-2",
+            lines = listOf(ReturnLineRequest(originalLineId = pur2Id, returnQuantity = 3)),
+            settlementMethod = ReturnSettlementMethods.DEBT_DEDUCTION,
+            debtReducedAmount = 420.0,
+            notes = "إرجاع مقاسات زائدة بسعر الشراء 140"
+        )
+        assertEquals(420.0, purRet1.totalReturnAmount, 0.01)
+        assertEquals(140.0, purRet1.records.first().unitBuyPrice, 0.01)
+        assertEquals(8, dao.getProductById(product.id)!!.quantity) // 11 - 3 = 8
+        val pur2Debt = dao.getAllDebtsDirect().first { it.referencePurchaseId == pur2Id }
+        assertEquals(180.0, pur2Debt.remainingAmount, 0.01) // 600 - 420
+
+        // Trying to purchase-return 9 pcs from PUR-PRICE-1 when only 8 exist in stock must fail
+        var insufficientStockPurReturnFailed = false
+        try {
+            repository.executePurchaseReturn(
+                originalInvoiceKey = "PUR-PRICE-1",
+                lines = listOf(ReturnLineRequest(originalLineId = pur1Id, returnQuantity = 9)),
+                settlementMethod = ReturnSettlementMethods.DEBT_DEDUCTION,
+                debtReducedAmount = 900.0
+            )
+        } catch (_: IllegalStateException) {
+            insufficientStockPurReturnFailed = true
+        }
+        assertTrue("Purchase return exceeding stock must fail", insufficientStockPurReturnFailed)
+
+        // 5. Verify DailyReportSummary & Party Statements reflect Net Sales / Net Purchases & Returns accurately
+        val customerStmt = StatementHelper.buildPartyStatement(
+            party = dao.getPartyById(customerId)!!,
+            sales = dao.getAllSalesDirect(),
+            purchases = dao.getAllPurchasesDirect(),
+            debts = dao.getAllDebtsDirect(),
+            payments = dao.getAllDebtPaymentsDirect(),
+            returns = dao.getAllReturnsDirect()
+        )
+        assertEquals(2, customerStmt.returnsCount)
+        assertEquals(540.0, customerStmt.netBalance, 0.01)
+
+        val supplierStmt = StatementHelper.buildPartyStatement(
+            party = dao.getPartyById(supplierId)!!,
+            sales = dao.getAllSalesDirect(),
+            purchases = dao.getAllPurchasesDirect(),
+            debts = dao.getAllDebtsDirect(),
+            payments = dao.getAllDebtPaymentsDirect(),
+            returns = dao.getAllReturnsDirect()
+        )
+        assertEquals(1, supplierStmt.returnsCount)
+        assertEquals(1_180.0, supplierStmt.netBalance, 0.01) // 1000 (PUR-1) + 180 (PUR-2)
+
+        val dailySummary = StatementHelper.buildDailyReportSummary(
+            periodTitle = "الكل",
+            filteredSales = dao.getAllSalesDirect(),
+            filteredPurchases = dao.getAllPurchasesDirect(),
+            filteredExpenses = dao.getAllExpensesDirect(),
+            filteredEmployeeTx = dao.getAllEmployeeTransactionsDirect(),
+            filteredPayments = dao.getAllDebtPaymentsDirect(),
+            allDebts = dao.getAllDebtsDirect(),
+            allProducts = dao.getAllProductsDirect(),
+            currentCashBalance = dao.getAvailableCashBalance(),
+            currentExchangeBalance = dao.getExchangeAccountById(accId)!!.balance,
+            filteredReturns = dao.getAllReturnsDirect()
+        )
+        // Gross sales = 900 + 780 = 1680; Sale returns = 360 + 260 = 620 => Net sales = 1060
+        assertEquals(1_060.0, dailySummary.totalSales, 0.01)
+        assertEquals(620.0, dailySummary.salesReturnsTotal, 0.01)
+        // Net purchases = (1000 + 840) - 420 = 1420
+        assertEquals(1_420.0, dailySummary.totalPurchases, 0.01)
+        assertEquals(420.0, dailySummary.purchaseReturnsTotal, 0.01)
+
+        // 6. Deleting Returns reverses stock, exchange balance, and restores debts cleanly
+        repository.deleteReturn(saleRet2.returnNumber)
+        assertEquals(15_000.0, dao.getExchangeAccountById(accId)!!.balance, 0.01)
+        assertEquals(7, dao.getProductById(product.id)!!.quantity) // 8 - 1
+
+        repository.deleteReturn(saleRet1.returnNumber)
+        assertEquals(900.0, dao.getAllDebtsDirect().first { it.referenceSaleId == sale1.id }.remainingAmount, 0.01)
+        assertEquals(5, dao.getProductById(product.id)!!.quantity) // 7 - 2
+
+        repository.deleteReturn(purRet1.returnNumber)
+        assertEquals(600.0, dao.getAllDebtsDirect().first { it.referencePurchaseId == pur2Id }.remainingAmount, 0.01)
+        assertEquals(8, dao.getProductById(product.id)!!.quantity) // 5 + 3
+        assertEquals(0, dao.getAllReturnsDirect().size)
+    }
+
+    @Test
+    fun testBackupV11ReturnsRoundTripAndLegacyV10Compatibility() = runBlocking {
+        val dao = db.storeDao()
+        repository.setOpeningCashBalance(amount = 10_000.0, replaceExistingBalance = true)
+        val accId = repository.saveOpeningExchangeAccount(
+            name = "صرافة الأمل",
+            type = "صراف",
+            accountNumber = "555666",
+            phone = "770123123",
+            openingBalance = 8_000.0
+        )
+        dao.insertParty(PartyAccount(type = "CUSTOMER", name = "سمير العميل", phone = "771222333"))
+        dao.insertParty(PartyAccount(type = "SUPPLIER", name = "شركة الوفاء", phone = "774555666"))
+
+        val purId = repository.recordPurchase(
+            supplierName = "شركة الوفاء",
+            category = "ملابس",
+            modelName = "جاكيت جلد",
+            color = "بني",
+            size = ClothingSizes.YOUTH,
+            unit = ClothingUnits.PIECE,
+            unitCount = 10.0,
+            buyPricePerUnit = 150.0,
+            sellPricePerUnit = 250.0,
+            paidAmount = 1500.0,
+            invoiceNumber = "PUR-BK-1",
+            paymentMethod = "نقداً (كاش)",
+            barcode = "",
+            notes = "",
+            colorsCount = 1,
+            colorDetails = "بني",
+            cashPaidPart = 1500.0
+        )
+        val prod = dao.getAllProductsDirect().first()
+        val sale = repository.executeSale(
+            product = prod,
+            quantity = 4,
+            sellPrice = 240.0,
+            discount = 0.0,
+            customerName = "سمير العميل",
+            customerPhone = "771222333",
+            paymentType = "نقداً (كاش)",
+            employee = null,
+            customInvoiceNumber = "INV-BK-1"
+        )
+
+        // Cash sale return (creates CashDrawerMovement with referenceReturnId)
+        val saleRet = repository.executeSaleReturn(
+            originalInvoiceKey = "INV-BK-1",
+            lines = listOf(ReturnLineRequest(sale.id, 1)),
+            settlementMethod = ReturnSettlementMethods.CASH,
+            cashAmount = 240.0
+        )
+        // Transfer purchase return
+        val purRet = repository.executePurchaseReturn(
+            originalInvoiceKey = "PUR-BK-1",
+            lines = listOf(ReturnLineRequest(purId, 2)),
+            settlementMethod = ReturnSettlementMethods.TRANSFER,
+            transferAmount = 300.0,
+            exchangeAccount = dao.getExchangeAccountById(accId)!!
+        )
+
+        val expectedCash = dao.getAvailableCashBalance()
+        val expectedExchange = dao.getExchangeAccountById(accId)!!.balance
+        val expectedStock = dao.getProductById(prod.id)!!.quantity
+        val expectedReturnCount = dao.getAllReturnsDirect().size
+        assertEquals(2, expectedReturnCount)
+
+        // Export v11 backup and verify preview counts
+        val backupJson = BackupManager.createBackupJsonString(repository)
+        val parsed = BackupManager.validateAndParseBackup(backupJson).getOrThrow()
+        assertEquals(11, parsed.preview.version)
+        assertEquals(2, parsed.preview.returnRecordsCount)
+
+        // Wipe database completely and restore from backup
+        repository.clearEverythingCompletely(clearConfigDictionaries = true)
+        assertEquals(0, dao.getAllReturnsDirect().size)
+        repository.restoreFullBackupSnapshot(parsed.snapshot)
+
+        assertEquals(expectedCash, dao.getAvailableCashBalance(), 0.01)
+        assertEquals(expectedExchange, dao.getExchangeAccountById(accId)!!.balance, 0.01)
+        assertEquals(expectedStock, dao.getProductById(prod.id)!!.quantity)
+        val restoredReturns = dao.getAllReturnsDirect()
+        assertEquals(2, restoredReturns.size)
+        assertTrue(restoredReturns.any { it.returnNumber == saleRet.returnNumber && it.unitSellPrice == 240.0 })
+        assertTrue(restoredReturns.any { it.returnNumber == purRet.returnNumber && it.unitBuyPrice == 150.0 })
+        val restoredRetCash = dao.getAllCashMovementsDirect().find { it.referenceReturnId == restoredReturns.first { r -> r.returnNumber == saleRet.returnNumber }.id }
+        assertNotNull("Restored CashDrawerMovement must preserve referenceReturnId", restoredRetCash)
+
+        // Legacy v10 compatibility: JSON without returnRecords array and version=10 must still parse and restore
+        val legacyJsonObj = org.json.JSONObject(backupJson).apply {
+            put("version", 10)
+            remove("returnRecords")
+        }
+        val legacyParsed = BackupManager.validateAndParseBackup(legacyJsonObj.toString()).getOrThrow()
+        assertEquals(0, legacyParsed.preview.returnRecordsCount)
+        repository.clearEverythingCompletely(clearConfigDictionaries = true)
+        repository.restoreFullBackupSnapshot(legacyParsed.snapshot)
+        assertEquals(0, dao.getAllReturnsDirect().size)
+        assertEquals(1, dao.getAllProductsDirect().size)
+    }
+
+    @Test
+    fun testBackstackNavigationAndOpeningBalanceSessionLock() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val vm = StoreViewModel(app)
+        // Drive MainLooper cleanly until init completes (avoids blocking Main with runBlocking(Dispatchers.Main))
+        repeat(80) {
+            shadowOf(Looper.getMainLooper()).idle()
+            if (!vm.isInitialized.value) Thread.sleep(25)
+        }
+        assertTrue("StoreViewModel should finish init", vm.isInitialized.value)
+
+        // Complete setup via completeInitialSetup so _isSetupCompleted & settings DB are updated cleanly
+        vm.completeInitialSetup(
+            settings = StoreSettings(shopNameAr = "متجر التجربة", isSetupCompleted = true),
+            rawManagerPin = "4829",
+            categories = listOf("ملابس"),
+            sizes = listOf("كبير"),
+            expenseCategories = listOf("كهرباء"),
+            accountTypes = listOf("صراف"),
+            colors = listOf("أسود"),
+            roles = listOf("بائع"),
+            targetScreenAfterSetup = AppScreen.HOME
+        )
+        repeat(80) {
+            shadowOf(Looper.getMainLooper()).idle()
+            if (vm.currentScreen.value != AppScreen.HOME) Thread.sleep(25)
+        }
+
+        vm.navigateTo(AppScreen.HOME, resetToRoot = true)
+        assertEquals(AppScreen.HOME, vm.currentScreen.value)
+        assertFalse("Back at root HOME must return false", vm.navigateBack())
+
+        // Navigate: HOME -> INVENTORY -> TRANSACTIONS_LOG -> RETURNS
+        vm.navigateTo(AppScreen.INVENTORY)
+        vm.navigateTo(AppScreen.TRANSACTIONS_LOG)
+        vm.navigateTo(AppScreen.RETURNS)
+        assertEquals(AppScreen.RETURNS, vm.currentScreen.value)
+
+        assertTrue(vm.navigateBack())
+        assertEquals(AppScreen.TRANSACTIONS_LOG, vm.currentScreen.value)
+        assertTrue(vm.navigateBack())
+        assertEquals(AppScreen.INVENTORY, vm.currentScreen.value)
+        assertTrue(vm.navigateBack())
+        assertEquals(AppScreen.HOME, vm.currentScreen.value)
+        assertFalse(vm.navigateBack())
+
+        // Navigate: HOME -> SETTINGS -> OPENING_BALANCES (with authorized session)
+        vm.navigateTo(AppScreen.SETTINGS)
+        vm.authorizeOpeningBalancesSession()
+        vm.navigateTo(AppScreen.OPENING_BALANCES)
+        assertEquals(AppScreen.OPENING_BALANCES, vm.currentScreen.value)
+        assertTrue(vm.openingBalancesAuthorized.value)
+
+        // Back from OPENING_BALANCES must go back to SETTINGS (not HOME) and must auto-revoke session lock
+        assertTrue(vm.navigateBack())
+        assertEquals(AppScreen.SETTINGS, vm.currentScreen.value)
+        assertFalse("Leaving OPENING_BALANCES must revoke opening-balances session lock", vm.openingBalancesAuthorized.value)
+
+        // Navigate: SETTINGS -> SETUP -> Back must return to SETTINGS (not exit app!)
+        vm.openSetupWizard()
+        assertEquals(AppScreen.SETUP, vm.currentScreen.value)
+        assertTrue("Navigating back from SETUP opened via SETTINGS must succeed", vm.navigateBack())
+        assertEquals(AppScreen.SETTINGS, vm.currentScreen.value)
+
+        // Finally back to HOME
+        assertTrue(vm.navigateBack())
+        assertEquals(AppScreen.HOME, vm.currentScreen.value)
+        assertFalse(vm.navigateBack())
+    }
+
+    @Test
+    fun testBuildStoreAlertsDetectsAndClearsConditions() {
+        val now = 1_800_000_000_000L
+        val healthyAlerts = buildStoreAlerts(
+            products = listOf(
+                ProductItem(
+                    id = 1,
+                    category = "بدل",
+                    modelName = "بدلة ممتازة",
+                    color = "أسود",
+                    size = ClothingSizes.BIG,
+                    unit = ClothingUnits.PIECE,
+                    quantity = 12,
+                    buyPrice = 100.0,
+                    sellPrice = 180.0
+                )
+            ),
+            debts = emptyList(),
+            totalCustomerDebts = 0.0,
+            totalSupplierDebts = 0.0,
+            isPinConfigured = true,
+            activeShift = CashDrawerShift(id = 1, openedAt = now - 2_000_000L, openingBalance = 1000.0),
+            cashBalance = 2500.0,
+            nowMillis = now
+        )
+        assertTrue("Healthy store must have 0 alerts", healthyAlerts.isEmpty())
+
+        val alertList = buildStoreAlerts(
+            products = listOf(
+                ProductItem(id = 1, category = "قمصان", modelName = "صنف منتهي", color = "أبيض", size = "كبير", unit = "حبه", quantity = 0, buyPrice = 50.0, sellPrice = 80.0),
+                ProductItem(id = 2, category = "قمصان", modelName = "صنف منخفض", color = "أزرق", size = "وسط", unit = "حبه", quantity = 2, buyPrice = 50.0, sellPrice = 80.0)
+            ),
+            debts = listOf(
+                DebtRecord(
+                    id = 10,
+                    type = "CUSTOMER",
+                    partyName = "عميل متأخر",
+                    originalAmount = 500.0,
+                    paidAmount = 0.0,
+                    remainingAmount = 500.0,
+                    dueDate = now - 86_400_000L,
+                    isSettled = false
+                )
+            ),
+            totalCustomerDebts = 500.0,
+            totalSupplierDebts = 300.0,
+            isPinConfigured = false,
+            activeShift = CashDrawerShift(id = 2, openedAt = now - 30L * 3_600_000L, openingBalance = 500.0),
+            cashBalance = -150.0,
+            nowMillis = now
+        )
+        val alertIds = alertList.map { it.id }.toSet()
+        assertTrue(alertIds.contains("pin_missing"))
+        assertTrue(alertIds.contains("out_of_stock"))
+        assertTrue(alertIds.contains("low_stock"))
+        assertTrue(alertIds.contains("overdue_debts"))
+        assertTrue(alertIds.contains("open_supplier_debts"))
+        assertTrue(alertIds.contains("long_shift"))
+        assertTrue(alertIds.contains("negative_cash"))
+    }
+
+    @Test
+    @Config(sdk = [36], shadows = [TestPdfDocumentShadow::class, TestPdfDocumentPageShadow::class])
+    fun testUnifiedSaleAndPurchaseInvoicePdfsSingleAndMultiPage() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val settings = StoreSettings(
+            shopNameAr = "أزياء النخبة",
+            phone = "771234567",
+            address = "صنعاء - شارع حدة",
+            currency = "ريال",
+            invoiceFooter = "شكراً لتسوقكم معنا"
+        )
+
+        val saleItems = List(34) { idx ->
+            InvoiceHelper.PdfSaleLineItem(
+                name = "ثوب مطرز موديل رقم ${idx + 1}",
+                details = "مقاس: كبير • لون: كحلي",
+                quantity = 2,
+                unit = "حبة",
+                unitPrice = 4500.0,
+                total = 9000.0
+            )
+        }
+        val salePdf = InvoiceHelper.generateSaleInvoicePdf(
+            context = context,
+            invoiceNumber = "INV-TEST-MULTI",
+            customerName = "عميل النخبة",
+            customerPhone = "770000111",
+            employeeName = "بائع المحل",
+            paymentType = "مختلط (نقد + تحويل + دين)",
+            items = saleItems,
+            subtotal = 306_000.0,
+            discount = 6_000.0,
+            netTotal = 300_000.0,
+            cashPaid = 150_000.0,
+            transferPaid = 100_000.0,
+            debtAmount = 50_000.0,
+            exchangeAccountName = "الكريمي",
+            transferRef = "TR-1234",
+            timestamp = System.currentTimeMillis(),
+            settings = settings,
+            previousDebt = 12_000.0
+        )
+        assertTrue(salePdf.exists() && salePdf.length() > 50L)
+        val salePages = Regex("FinishedPages=(\\d+)").find(salePdf.readText(Charsets.UTF_8))?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        assertTrue("34-item sale invoice should span at least 2 pages, got $salePages", salePages >= 2)
+
+        val purchaseRecord = PurchaseRecord(
+            id = 55,
+            supplierName = "معمل الشام",
+            category = "ملابس",
+            modelName = "بنطلون كلاسيك",
+            color = "رمادي",
+            size = "وسط",
+            unit = "درزن",
+            unitCount = 3.0,
+            quantity = 36,
+            unitBuyPrice = 1200.0,
+            unitSellPrice = 1800.0,
+            totalCost = 43_200.0,
+            paidAmount = 43_200.0,
+            remainingDebt = 0.0,
+            invoiceNumber = "PUR-SINGLE-55",
+            paymentMethod = "نقداً (كاش)",
+            cashPaid = 43_200.0,
+            notes = "ملاحظة اختبارية طويلة للتأكد من التفاف النص داخل صندوق ملخص فاتورة الشراء الموحد دون أي قص أو خروج عن الإطار."
+        )
+        val singlePurchasePdf = InvoiceHelper.generatePurchaseInvoicePdf(context, purchaseRecord, settings)
+        assertTrue(singlePurchasePdf.exists() && singlePurchasePdf.length() > 50L)
+
+        val multiPurchaseItems = List(32) { idx ->
+            CartPurchaseItem(
+                category = "ملابس",
+                modelName = "صنف شراء ${idx + 1}",
+                color = "أسود",
+                size = "كبير",
+                unit = "حبه",
+                unitCount = 5.0,
+                buyPricePerUnit = 1000.0,
+                sellPricePerUnit = 1500.0,
+                notes = ""
+            )
+        }
+        val multiPurchasePdf = InvoiceHelper.generateMultiItemPurchaseInvoicePdf(
+            context = context,
+            invoiceNumber = "PUR-MULTI-32",
+            supplierName = "شركة الإيمان",
+            paymentMethod = "آجل + تحويل",
+            exchangeAccountName = "الكريمي",
+            transferRef = "TR-9988",
+            items = multiPurchaseItems,
+            totalCost = 160_000.0,
+            cashPaid = 0.0,
+            transferPaid = 60_000.0,
+            debtAmount = 100_000.0,
+            timestamp = System.currentTimeMillis(),
+            settings = settings,
+            notes = "ملاحظة توريد متعددة الأسطر للتحقق من تنسيق ملخص المشتريات"
+        )
+        assertTrue(multiPurchasePdf.exists() && multiPurchasePdf.length() > 50L)
+        val purPages = Regex("FinishedPages=(\\d+)").find(multiPurchasePdf.readText(Charsets.UTF_8))?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        assertTrue("32-item purchase invoice should span at least 2 pages, got $purPages", purPages >= 2)
     }
 }

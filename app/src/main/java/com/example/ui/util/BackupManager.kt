@@ -31,13 +31,15 @@ data class BackupPreview(
     val exchangeTransfersCount: Int,
     val auditLogsCount: Int,
     val hasStoreSettings: Boolean,
-    val configItemsCount: Int
+    val configItemsCount: Int,
+    val returnRecordsCount: Int = 0
 ) {
     val totalRecords: Int
         get() = productsCount + salesCount + purchasesCount + expensesCount +
             employeesCount + employeeTransactionsCount + partiesCount + debtsCount +
             debtPaymentsCount + shiftsCount + cashMovementsCount + exchangeAccountsCount +
-            exchangeTransfersCount + auditLogsCount + (if (hasStoreSettings) 1 else 0) + configItemsCount
+            exchangeTransfersCount + auditLogsCount + (if (hasStoreSettings) 1 else 0) + configItemsCount +
+            returnRecordsCount
 }
 
 data class ParsedBackupData(
@@ -47,7 +49,7 @@ data class ParsedBackupData(
 
 object BackupManager {
 
-    const val CURRENT_BACKUP_VERSION = 10
+    const val CURRENT_BACKUP_VERSION = 11
 
     suspend fun createBackupJsonString(repository: StoreRepository): String {
         val snap = repository.exportFullBackupSnapshot()
@@ -280,6 +282,7 @@ object BackupManager {
                     put("referencePurchaseId", cm.referencePurchaseId ?: JSONObject.NULL)
                     put("referenceExpenseId", cm.referenceExpenseId ?: JSONObject.NULL)
                     put("referenceEmployeeTxId", cm.referenceEmployeeTxId ?: JSONObject.NULL)
+                    put("referenceReturnId", cm.referenceReturnId ?: JSONObject.NULL)
                 })
             }
         })
@@ -362,6 +365,41 @@ object BackupManager {
                     put("type", item.type)
                     put("name", item.name)
                     put("createdAt", item.createdAt)
+                })
+            }
+        })
+
+        root.put("returnRecords", JSONArray().apply {
+            snap.returnRecords.forEach { rr ->
+                put(JSONObject().apply {
+                    put("id", rr.id)
+                    put("returnType", rr.returnType)
+                    put("returnNumber", rr.returnNumber)
+                    put("originalInvoiceNumber", rr.originalInvoiceNumber)
+                    put("originalLineId", rr.originalLineId)
+                    put("productId", rr.productId)
+                    put("productName", rr.productName)
+                    put("category", rr.category)
+                    put("color", rr.color)
+                    put("size", rr.size)
+                    put("unit", rr.unit)
+                    put("quantity", rr.quantity)
+                    put("unitBuyPrice", rr.unitBuyPrice)
+                    put("unitSellPrice", rr.unitSellPrice)
+                    put("totalAmount", rr.totalAmount)
+                    put("profitAdjustment", rr.profitAdjustment)
+                    put("partyName", rr.partyName)
+                    put("partyPhone", rr.partyPhone)
+                    put("settlementMethod", rr.settlementMethod)
+                    put("cashAmount", rr.cashAmount)
+                    put("transferAmount", rr.transferAmount)
+                    put("debtReducedAmount", rr.debtReducedAmount)
+                    put("surplusCreditAmount", rr.surplusCreditAmount)
+                    put("exchangeAccountId", rr.exchangeAccountId)
+                    put("exchangeAccountName", rr.exchangeAccountName)
+                    put("notes", rr.notes)
+                    put("timestamp", rr.timestamp)
+                    put("shiftId", rr.shiftId)
                 })
             }
         })
@@ -460,6 +498,11 @@ object BackupManager {
                 }
                 if (!root.has("storeSettings")) {
                     throw IllegalArgumentException("ملف النسخة الاحتياطية ناقص: قسم إعدادات المحل غير موجود.")
+                }
+            }
+            if (version >= 11) {
+                if (!root.has("returnRecords") || root.isNull("returnRecords") || root.optJSONArray("returnRecords") == null) {
+                    throw IllegalArgumentException("ملف النسخة الاحتياطية ناقص: القسم (returnRecords) غير موجود أو تالف.")
                 }
             }
 
@@ -748,7 +791,8 @@ object BackupManager {
                             referenceSaleId = optNullableLong(obj, "referenceSaleId"),
                             referencePurchaseId = optNullableLong(obj, "referencePurchaseId"),
                             referenceExpenseId = optNullableLong(obj, "referenceExpenseId"),
-                            referenceEmployeeTxId = optNullableLong(obj, "referenceEmployeeTxId")
+                            referenceEmployeeTxId = optNullableLong(obj, "referenceEmployeeTxId"),
+                            referenceReturnId = optNullableLong(obj, "referenceReturnId")
                         )
                     )
                 }
@@ -834,6 +878,47 @@ object BackupManager {
                 }
             }
 
+            val returnRecords = mutableListOf<ReturnRecord>()
+            root.optJSONArray("returnRecords")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val qty = obj.getInt("quantity")
+                    if (qty <= 0) throw IllegalArgumentException("كمية مرتجع غير صالحة في السجل #${i + 1}")
+                    returnRecords.add(
+                        ReturnRecord(
+                            id = obj.optLong("id", 0L),
+                            returnType = obj.getString("returnType"),
+                            returnNumber = obj.optString("returnNumber", ""),
+                            originalInvoiceNumber = obj.optString("originalInvoiceNumber", ""),
+                            originalLineId = obj.optLong("originalLineId", 0L),
+                            productId = obj.optLong("productId", 0L),
+                            productName = obj.optString("productName", ""),
+                            category = obj.optString("category", ""),
+                            color = obj.optString("color", ""),
+                            size = obj.optString("size", ""),
+                            unit = obj.optString("unit", ClothingUnits.PIECE),
+                            quantity = qty,
+                            unitBuyPrice = requireFiniteDouble(obj, "unitBuyPrice", 0.0),
+                            unitSellPrice = requireFiniteDouble(obj, "unitSellPrice", 0.0),
+                            totalAmount = requireFiniteDouble(obj, "totalAmount", 0.0),
+                            profitAdjustment = requireFiniteDouble(obj, "profitAdjustment", 0.0, allowNegative = true),
+                            partyName = obj.optString("partyName", ""),
+                            partyPhone = obj.optString("partyPhone", ""),
+                            settlementMethod = obj.optString("settlementMethod", ""),
+                            cashAmount = requireFiniteDouble(obj, "cashAmount", 0.0),
+                            transferAmount = requireFiniteDouble(obj, "transferAmount", 0.0),
+                            debtReducedAmount = requireFiniteDouble(obj, "debtReducedAmount", 0.0),
+                            surplusCreditAmount = requireFiniteDouble(obj, "surplusCreditAmount", 0.0),
+                            exchangeAccountId = obj.optLong("exchangeAccountId", 0L),
+                            exchangeAccountName = obj.optString("exchangeAccountName", ""),
+                            notes = obj.optString("notes", ""),
+                            timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
+                            shiftId = obj.optLong("shiftId", 0L)
+                        )
+                    )
+                }
+            }
+
             // Referential integrity checks for relational backup consistency
             if (version >= 10) {
                 val debtIds = debts.map { it.id }.toSet()
@@ -875,7 +960,8 @@ object BackupManager {
                 exchangeTransfersCount = exchangeTransfers.size,
                 auditLogsCount = auditLogs.size,
                 hasStoreSettings = storeSettings != null,
-                configItemsCount = configItems.size
+                configItemsCount = configItems.size,
+                returnRecordsCount = returnRecords.size
             )
 
             ParsedBackupData(
@@ -896,7 +982,8 @@ object BackupManager {
                     exchangeTransfers = exchangeTransfers,
                     auditLogs = auditLogs,
                     storeSettings = storeSettings,
-                    configItems = configItems
+                    configItems = configItems,
+                    returnRecords = returnRecords
                 )
             )
         }

@@ -75,19 +75,114 @@ fun OpeningBalancesScreen(
         allCategories.filter { it != "الكل" && it.isNotBlank() }
     }
 
+    val isAuthorized by viewModel.openingBalancesAuthorized.collectAsStateWithLifecycle()
+    var showPinPrompt by remember(isAuthorized) { mutableStateOf(!isAuthorized) }
     var selectedTab by remember { mutableStateOf(OpeningBalanceTab.CASH) }
 
     Scaffold(
         topBar = {
             StoreTopBar(
                 title = "الأرصدة الافتتاحية للمحل",
-                subtitle = "إدخال ما في الصندوق والمخزن والحسابات بدون خصم",
+                subtitle = if (isAuthorized) "إدخال ما في الصندوق والمخزن والحسابات بدون خصم" else "منطقة محمية بصلاحية المدير",
                 showBackButton = true,
                 activeShift = activeShift,
                 onBackClick = onBack
             )
         }
     ) { paddingValues ->
+        if (!isAuthorized) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .background(SlateBg)
+                    .padding(20.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Card(
+                    modifier = Modifier
+                        .widthIn(max = 460.dp)
+                        .fillMaxWidth()
+                        .testTag("opening_balances_locked_card"),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, SlateBorder)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = PdfHeaderNavy.copy(alpha = 0.08f),
+                            modifier = Modifier.size(64.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = PdfHeaderNavy,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "الأرصدة الافتتاحية محمية برمز المدير",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 17.sp,
+                            color = SlateTextPrimary
+                        )
+                        Text(
+                            text = "لا يُسمح بدخول أو تعديل أرصدة الصندوق والمخزن والعملاء والموردين إلا للمدير أو المسؤول بعد تأكيد رمز الحماية (PIN).",
+                            fontSize = 13.sp,
+                            color = SlateTextSecondary,
+                            lineHeight = 20.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Button(
+                            onClick = { showPinPrompt = true },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = PdfHeaderNavy),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .testTag("btn_unlock_opening_balances")
+                        ) {
+                            Icon(Icons.Default.VerifiedUser, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("إدخال رمز المدير للفتح", fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = onBack,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                        ) {
+                            Text("رجوع للصفحة السابقة", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            if (showPinPrompt) {
+                PinVerificationDialog(
+                    viewModel = viewModel,
+                    title = "تحقق صلاحية المدير",
+                    subtitle = "أدخل رمز المدير للوصول إلى الأرصدة الافتتاحية وتعديلها",
+                    onDismiss = { showPinPrompt = false },
+                    onVerified = {
+                        showPinPrompt = false
+                        viewModel.authorizeOpeningBalancesSession()
+                    }
+                )
+            }
+            return@Scaffold
+        }
+
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()

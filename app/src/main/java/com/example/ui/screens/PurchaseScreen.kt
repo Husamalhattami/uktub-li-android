@@ -1327,34 +1327,116 @@ fun PurchaseScreen(
             )
 
             Card(
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("المورد:", fontSize = 12.sp, color = Color(0xFF64748B))
-                        Text(receipt.supplierName, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
-                    }
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("عدد الأصناف:", fontSize = 12.sp, color = Color(0xFF64748B))
-                        Text("${receipt.items.size} أصناف", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                    if (receipt.transferRef.isNotBlank()) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("رقم الحوالة:", fontSize = 12.sp, color = Color(0xFF0F766E))
-                            Text("#${receipt.transferRef}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F766E))
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(PdfHeaderNavy)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = storeSettings?.shopNameAr?.ifBlank { "متجري" } ?: "متجري",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
+                            Text(
+                                text = FormatUtils.formatDateTime(receipt.timestamp),
+                                fontSize = 11.sp,
+                                color = Color(0xFF93C5FD)
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = PdfGoldPrimary.copy(alpha = 0.2f)
+                        ) {
+                            Text(
+                                text = "شراء #${receipt.invoiceNumber}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = PdfGoldPrimary,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
                         }
                     }
-                    if (receipt.debtAmount > 0) {
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp)
+                    ) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("الآجل للمورد:", fontSize = 12.sp, color = Color(0xFFDC2626))
-                            Text(FormatUtils.formatCurrency(receipt.debtAmount), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                            Text("المورد:", fontSize = 12.sp, color = Color(0xFF64748B))
+                            Text(receipt.supplierName, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("طريقة السداد:", fontSize = 12.sp, color = Color(0xFF64748B))
+                            Text(receipt.paymentMethod, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                        }
+                        if (receipt.cashPaid > 0.01) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("المدفوع كاش:", fontSize = 11.sp, color = Color(0xFF64748B))
+                                Text(FormatUtils.formatCurrency(receipt.cashPaid), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
+                            }
+                        }
+                        if (receipt.transferPaid > 0.01) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("حوالة (${receipt.exchangeAccountName.ifBlank { "صراف" }}):", fontSize = 11.sp, color = Color(0xFF64748B))
+                                Text(FormatUtils.formatCurrency(receipt.transferPaid), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F766E))
+                            }
+                        }
+                        if (receipt.transferRef.isNotBlank()) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("رقم الحوالة:", fontSize = 11.sp, color = Color(0xFF0F766E))
+                                Text("#${receipt.transferRef}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F766E))
+                            }
+                        }
+                        if (receipt.debtAmount > 0.01) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("الآجل للمورد:", fontSize = 12.sp, color = Color(0xFFDC2626))
+                                Text(FormatUtils.formatCurrency(receipt.debtAmount), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                            }
+                        }
+
+                        HorizontalDivider(color = Color(0xFFE2E8F0))
+                        Text("الأصناف المستلمة (${receipt.items.size}):", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF334155))
+                        receipt.items.forEachIndexed { idx, line ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (idx % 2 == 0) Color(0xFFF8FAFC) else Color.White,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("${line.modelName} (${line.category})", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                                        Text(
+                                            "${line.size} | ${line.color} • ${line.totalPieces} حبة",
+                                            fontSize = 10.sp,
+                                            color = Color(0xFF64748B)
+                                        )
+                                    }
+                                    Text(
+                                        text = FormatUtils.formatCurrency(line.lineCost),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0F172A)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
