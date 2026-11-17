@@ -13,6 +13,10 @@ import com.example.ui.util.ClothingUnits
 import com.example.ui.util.FormatUtils
 import com.example.ui.util.InvoiceHelper
 import com.example.ui.util.PinSecurityManager
+import com.example.ui.util.EmployeeLedgerEntry
+import com.example.ui.util.EmployeeStatementSummary
+import com.example.ui.util.PartyLedgerEntry
+import com.example.ui.util.PartyStatementSummary
 import com.example.ui.util.StatementHelper
 import com.example.ui.util.StatementMode
 import android.app.Application
@@ -2549,5 +2553,142 @@ class StoreAccountingRobolectricTest {
         assertTrue(multiPurchasePdf.exists() && multiPurchasePdf.length() > 50L)
         val purPages = Regex("FinishedPages=(\\d+)").find(multiPurchasePdf.readText(Charsets.UTF_8))?.groupValues?.get(1)?.toIntOrNull() ?: 0
         assertTrue("32-item purchase invoice should span at least 2 pages, got $purPages", purPages >= 2)
+    }
+
+    @Test
+    @Config(sdk = [36], shadows = [TestPdfDocumentShadow::class, TestPdfDocumentPageShadow::class])
+    fun testFramedPartyStatementsVouchersAndEmployeeSummaryPdfs() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val settings = StoreSettings(
+            shopNameAr = "الجرادي للملابس الجاهزة",
+            phone = "772602211",
+            address = "صنعاء باب السلام أمام مدرسة الحسن الهمداني",
+            currency = "ريال",
+            invoiceFooter = "تم إصداره آلياً"
+        )
+        val customer = PartyAccount(id = 1, type = "CUSTOMER", name = "حسام الحطامي", phone = "778383570")
+
+        // 1. Single-entry party statement (matches screenshot scenario) + empty + SUMMARY + 35-entry multi-page
+        val singleEntrySummary = PartyStatementSummary(
+            party = customer,
+            isCustomer = true,
+            entries = listOf(
+                PartyLedgerEntry(
+                    timestamp = System.currentTimeMillis(),
+                    title = "رصيد افتتاحي سابق على العميل",
+                    subDetails = "حالة السجل: مفتوح",
+                    debit = 10_000.0,
+                    credit = 0.0,
+                    runningBalance = 10_000.0,
+                    kind = "DEBT"
+                )
+            ),
+            totalOnParty = 10_000.0,
+            totalForParty = 0.0,
+            netBalance = 10_000.0,
+            invoicesCount = 0,
+            paymentsCount = 0,
+            unsettledDebtsCount = 1
+        )
+        val singleStmtPdf = InvoiceHelper.generatePartyStatementPdf(context, singleEntrySummary, StatementMode.DETAILED, settings)
+        assertTrue(singleStmtPdf.exists() && singleStmtPdf.length() > 50L)
+
+        val emptyStmtPdf = InvoiceHelper.generatePartyStatementPdf(
+            context,
+            singleEntrySummary.copy(entries = emptyList(), totalOnParty = 0.0, netBalance = 0.0, unsettledDebtsCount = 0),
+            StatementMode.DETAILED,
+            settings
+        )
+        assertTrue(emptyStmtPdf.exists() && emptyStmtPdf.length() > 50L)
+
+        val summaryStmtPdf = InvoiceHelper.generatePartyStatementPdf(context, singleEntrySummary, StatementMode.SUMMARY, settings)
+        assertTrue(summaryStmtPdf.exists() && summaryStmtPdf.length() > 50L)
+
+        val multiPartyEntries = List(35) { idx ->
+            PartyLedgerEntry(
+                timestamp = System.currentTimeMillis() - idx * 86_400_000L,
+                title = "فاتورة مبيعات رقم INV-${100 + idx}",
+                subDetails = "بيع آجل تفصيلي للعميل",
+                debit = 1_000.0,
+                credit = 0.0,
+                runningBalance = (idx + 1) * 1_000.0,
+                kind = "INVOICE"
+            )
+        }
+        val multiStmtPdf = InvoiceHelper.generatePartyStatementPdf(
+            context,
+            singleEntrySummary.copy(entries = multiPartyEntries, totalOnParty = 35_000.0, netBalance = 35_000.0, invoicesCount = 35),
+            StatementMode.DETAILED,
+            settings
+        )
+        assertTrue(multiStmtPdf.exists() && multiStmtPdf.length() > 50L)
+        val partyPages = Regex("FinishedPages=(\\d+)").find(multiStmtPdf.readText(Charsets.UTF_8))?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        assertTrue("35-entry party statement should span >= 2 pages, got $partyPages", partyPages >= 2)
+
+        // 2. Employee statement SUMMARY & multi-page DETAILED
+        val emp = Employee(id = 7, name = "أحمد محمد", role = "بائع", baseSalary = 120_000.0, salaryType = "شهري", commissionPercent = 5.0)
+        val empEntries = List(35) { idx ->
+            EmployeeLedgerEntry(
+                timestamp = System.currentTimeMillis() - idx * 86_400_000L,
+                title = "صرفية يومية رقم ${idx + 1}",
+                type = "صرفية يومية",
+                creditEarned = 0.0,
+                debitTaken = 1_000.0,
+                runningBalance = 120_000.0 - (idx + 1) * 1_000.0
+            )
+        }
+        val empSummary = EmployeeStatementSummary(
+            employee = emp,
+            salesCount = 12,
+            totalSalesAmount = 200_000.0,
+            commissionEarned = 10_000.0,
+            bonuses = 5_000.0,
+            advances = 20_000.0,
+            dailyStipends = 35_000.0,
+            deductions = 2_000.0,
+            salaryPaid = 0.0,
+            totalEarned = 135_000.0,
+            totalDeductedAndPaid = 57_000.0,
+            remainingBalance = 78_000.0,
+            entries = empEntries
+        )
+        val empSummaryPdf = InvoiceHelper.generateEmployeeStatementPdf(context, empSummary, StatementMode.SUMMARY, settings)
+        assertTrue(empSummaryPdf.exists() && empSummaryPdf.length() > 50L)
+        val empMultiPdf = InvoiceHelper.generateEmployeeStatementPdf(context, empSummary, StatementMode.DETAILED, settings)
+        assertTrue(empMultiPdf.exists() && empMultiPdf.length() > 50L)
+        val empPages = Regex("FinishedPages=(\\d+)").find(empMultiPdf.readText(Charsets.UTF_8))?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        assertTrue("35-entry employee statement should span >= 2 pages, got $empPages", empPages >= 2)
+
+        // 3. Collection & Supplier Payment Voucher PDFs
+        val collectionPdf = InvoiceHelper.generateCollectionVoucherPdf(
+            context,
+            CollectionReceiptResult(
+                voucherNumber = "RCV-2026-01",
+                payerName = "حسام الحطامي",
+                amount = 10_000.0,
+                paymentMethod = "نقداً",
+                appliedToDebtAmount = 10_000.0,
+                remainingCustomerDebt = 0.0,
+                notes = "سداد كامل الرصيد الافتتاحي"
+            ),
+            settings
+        )
+        assertTrue(collectionPdf.exists() && collectionPdf.length() > 50L)
+
+        val supplierPayPdf = InvoiceHelper.generateSupplierPaymentVoucherPdf(
+            context,
+            SupplierPaymentReceiptResult(
+                voucherNumber = "PAY-2026-01",
+                supplierName = "معمل الأناقة",
+                amount = 50_000.0,
+                paymentMethod = "صرافة / محفظة",
+                exchangeAccountName = "الكريمي",
+                appliedToDebtAmount = 50_000.0,
+                remainingSupplierDebt = 50_000.0,
+                notes = "دفعة من حساب المورد"
+            ),
+            settings
+        )
+        assertTrue(supplierPayPdf.exists() && supplierPayPdf.length() > 50L)
     }
 }

@@ -259,7 +259,7 @@ fun ExchangeAccountsScreen(
                     )
                 }
 
-                items(transfers.take(15)) { tx ->
+                items(transfers.take(15), key = { it.id }) { tx ->
                     ExchangeTransferRow(tx)
                 }
             }
@@ -314,7 +314,7 @@ fun ExchangeAccountsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                items(commonPresets) { preset ->
+                items(commonPresets, key = { it }) { preset ->
                     val isSelected = name == preset
                     FilterChip(
                         selected = isSelected,
@@ -346,7 +346,7 @@ fun ExchangeAccountsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                items(accountTypes) { typeOpt ->
+                items(accountTypes, key = { it }) { typeOpt ->
                     FilterChip(
                         selected = accType == typeOpt,
                         onClick = { accType = typeOpt },

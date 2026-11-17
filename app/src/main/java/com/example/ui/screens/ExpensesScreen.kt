@@ -354,7 +354,7 @@ fun ExpensesScreen(
                             Text("لا يوجد عمال مسجلون حالياً! يرجى إضافة العامل في قسم العمال أولاً.", fontSize = 11.sp, color = Color(0xFFDC2626))
                         } else {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                items(employees) { emp ->
+                                items(employees, key = { it.id }) { emp ->
                                     val isSel = selectedEmployee?.id == emp.id
                                     FilterChip(
                                         selected = isSel,
@@ -442,7 +442,7 @@ fun ExpensesScreen(
                     Text("لا توجد حسابات صرافة مضافة بعد.", color = FintechRose, fontSize = 11.sp)
                 } else {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(exchangeAccounts) { acc ->
+                        items(exchangeAccounts, key = { it.id }) { acc ->
                             val isSelected = selectedExchangeAcc?.id == acc.id
                             FilterChip(
                                 selected = isSelected,
@@ -527,7 +527,7 @@ fun ExpensesScreen(
         ) {
             DialogSectionHeader(title = "نوع المصروف", icon = Icons.Default.Category, accentColor = BrandBlue)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(presetCategories) { c ->
+                items(presetCategories, key = { it }) { c ->
                     val isSel = cat == c
                     FilterChip(
                         selected = isSel,
@@ -589,7 +589,7 @@ fun ExpensesScreen(
                 } else {
                     DialogSectionHeader(title = "اختر حساب الصراف أو المحفظة *", icon = Icons.Default.AccountBalance, accentColor = FintechIndigo)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(accChoices) { acc ->
+                        items(accChoices, key = { it.id }) { acc ->
                             val isSel = selectedExchangeAcc?.id == acc.id
                             FilterChip(
                                 selected = isSel,

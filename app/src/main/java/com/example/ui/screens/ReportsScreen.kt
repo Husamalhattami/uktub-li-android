@@ -47,34 +47,41 @@ fun ReportsScreen(
 
     var selectedPeriod by remember { mutableStateOf("اليوم") } // "اليوم", "أمس", "هذا الأسبوع", "هذا الشهر", "الكل"
 
-    val isYesterday: (Long) -> Boolean = remember {
-        { ts ->
-            val calNow = java.util.Calendar.getInstance()
-            calNow.add(java.util.Calendar.DAY_OF_YEAR, -1)
-            val calTarget = java.util.Calendar.getInstance().apply { timeInMillis = ts }
-            calNow.get(java.util.Calendar.YEAR) == calTarget.get(java.util.Calendar.YEAR) &&
-                    calNow.get(java.util.Calendar.DAY_OF_YEAR) == calTarget.get(java.util.Calendar.DAY_OF_YEAR)
+    val periodRange = remember(selectedPeriod) {
+        val todayStart = FormatUtils.todayStartMillis()
+        val tomorrowStart = FormatUtils.tomorrowStartMillis()
+        when (selectedPeriod) {
+            "اليوم" -> todayStart to tomorrowStart
+            "أمس" -> {
+                val yesterdayStart = java.util.Calendar.getInstance().apply {
+                    timeInMillis = todayStart
+                    add(java.util.Calendar.DAY_OF_YEAR, -1)
+                }.timeInMillis
+                yesterdayStart to todayStart
+            }
+            "هذا الأسبوع" -> (System.currentTimeMillis() - 7L * 86_400_000L) to Long.MAX_VALUE
+            "هذا الشهر" -> {
+                val mStart = FormatUtils.monthStartMillis()
+                val mEnd = java.util.Calendar.getInstance().apply {
+                    timeInMillis = mStart
+                    add(java.util.Calendar.MONTH, 1)
+                }.timeInMillis
+                mStart to mEnd
+            }
+            else -> Long.MIN_VALUE to Long.MAX_VALUE
         }
     }
 
     fun matchesSelectedPeriod(timestamp: Long): Boolean {
-        val now = System.currentTimeMillis()
-        val sevenDaysAgo = now - 7 * 86400000L
-        return when (selectedPeriod) {
-            "اليوم" -> FormatUtils.isToday(timestamp)
-            "أمس" -> isYesterday(timestamp)
-            "هذا الأسبوع" -> timestamp >= sevenDaysAgo
-            "هذا الشهر" -> FormatUtils.isThisMonth(timestamp)
-            else -> true
-        }
+        return timestamp >= periodRange.first && timestamp < periodRange.second
     }
 
-    val filteredSales = remember(sales, selectedPeriod) { sales.filter { matchesSelectedPeriod(it.timestamp) } }
-    val filteredReturns = remember(returns, selectedPeriod) { returns.filter { matchesSelectedPeriod(it.timestamp) } }
-    val filteredPurchases = remember(purchases, selectedPeriod) { purchases.filter { matchesSelectedPeriod(it.timestamp) } }
-    val filteredExpenses = remember(expenses, selectedPeriod) { expenses.filter { matchesSelectedPeriod(it.timestamp) } }
-    val filteredEmployeeTx = remember(employeeTransactions, selectedPeriod) { employeeTransactions.filter { matchesSelectedPeriod(it.timestamp) } }
-    val filteredPayments = remember(debtPayments, selectedPeriod) { debtPayments.filter { matchesSelectedPeriod(it.timestamp) } }
+    val filteredSales = remember(sales, periodRange) { sales.filter { matchesSelectedPeriod(it.timestamp) } }
+    val filteredReturns = remember(returns, periodRange) { returns.filter { matchesSelectedPeriod(it.timestamp) } }
+    val filteredPurchases = remember(purchases, periodRange) { purchases.filter { matchesSelectedPeriod(it.timestamp) } }
+    val filteredExpenses = remember(expenses, periodRange) { expenses.filter { matchesSelectedPeriod(it.timestamp) } }
+    val filteredEmployeeTx = remember(employeeTransactions, periodRange) { employeeTransactions.filter { matchesSelectedPeriod(it.timestamp) } }
+    val filteredPayments = remember(debtPayments, periodRange) { debtPayments.filter { matchesSelectedPeriod(it.timestamp) } }
 
     val reportSummary = remember(
         selectedPeriod,
@@ -212,11 +219,11 @@ fun ReportsScreen(
             ) {
             // Period selector
             item {
-                val periods = listOf("اليوم", "أمس", "هذا الأسبوع", "هذا الشهر", "الكل")
+                val periods = remember { listOf("اليوم", "أمس", "هذا الأسبوع", "هذا الشهر", "الكل") }
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(periods) { period ->
+                    items(periods, key = { it }) { period ->
                         FilterChip(
                             selected = selectedPeriod == period,
                             onClick = { selectedPeriod = period },
@@ -522,7 +529,7 @@ fun ReportsScreen(
                     }
                 }
             } else {
-                items(itemProfitList) { (name, qty, prof) ->
+                items(itemProfitList, key = { it.first }) { (name, qty, prof) ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
@@ -573,7 +580,7 @@ fun ReportsScreen(
                     }
                 }
             } else {
-                items(employeeSalesList) { (empName, total, profit) ->
+                items(employeeSalesList, key = { it.first }) { (empName, total, profit) ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),

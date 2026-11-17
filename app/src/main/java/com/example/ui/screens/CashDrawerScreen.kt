@@ -44,6 +44,7 @@ import com.example.ui.util.InvoiceHelper
 import com.example.ui.util.StatementHelper
 
 data class StatementRow(
+    val rowKey: String,
     val dateStr: String,
     val description: String,
     val accountName: String,
@@ -79,19 +80,27 @@ fun CashDrawerScreen(
 
     var selectedPeriod by remember { mutableStateOf("آخر 7 أيام") } // "اليوم", "أمس", "آخر 7 أيام", "هذا الشهر", "الكل"
 
-    val totalTransferBalance = exchangeAccounts.sumOf { it.balance }
+    val totalTransferBalance = remember(exchangeAccounts) { exchangeAccounts.sumOf { it.balance } }
     val totalAllBalances = cashBalance + totalTransferBalance
 
     // Combined Statement rows (كشف الحساب)
     val statementRows = remember(cashMovements, exchangeTransfers, selectedPeriod) {
         val now = System.currentTimeMillis()
-        val sevenDaysAgo = now - 7 * 86400000L
+        val sevenDaysAgo = now - 7L * 86_400_000L
+        val todayStart = FormatUtils.todayStartMillis()
+        val tomorrowStart = FormatUtils.tomorrowStartMillis()
+        val monthStart = FormatUtils.monthStartMillis()
+        val nextMonthStart = java.util.Calendar.getInstance().apply {
+            timeInMillis = monthStart
+            add(java.util.Calendar.MONTH, 1)
+        }.timeInMillis
 
-        val list = mutableListOf<StatementRow>()
+        val list = ArrayList<StatementRow>(cashMovements.size + exchangeTransfers.size)
 
         cashMovements.forEach { m ->
             list.add(
                 StatementRow(
+                    rowKey = "CASH_${m.id}",
                     dateStr = FormatUtils.formatDate(m.timestamp),
                     description = m.title,
                     accountName = "الصندوق",
@@ -102,24 +111,27 @@ fun CashDrawerScreen(
             )
         }
 
-        exchangeTransfers.filter { !it.isReversed && !it.isReversalEntry }.forEach { t ->
-            list.add(
-                StatementRow(
-                    dateStr = FormatUtils.formatDate(t.timestamp),
-                    description = t.title,
-                    accountName = t.accountName,
-                    isIncome = t.isCredit,
-                    amount = t.amount,
-                    timestamp = t.timestamp
+        exchangeTransfers.forEach { t ->
+            if (!t.isReversed && !t.isReversalEntry) {
+                list.add(
+                    StatementRow(
+                        rowKey = "EX_${t.id}",
+                        dateStr = FormatUtils.formatDate(t.timestamp),
+                        description = t.title,
+                        accountName = t.accountName,
+                        isIncome = t.isCredit,
+                        amount = t.amount,
+                        timestamp = t.timestamp
+                    )
                 )
-            )
+            }
         }
 
         val filtered = list.filter { r ->
             when (selectedPeriod) {
-                "اليوم" -> FormatUtils.isToday(r.timestamp)
+                "اليوم" -> r.timestamp in todayStart until tomorrowStart
                 "آخر 7 أيام" -> r.timestamp >= sevenDaysAgo
-                "هذا الشهر" -> FormatUtils.isThisMonth(r.timestamp)
+                "هذا الشهر" -> r.timestamp in monthStart until nextMonthStart
                 else -> true
             }
         }
@@ -679,7 +691,7 @@ fun CashDrawerScreen(
                     }
                 }
             } else {
-                items(statementRows.take(15)) { row ->
+                items(statementRows.take(15), key = { it.rowKey }) { row ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(0.dp),

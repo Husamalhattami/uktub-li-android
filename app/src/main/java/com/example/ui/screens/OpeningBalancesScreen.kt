@@ -286,7 +286,7 @@ fun OpeningBalancesScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        items(OpeningBalanceTab.entries) { tab ->
+                        items(OpeningBalanceTab.entries, key = { it.name }) { tab ->
                             val isSelected = selectedTab == tab
                             FilterChip(
                                 selected = isSelected,
@@ -561,7 +561,7 @@ private fun OpeningExchangeSection(
                             label = { Text("+ حساب جديد", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                         )
                     }
-                    items(exchangeAccounts) { acc ->
+                    items(exchangeAccounts, key = { it.id }) { acc ->
                         FilterChip(
                             selected = selectedAccountId == acc.id,
                             onClick = { selectAccount(acc) },
@@ -573,7 +573,7 @@ private fun OpeningExchangeSection(
 
             Text("نوع الحساب:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = SlateTextPrimary)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(accountTypes) { typeItem ->
+                items(accountTypes, key = { it }) { typeItem ->
                     FilterChip(
                         selected = selectedType == typeItem,
                         onClick = { selectedType = typeItem },
@@ -821,7 +821,7 @@ private fun OpeningPartySection(
                             }
                         )
                     }
-                    items(parties) { party ->
+                    items(parties, key = { it.id }) { party ->
                         FilterChip(
                             selected = selectedPartyName == party.name,
                             onClick = { selectParty(party) },

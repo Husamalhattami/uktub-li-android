@@ -376,7 +376,7 @@ fun EmployeesScreen(
             )
             DialogSectionHeader(title = "المسمى الوظيفي", icon = Icons.Default.Badge, accentColor = BrandBlue)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(employeeRoles) { roleOpt ->
+                items(employeeRoles, key = { it }) { roleOpt ->
                     FilterChip(
                         selected = role == roleOpt,
                         onClick = { role = roleOpt },
@@ -843,7 +843,7 @@ fun EmployeesScreen(
                     } else {
                         DialogSectionHeader(title = "اختر حساب الصراف أو المحفظة *", icon = Icons.Default.AccountBalance, accentColor = FintechIndigo)
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            items(accChoices) { acc ->
+                            items(accChoices, key = { it.id }) { acc ->
                                 val isSel = selectedExchangeAccount?.id == acc.id
                                 FilterChip(
                                     selected = isSel,
@@ -917,7 +917,7 @@ fun EmployeesScreen(
             )
             DialogSectionHeader(title = "المسمى الوظيفي", icon = Icons.Default.Badge, accentColor = BrandBlue)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(employeeRoles) { roleOpt ->
+                items(employeeRoles, key = { it }) { roleOpt ->
                     FilterChip(
                         selected = role == roleOpt,
                         onClick = { role = roleOpt },

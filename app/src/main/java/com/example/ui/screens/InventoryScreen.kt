@@ -61,8 +61,8 @@ fun InventoryScreen(
     var newCategoryInput by remember { mutableStateOf("") }
 
     val totalItemsCount = products.size
-    val availableCount = products.count { it.quantity > 5 }
-    val lowStockCount = products.count { it.quantity <= 5 }
+    val availableCount = remember(products) { products.count { it.quantity > 5 } }
+    val lowStockCount = remember(products) { products.count { it.quantity <= 5 } }
 
     val filteredProducts = remember(products, searchQuery, selectedCategory) {
         products.filter { prod ->
@@ -257,7 +257,7 @@ fun InventoryScreen(
                             }
                         }
                     }
-                    items(categories) { cat ->
+                    items(categories, key = { it }) { cat ->
                         val isSelected = selectedCategory == cat
                         Surface(
                             shape = RoundedCornerShape(20.dp),

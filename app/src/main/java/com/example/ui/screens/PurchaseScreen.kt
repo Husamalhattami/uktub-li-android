@@ -507,7 +507,7 @@ fun PurchaseScreen(
                         if (supplierParties.isNotEmpty()) {
                             Text("الموردون المسجلون مسبقاً:", fontSize = 11.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Bold)
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                items(supplierParties) { party ->
+                                items(supplierParties, key = { it.id }) { party ->
                                     val isSelected = supplierName.trim().equals(party.name.trim(), ignoreCase = true)
                                     FilterChip(
                                         selected = isSelected,
@@ -605,7 +605,7 @@ fun PurchaseScreen(
                                 }
                             }
 
-                            items(selectableCategories) { cat ->
+                            items(selectableCategories, key = { it }) { cat ->
                                 val isSelected = selectedCategory == cat
                                 FilterChip(
                                     selected = isSelected,
@@ -655,7 +655,7 @@ fun PurchaseScreen(
                                     }
                                 }
                             }
-                            items(dynamicSizes) { sz ->
+                            items(dynamicSizes, key = { it }) { sz ->
                                 val isSel = selectedSize == sz
                                 FilterChip(
                                     selected = isSel,
@@ -764,7 +764,7 @@ fun PurchaseScreen(
                                     }
                                 }
                             }
-                            items(dynamicColors) { col ->
+                            items(dynamicColors, key = { it }) { col ->
                                 val isSelected = selectedColorsSet.contains(col)
                                 FilterChip(
                                     selected = isSelected,
@@ -989,7 +989,7 @@ fun PurchaseScreen(
                         )
 
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(paymentOptions) { opt ->
+                            items(paymentOptions, key = { it }) { opt ->
                                 val isSel = paymentMethod == opt
                                 FilterChip(
                                     selected = isSel,
@@ -1007,7 +1007,7 @@ fun PurchaseScreen(
                         if (needsExchange) {
                             Text("اختر حساب الصراف أو المحفظة المدفوع منها:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F766E))
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(exchangeAccounts) { acc ->
+                                items(exchangeAccounts, key = { it.id }) { acc ->
                                     val isAcc = selectedExchangeAccount?.id == acc.id
                                     FilterChip(
                                         selected = isAcc,

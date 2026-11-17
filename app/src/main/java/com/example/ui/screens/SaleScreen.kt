@@ -58,7 +58,8 @@ data class CartItem(
     val product: ProductItem,
     var quantity: Int,
     var unitPrice: Double,
-    var unit: String = ClothingUnits.PIECE
+    var unit: String = ClothingUnits.PIECE,
+    val uid: String = java.util.UUID.randomUUID().toString()
 ) {
     val multiplier: Int get() = ClothingUnits.getMultiplier(unit)
     val totalPieces: Int get() = quantity * multiplier
@@ -186,10 +187,13 @@ fun SaleScreen(
             return
         }
 
-        val existing = cartItems.find { it.product.id == product.id && it.unit == unit }
-        if (existing != null) {
-            existing.quantity += quantity
-            existing.unitPrice = unitPrice
+        val existingIdx = cartItems.indexOfFirst { it.product.id == product.id && it.unit == unit }
+        if (existingIdx >= 0) {
+            val existing = cartItems[existingIdx]
+            cartItems[existingIdx] = existing.copy(
+                quantity = existing.quantity + quantity,
+                unitPrice = unitPrice
+            )
         } else {
             cartItems.add(CartItem(product = product, quantity = quantity, unitPrice = unitPrice, unit = unit))
         }
@@ -530,7 +534,7 @@ fun SaleScreen(
                                     }
                                 }
                             }
-                            items(categories) { cat ->
+                            items(categories, key = { it }) { cat ->
                                 val isSelected = selectedCategory == cat
                                 Surface(
                                     shape = RoundedCornerShape(20.dp),
@@ -650,32 +654,47 @@ fun SaleScreen(
                                 }
                             }
                         } else {
-                            items(cartItems) { item ->
+                            items(cartItems, key = { it.uid }) { item ->
                                 PdfCartItemRow(
                                     item = item,
                                     onUnitChange = { newUnit ->
                                         val newMultiplier = ClothingUnits.getMultiplier(newUnit)
-                                        val otherPieces = cartItems.filter { it != item && it.product.id == item.product.id }.sumOf { it.totalPieces }
+                                        val otherPieces = cartItems.filter { it.uid != item.uid && it.product.id == item.product.id }.sumOf { it.totalPieces }
                                         if (otherPieces + (item.quantity * newMultiplier) > item.product.quantity) {
                                             viewModel.showMessage("الكمية المطلوبة تتجاوز المتوفر بالمخزون (${item.product.quantity} حبة)!")
                                         } else {
-                                            item.unit = newUnit
-                                            item.unitPrice = item.product.sellPrice * newMultiplier
+                                            val idx = cartItems.indexOfFirst { it.uid == item.uid }
+                                            if (idx >= 0) {
+                                                cartItems[idx] = item.copy(
+                                                    unit = newUnit,
+                                                    unitPrice = item.product.sellPrice * newMultiplier
+                                                )
+                                            }
                                         }
                                     },
                                     onIncrement = {
-                                        val otherPieces = cartItems.filter { it != item && it.product.id == item.product.id }.sumOf { it.totalPieces }
+                                        val otherPieces = cartItems.filter { it.uid != item.uid && it.product.id == item.product.id }.sumOf { it.totalPieces }
                                         if (otherPieces + ((item.quantity + 1) * item.multiplier) <= item.product.quantity) {
-                                            item.quantity++
+                                            val idx = cartItems.indexOfFirst { it.uid == item.uid }
+                                            if (idx >= 0) {
+                                                cartItems[idx] = item.copy(quantity = item.quantity + 1)
+                                            }
                                         } else {
                                             viewModel.showMessage("وصلت للحد الأقصى المتوفر بالمخزون (${item.product.quantity} حبة)!")
                                         }
                                     },
                                     onDecrement = {
-                                        if (item.quantity > 1) item.quantity-- else cartItems.remove(item)
+                                        if (item.quantity > 1) {
+                                            val idx = cartItems.indexOfFirst { it.uid == item.uid }
+                                            if (idx >= 0) {
+                                                cartItems[idx] = item.copy(quantity = item.quantity - 1)
+                                            }
+                                        } else {
+                                            cartItems.removeAll { it.uid == item.uid }
+                                        }
                                     },
                                     onEditPrice = { editingCartItemPrice = item },
-                                    onRemove = { cartItems.remove(item) }
+                                    onRemove = { cartItems.removeAll { it.uid == item.uid } }
                                 )
                             }
                         }
@@ -717,7 +736,7 @@ fun SaleScreen(
 
                                     if (customerParties.isNotEmpty()) {
                                         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            items(customerParties) { party ->
+                                            items(customerParties, key = { it.id }) { party ->
                                                 val isSelected = customerName.trim().equals(party.name.trim(), ignoreCase = true)
                                                 FilterChip(
                                                     selected = isSelected,
@@ -734,7 +753,7 @@ fun SaleScreen(
                                     if (employees.isNotEmpty()) {
                                         Text("البائع / الموظف المسؤول:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF475569))
                                         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            items(employees) { emp ->
+                                            items(employees, key = { it.id }) { emp ->
                                                 val isEmp = selectedEmployee?.id == emp.id
                                                 FilterChip(
                                                     selected = isEmp,
@@ -750,7 +769,7 @@ fun SaleScreen(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        items(listOf("نقداً", "تحويل عبر الصراف", "آجل (دين)", "نصف كاش ونصف حوالة", "مختلط (كاش + حوالة + آجل)")) { pType ->
+                                        items(listOf("نقداً", "تحويل عبر الصراف", "آجل (دين)", "نصف كاش ونصف حوالة", "مختلط (كاش + حوالة + آجل)"), key = { it }) { pType ->
                                             val isPSelected = paymentType == pType
                                             FilterChip(
                                                 selected = isPSelected,
@@ -850,7 +869,7 @@ fun SaleScreen(
                                     if (needsExchangeWide) {
                                         Text("اختر حساب الصراف أو المحفظة المحول إليها:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F766E))
                                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            items(exchangeAccounts) { acc ->
+                                            items(exchangeAccounts, key = { it.id }) { acc ->
                                                 val isAcc = selectedExchangeAccount?.id == acc.id
                                                 FilterChip(
                                                     selected = isAcc,
@@ -1033,7 +1052,7 @@ fun SaleScreen(
                             }
                         }
                     }
-                    items(categories) { cat ->
+                    items(categories, key = { it }) { cat ->
                         val isSelected = selectedCategory == cat
                         Surface(
                             shape = RoundedCornerShape(20.dp),
@@ -1076,7 +1095,7 @@ fun SaleScreen(
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(filteredProducts) { product ->
+                        items(filteredProducts, key = { it.id }) { product ->
                             val inCartPieces = cartItems.filter { it.product.id == product.id }.sumOf { it.totalPieces }
                             PdfProductShelfCard(
                                 product = product,
@@ -1152,36 +1171,47 @@ fun SaleScreen(
                     }
                 }
             } else {
-                items(cartItems) { item ->
+                items(cartItems, key = { it.uid }) { item ->
                     PdfCartItemRow(
                         item = item,
                         onUnitChange = { newUnit ->
                             val newMultiplier = ClothingUnits.getMultiplier(newUnit)
-                            val otherPieces = cartItems.filter { it != item && it.product.id == item.product.id }.sumOf { it.totalPieces }
+                            val otherPieces = cartItems.filter { it.uid != item.uid && it.product.id == item.product.id }.sumOf { it.totalPieces }
                             if (otherPieces + (item.quantity * newMultiplier) > item.product.quantity) {
                                 viewModel.showMessage("الكمية المطلوبة تتجاوز المتوفر بالمخزون (${item.product.quantity} حبة)!")
                             } else {
-                                item.unit = newUnit
-                                item.unitPrice = item.product.sellPrice * newMultiplier
+                                val idx = cartItems.indexOfFirst { it.uid == item.uid }
+                                if (idx >= 0) {
+                                    cartItems[idx] = item.copy(
+                                        unit = newUnit,
+                                        unitPrice = item.product.sellPrice * newMultiplier
+                                    )
+                                }
                             }
                         },
                         onIncrement = {
-                            val otherPieces = cartItems.filter { it != item && it.product.id == item.product.id }.sumOf { it.totalPieces }
+                            val otherPieces = cartItems.filter { it.uid != item.uid && it.product.id == item.product.id }.sumOf { it.totalPieces }
                             if (otherPieces + ((item.quantity + 1) * item.multiplier) <= item.product.quantity) {
-                                item.quantity++
+                                val idx = cartItems.indexOfFirst { it.uid == item.uid }
+                                if (idx >= 0) {
+                                    cartItems[idx] = item.copy(quantity = item.quantity + 1)
+                                }
                             } else {
                                 viewModel.showMessage("وصلت للحد الأقصى المتوفر بالمخزون (${item.product.quantity} حبة)!")
                             }
                         },
                         onDecrement = {
                             if (item.quantity > 1) {
-                                item.quantity--
+                                val idx = cartItems.indexOfFirst { it.uid == item.uid }
+                                if (idx >= 0) {
+                                    cartItems[idx] = item.copy(quantity = item.quantity - 1)
+                                }
                             } else {
-                                cartItems.remove(item)
+                                cartItems.removeAll { it.uid == item.uid }
                             }
                         },
                         onEditPrice = { editingCartItemPrice = item },
-                        onRemove = { cartItems.remove(item) }
+                        onRemove = { cartItems.removeAll { it.uid == item.uid } }
                     )
                 }
             }
@@ -1227,7 +1257,7 @@ fun SaleScreen(
                         // Selectable customer chips
                         if (customerParties.isNotEmpty()) {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                items(customerParties) { party ->
+                                items(customerParties, key = { it.id }) { party ->
                                     val isSelected = customerName.trim().equals(party.name.trim(), ignoreCase = true)
                                     FilterChip(
                                         selected = isSelected,
@@ -1245,7 +1275,7 @@ fun SaleScreen(
                         if (employees.isNotEmpty()) {
                             Text("البائع / الموظف المسؤول:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF475569))
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                items(employees) { emp ->
+                                items(employees, key = { it.id }) { emp ->
                                     val isEmp = selectedEmployee?.id == emp.id
                                     FilterChip(
                                         selected = isEmp,
@@ -1262,7 +1292,7 @@ fun SaleScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            items(listOf("نقداً", "تحويل عبر الصراف", "آجل (دين)", "نصف كاش ونصف حوالة", "مختلط (كاش + حوالة + آجل)")) { pType ->
+                            items(listOf("نقداً", "تحويل عبر الصراف", "آجل (دين)", "نصف كاش ونصف حوالة", "مختلط (كاش + حوالة + آجل)"), key = { it }) { pType ->
                                 val isPSelected = paymentType == pType
                                 FilterChip(
                                     selected = isPSelected,
@@ -1370,7 +1400,7 @@ fun SaleScreen(
                         if (needsExchange) {
                             Text("اختر حساب الصراف أو المحفظة المحول إليها:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F766E))
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(exchangeAccounts) { acc ->
+                                items(exchangeAccounts, key = { it.id }) { acc ->
                                     val isAcc = selectedExchangeAccount?.id == acc.id
                                     FilterChip(
                                         selected = isAcc,
@@ -1951,7 +1981,10 @@ fun SaleScreen(
                 if (p <= 0) {
                     viewModel.showMessage("يرجى إدخال سعر صحيح أكبر من الصفر!")
                 } else {
-                    targetItem.unitPrice = p
+                    val idx = cartItems.indexOfFirst { it.uid == targetItem.uid }
+                    if (idx >= 0) {
+                        cartItems[idx] = targetItem.copy(unitPrice = p)
+                    }
                     editingCartItemPrice = null
                 }
             }

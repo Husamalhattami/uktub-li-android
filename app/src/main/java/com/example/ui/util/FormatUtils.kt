@@ -45,77 +45,106 @@ object ClothingSizes {
 }
 
 object FormatUtils {
-    private val decimalFormat = DecimalFormat("#,##0.##", DecimalFormatSymbols(Locale.US))
-    private val plainInputFormat = DecimalFormat("0.##", DecimalFormatSymbols(Locale.US))
-    private val dateFormat = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault())
-    private val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
-    private val dateTimeFormat = SimpleDateFormat("yyyy/MM/dd hh:mm a", Locale.getDefault())
+    private val decimalFormatTl = ThreadLocal.withInitial {
+        DecimalFormat("#,##0.##", DecimalFormatSymbols(Locale.US))
+    }
+    private val plainInputFormatTl = ThreadLocal.withInitial {
+        DecimalFormat("0.##", DecimalFormatSymbols(Locale.US))
+    }
+    private val dateFormatTl = ThreadLocal.withInitial {
+        SimpleDateFormat("yyyy/MM/dd", Locale.getDefault())
+    }
+    private val timeFormatTl = ThreadLocal.withInitial {
+        SimpleDateFormat("hh:mm a", Locale.getDefault())
+    }
+    private val dateTimeFormatTl = ThreadLocal.withInitial {
+        SimpleDateFormat("yyyy/MM/dd hh:mm a", Locale.getDefault())
+    }
 
     fun formatCurrency(amount: Double, currency: String = "ريال"): String {
         val clean = if (kotlin.math.abs(amount) < 0.005) 0.0 else amount
-        return "${decimalFormat.format(clean)} $currency"
+        return "${decimalFormatTl.get()!!.format(clean)} $currency"
     }
 
     fun formatNumber(number: Long): String {
-        return decimalFormat.format(number)
+        return decimalFormatTl.get()!!.format(number)
     }
 
     fun formatNumber(number: Double): String {
         val clean = if (kotlin.math.abs(number) < 0.005) 0.0 else number
-        return decimalFormat.format(clean)
+        return decimalFormatTl.get()!!.format(clean)
     }
 
     fun formatInputNumber(number: Double): String {
         val clean = if (kotlin.math.abs(number) < 0.005) 0.0 else number
-        return plainInputFormat.format(clean)
+        return plainInputFormatTl.get()!!.format(clean)
     }
 
     fun formatDate(timestamp: Long): String {
         if (timestamp == 0L) return "-"
-        return dateFormat.format(Date(timestamp))
+        return dateFormatTl.get()!!.format(Date(timestamp))
     }
 
     fun formatTime(timestamp: Long): String {
         if (timestamp == 0L) return "-"
-        return timeFormat.format(Date(timestamp))
+        return timeFormatTl.get()!!.format(Date(timestamp))
     }
 
     fun formatDateTime(timestamp: Long): String {
         if (timestamp == 0L) return "-"
-        return dateTimeFormat.format(Date(timestamp))
+        return dateTimeFormatTl.get()!!.format(Date(timestamp))
     }
 
-    fun isToday(timestamp: Long): Boolean {
-        val now = System.currentTimeMillis()
-        return formatDate(now) == formatDate(timestamp)
-    }
-
-    fun isThisMonth(timestamp: Long): Boolean {
-        val monthFormat = SimpleDateFormat("yyyy/MM", Locale.getDefault())
-        val now = System.currentTimeMillis()
-        return monthFormat.format(Date(now)) == monthFormat.format(Date(timestamp))
-    }
-
-    fun isPastDate(timestamp: Long): Boolean {
-        val todayStart = Calendar.getInstance().apply {
+    fun todayStartMillis(): Long {
+        return Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0)
             set(Calendar.MINUTE, 0)
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
-        return timestamp < todayStart
     }
 
-    fun isFutureDate(timestamp: Long): Boolean {
-        val tomorrowStart = Calendar.getInstance().apply {
+    fun tomorrowStartMillis(): Long {
+        return Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0)
             set(Calendar.MINUTE, 0)
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
             add(Calendar.DAY_OF_YEAR, 1)
         }.timeInMillis
-        return timestamp >= tomorrowStart
     }
+
+    fun monthStartMillis(): Long {
+        return Calendar.getInstance().apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+
+    fun isToday(timestamp: Long): Boolean {
+        val start = todayStartMillis()
+        return timestamp in start until (start + 86_400_000L)
+    }
+
+    fun isThisMonth(timestamp: Long): Boolean {
+        val start = monthStartMillis()
+        val end = Calendar.getInstance().apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            add(Calendar.MONTH, 1)
+        }.timeInMillis
+        return timestamp in start until end
+    }
+
+    fun isPastDate(timestamp: Long): Boolean = timestamp < todayStartMillis()
+
+    fun isFutureDate(timestamp: Long): Boolean = timestamp >= tomorrowStartMillis()
 
     fun localTimestampToUtcPickerMillis(localTimestamp: Long): Long {
         val localCal = Calendar.getInstance().apply {

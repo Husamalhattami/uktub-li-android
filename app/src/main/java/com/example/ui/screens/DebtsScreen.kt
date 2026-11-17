@@ -151,6 +151,69 @@ fun DebtsScreen(
         }
     }
 
+    val filteredCustomers = remember(
+        customerParties,
+        searchQuery,
+        filterStatus,
+        customerDebtsMap,
+        partySummariesMap
+    ) {
+        customerParties.filter { party ->
+            val matchQuery = searchQuery.isBlank() ||
+                    party.name.contains(searchQuery, ignoreCase = true) ||
+                    party.phone.contains(searchQuery, ignoreCase = true)
+
+            val pDebts = customerDebtsMap[party.name.trim().lowercase()] ?: emptyList()
+            val openDebt = pDebts.filter { !it.isSettled }.sumOf { it.remainingAmount }
+            val netBal = partySummariesMap[party.id]?.netBalance ?: openDebt
+            val isIndebted = maxOf(openDebt, netBal) > 0.01
+
+            val matchStatus = when (filterStatus) {
+                "INDEBTED" -> isIndebted
+                "SETTLED" -> !isIndebted
+                else -> true
+            }
+            matchQuery && matchStatus
+        }
+    }
+
+    val filteredSuppliers = remember(
+        supplierParties,
+        searchQuery,
+        filterStatus,
+        supplierDebtsMap,
+        partySummariesMap
+    ) {
+        supplierParties.filter { party ->
+            val matchQuery = searchQuery.isBlank() ||
+                    party.name.contains(searchQuery, ignoreCase = true) ||
+                    party.phone.contains(searchQuery, ignoreCase = true)
+
+            val pDebts = supplierDebtsMap[party.name.trim().lowercase()] ?: emptyList()
+            val openDebt = pDebts.filter { !it.isSettled }.sumOf { it.remainingAmount }
+            val netBal = partySummariesMap[party.id]?.netBalance ?: openDebt
+            val isIndebted = maxOf(openDebt, netBal) > 0.01
+
+            val matchStatus = when (filterStatus) {
+                "INDEBTED" -> isIndebted
+                "SETTLED" -> !isIndebted
+                else -> true
+            }
+            matchQuery && matchStatus
+        }
+    }
+
+    val filteredDebts = remember(debts, showSettledDirectDebts, searchQuery) {
+        debts.filter { debt ->
+            val matchSettled = showSettledDirectDebts || !debt.isSettled
+            val matchQuery = searchQuery.isBlank() ||
+                    debt.partyName.contains(searchQuery, ignoreCase = true) ||
+                    debt.details.contains(searchQuery, ignoreCase = true) ||
+                    debt.phone.contains(searchQuery, ignoreCase = true)
+            matchSettled && matchQuery
+        }
+    }
+
     Scaffold(
         topBar = {
             StoreTopBar(
@@ -177,14 +240,24 @@ fun DebtsScreen(
                         }
                     }
                 },
-                icon = { Icon(Icons.Default.PersonAdd, contentDescription = null) },
+                icon = {
+                    Icon(
+                        imageVector = when (selectedTab) {
+                            0 -> Icons.Default.PersonAdd
+                            1 -> Icons.Default.AddBusiness
+                            else -> Icons.Default.AddCard
+                        },
+                        contentDescription = null
+                    )
+                },
                 text = {
                     Text(
-                        when (selectedTab) {
-                            0 -> "فتح حساب عميل (زلط سابقة)"
-                            1 -> "فتح حساب مورد (عليا زلط)"
-                            else -> "تسجيل دين مباشر"
-                        }
+                        text = when (selectedTab) {
+                            0 -> "عميل جديد"
+                            1 -> "مورد جديد"
+                            else -> "دين جديد"
+                        },
+                        fontWeight = FontWeight.Bold
                     )
                 },
                 containerColor = MaterialTheme.colorScheme.primary,
@@ -227,7 +300,7 @@ fun DebtsScreen(
                         ) {
                             Icon(Icons.Default.Payments, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("تحصيل عميل (قبض)", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("قبض من عميل", fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
 
                         Button(
@@ -244,7 +317,7 @@ fun DebtsScreen(
                         ) {
                             Icon(Icons.Default.LocalShipping, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("تسديد مورد (صرف)", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("سداد لمورد", fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -259,6 +332,10 @@ fun DebtsScreen(
                             .weight(1f)
                             .clickable { selectedTab = 0 },
                         shape = RoundedCornerShape(16.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            width = if (selectedTab == 0) 2.dp else 1.dp,
+                            color = if (selectedTab == 0) PdfGoldDark else PdfGoldPrimary.copy(alpha = 0.25f)
+                        ),
                         colors = CardDefaults.cardColors(containerColor = GoldContainer)
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
@@ -275,12 +352,12 @@ fun DebtsScreen(
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = FormatUtils.formatCurrency(totalActiveCustomerDebt),
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = LuxuryGold)
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold, color = LuxuryGold)
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "عليهم زلط ($indebtedCustomersCount عميل مدين)",
-                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, color = LuxuryGold.copy(alpha = 0.8f))
+                                text = "$indebtedCustomersCount عميل عليه حساب",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, color = LuxuryGold.copy(alpha = 0.85f))
                             )
                         }
                     }
@@ -290,6 +367,10 @@ fun DebtsScreen(
                             .weight(1f)
                             .clickable { selectedTab = 1 },
                         shape = RoundedCornerShape(16.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            width = if (selectedTab == 1) 2.dp else 1.dp,
+                            color = if (selectedTab == 1) RubyExpense else RubyExpense.copy(alpha = 0.2f)
+                        ),
                         colors = CardDefaults.cardColors(containerColor = RubyLight)
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
@@ -299,19 +380,19 @@ fun DebtsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text("علينا للموردين", style = MaterialTheme.typography.labelMedium.copy(color = RubyExpense, fontWeight = FontWeight.Bold))
-                                Surface(shape = CircleShape, color = RubyLight) {
+                                Surface(shape = CircleShape, color = RubyExpense.copy(alpha = 0.12f)) {
                                     Icon(Icons.Default.LocalShipping, contentDescription = null, tint = RubyExpense, modifier = Modifier.padding(4.dp).size(16.dp))
                                 }
                             }
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = FormatUtils.formatCurrency(totalActiveSupplierDebt),
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = RubyExpense)
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold, color = RubyExpense)
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "عليا زلط لهم ($indebtedSuppliersCount مورد مستحق)",
-                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, color = RubyExpense.copy(alpha = 0.8f))
+                                text = "$indebtedSuppliersCount مورد له مستحق",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, color = RubyExpense.copy(alpha = 0.85f))
                             )
                         }
                     }
@@ -320,30 +401,37 @@ fun DebtsScreen(
 
             // Tab Navigation
             item {
-                TabRow(
-                    selectedTabIndex = selectedTab,
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = MaterialTheme.colorScheme.primary,
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        text = { Text("العملاء (${customerParties.size})", fontWeight = FontWeight.Bold, fontSize = 13.sp) },
-                        modifier = Modifier.testTag("tab_customer_accounts")
-                    )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        text = { Text("الموردين (${supplierParties.size})", fontWeight = FontWeight.Bold, fontSize = 13.sp) },
-                        modifier = Modifier.testTag("tab_supplier_accounts")
-                    )
-                    Tab(
-                        selected = selectedTab == 2,
-                        onClick = { selectedTab = 2 },
-                        text = { Text("سجل الذمم (${debts.count { !it.isSettled }})", fontWeight = FontWeight.Bold, fontSize = 13.sp) },
-                        modifier = Modifier.testTag("tab_all_debts_log")
-                    )
+                    TabRow(
+                        selectedTabIndex = selectedTab,
+                        containerColor = Color.Transparent,
+                        contentColor = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Tab(
+                            selected = selectedTab == 0,
+                            onClick = { selectedTab = 0 },
+                            text = { Text("العملاء (${customerParties.size})", fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1) },
+                            modifier = Modifier.testTag("tab_customer_accounts")
+                        )
+                        Tab(
+                            selected = selectedTab == 1,
+                            onClick = { selectedTab = 1 },
+                            text = { Text("الموردين (${supplierParties.size})", fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1) },
+                            modifier = Modifier.testTag("tab_supplier_accounts")
+                        )
+                        Tab(
+                            selected = selectedTab == 2,
+                            onClick = { selectedTab = 2 },
+                            text = { Text("سجل الديون (${debts.count { !it.isSettled }})", fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1) },
+                            modifier = Modifier.testTag("tab_all_debts_log")
+                        )
+                    }
                 }
             }
 
@@ -358,7 +446,7 @@ fun DebtsScreen(
                                 when (selectedTab) {
                                     0 -> "ابحث باسم العميل أو رقم الهاتف..."
                                     1 -> "ابحث باسم المورد أو رقم الهاتف..."
-                                    else -> "ابحث في سجل الذمم والفواتير..."
+                                    else -> "ابحث في سجل الديون والفواتير..."
                                 }
                             )
                         },
@@ -432,24 +520,6 @@ fun DebtsScreen(
 
             // Tab 0: Customers Accounts
             if (selectedTab == 0) {
-                val filteredCustomers = customerParties.filter { party ->
-                    val matchQuery = searchQuery.isBlank() ||
-                            party.name.contains(searchQuery, ignoreCase = true) ||
-                            party.phone.contains(searchQuery, ignoreCase = true)
-
-                    val pDebts = customerDebtsMap[party.name.trim().lowercase()] ?: emptyList()
-                    val openDebt = pDebts.filter { !it.isSettled }.sumOf { it.remainingAmount }
-                    val netBal = partySummariesMap[party.id]?.netBalance ?: openDebt
-                    val isIndebted = maxOf(openDebt, netBal) > 0.01
-
-                    val matchStatus = when (filterStatus) {
-                        "INDEBTED" -> isIndebted
-                        "SETTLED" -> !isIndebted
-                        else -> true
-                    }
-                    matchQuery && matchStatus
-                }
-
                 if (filteredCustomers.isEmpty()) {
                     item {
                         Card(
@@ -477,7 +547,7 @@ fun DebtsScreen(
                                 ) {
                                     Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("فتح حساب عميل جديد (تسجيل زلط سابقة)")
+                                    Text("عميل جديد")
                                 }
                             }
                         }
@@ -516,24 +586,6 @@ fun DebtsScreen(
 
             // Tab 1: Suppliers Accounts
             else if (selectedTab == 1) {
-                val filteredSuppliers = supplierParties.filter { party ->
-                    val matchQuery = searchQuery.isBlank() ||
-                            party.name.contains(searchQuery, ignoreCase = true) ||
-                            party.phone.contains(searchQuery, ignoreCase = true)
-
-                    val pDebts = supplierDebtsMap[party.name.trim().lowercase()] ?: emptyList()
-                    val openDebt = pDebts.filter { !it.isSettled }.sumOf { it.remainingAmount }
-                    val netBal = partySummariesMap[party.id]?.netBalance ?: openDebt
-                    val isIndebted = maxOf(openDebt, netBal) > 0.01
-
-                    val matchStatus = when (filterStatus) {
-                        "INDEBTED" -> isIndebted
-                        "SETTLED" -> !isIndebted
-                        else -> true
-                    }
-                    matchQuery && matchStatus
-                }
-
                 if (filteredSuppliers.isEmpty()) {
                     item {
                         Card(
@@ -561,7 +613,7 @@ fun DebtsScreen(
                                 ) {
                                     Icon(Icons.Default.AddBusiness, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("فتح حساب مورد جديد (تسجيل عليا زلط)")
+                                    Text("مورد جديد")
                                 }
                             }
                         }
@@ -600,15 +652,6 @@ fun DebtsScreen(
 
             // Tab 2: Direct Debts Registry
             else {
-                val filteredDebts = debts.filter { debt ->
-                    val matchSettled = showSettledDirectDebts || !debt.isSettled
-                    val matchQuery = searchQuery.isBlank() ||
-                            debt.partyName.contains(searchQuery, ignoreCase = true) ||
-                            debt.details.contains(searchQuery, ignoreCase = true) ||
-                            debt.phone.contains(searchQuery, ignoreCase = true)
-                    matchSettled && matchQuery
-                }
-
                 if (filteredDebts.isEmpty()) {
                     item {
                         Card(
@@ -616,7 +659,7 @@ fun DebtsScreen(
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                         ) {
                             Text(
-                                text = "لا توجد سجلات ذمم أو ديون مطابقة.",
+                                text = "لا توجد ديون أو فواتير آجلة مطابقة.",
                                 modifier = Modifier.padding(24.dp),
                                 style = MaterialTheme.typography.bodyMedium.copy(color = SlateMuted)
                             )
@@ -929,7 +972,7 @@ fun DebtsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        items(exchangeAccounts) { acc ->
+                        items(exchangeAccounts, key = { it.id }) { acc ->
                             FilterChip(
                                 selected = selectedExchangeAcc?.id == acc.id,
                                 onClick = { selectedExchangeAcc = acc },
@@ -1497,43 +1540,101 @@ fun PartyAccountCard(
                     }
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
 
-                // Clear High-Contrast Balance Pill
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = statusBg,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, statusColor.copy(alpha = 0.25f))
+                // Clear High-Contrast Balance Pill + More Options Button in Header Row
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalAlignment = Alignment.End
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = statusBg,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, statusColor.copy(alpha = 0.25f))
                     ) {
-                        Text(
-                            text = statusLabel,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = statusColor,
-                                fontSize = 11.sp
-                            )
-                        )
-                        if (hasDebt || hasSurplusCredit) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                            horizontalAlignment = Alignment.End
+                        ) {
                             Text(
-                                text = FormatUtils.formatCurrency(displayAmount),
-                                style = MaterialTheme.typography.titleSmall.copy(
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = statusColor,
-                                    fontSize = 14.sp
-                                )
-                            )
-                        } else {
-                            Text(
-                                text = "0.00 ✓",
-                                style = MaterialTheme.typography.titleSmall.copy(
+                                text = statusLabel,
+                                style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.Bold,
-                                    color = EmeraldProfit,
-                                    fontSize = 13.sp
+                                    color = statusColor,
+                                    fontSize = 10.5.sp
                                 )
+                            )
+                            if (hasDebt || hasSurplusCredit) {
+                                Text(
+                                    text = FormatUtils.formatCurrency(displayAmount),
+                                    style = MaterialTheme.typography.titleSmall.copy(
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = statusColor,
+                                        fontSize = 13.5.sp
+                                    )
+                                )
+                            } else {
+                                Text(
+                                    text = "0.00 ✓",
+                                    style = MaterialTheme.typography.titleSmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = EmeraldProfit,
+                                        fontSize = 13.sp
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    Box {
+                        IconButton(
+                            onClick = { showOverflowMenu = true },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("btn_more_party_${party.id}")
+                        ) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "المزيد من الخيارات", tint = SlateTextSecondary)
+                        }
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("إضافة دين / رصيد جديد") },
+                                leadingIcon = { Icon(Icons.Default.AddCircleOutline, contentDescription = null, tint = PdfHeaderNavy) },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    onAddDebt()
+                                }
+                            )
+                            if (party.phone.isNotBlank()) {
+                                DropdownMenuItem(
+                                    text = { Text("اتصال بالهاتف (${party.phone})") },
+                                    leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = EmeraldProfit) },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        val intent = Intent(Intent.ACTION_DIAL).apply {
+                                            data = Uri.parse("tel:${party.phone}")
+                                        }
+                                        context.startActivity(intent)
+                                    }
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("تعديل بيانات الحساب") },
+                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = SlateTextSecondary) },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    onEdit()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("حذف الحساب", color = RubyExpense) },
+                                leadingIcon = { Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = RubyExpense) },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    onDelete()
+                                }
                             )
                         }
                     }
@@ -1542,7 +1643,7 @@ fun PartyAccountCard(
 
             HorizontalDivider(color = SlateBorder.copy(alpha = 0.7f))
 
-            // 2. Simple, Accessible 48dp Actions Bar
+            // 2. Simple, Accessible 48dp Actions Bar (Full Uncut Labels)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1552,15 +1653,15 @@ fun PartyAccountCard(
                     onClick = onShowStatement,
                     shape = RoundedCornerShape(12.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, PdfHeaderNavy.copy(alpha = 0.45f)),
-                    contentPadding = PaddingValues(horizontal = 10.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp),
                     modifier = Modifier
-                        .weight(1f)
+                        .weight(1.1f)
                         .heightIn(min = 48.dp)
                         .testTag("btn_statement_${party.id}")
                 ) {
-                    Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = PdfHeaderNavy, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("كشف الحساب", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = PdfHeaderNavy, maxLines = 1)
+                    Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = PdfHeaderNavy, modifier = Modifier.size(17.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text("كشف الحساب", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = PdfHeaderNavy, maxLines = 1, softWrap = false)
                 }
 
                 if (hasDebt) {
@@ -1570,7 +1671,7 @@ fun PartyAccountCard(
                             containerColor = if (isCustomer) EmeraldProfit else RubyExpense
                         ),
                         shape = RoundedCornerShape(12.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
                         modifier = Modifier
                             .weight(1f)
                             .heightIn(min = 48.dp)
@@ -1579,28 +1680,29 @@ fun PartyAccountCard(
                         Icon(
                             imageVector = if (isCustomer) Icons.Default.Download else Icons.Default.Upload,
                             contentDescription = null,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(17.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
                         Text(
                             text = if (isCustomer) "قبض زلط" else "سداد دفعة",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            maxLines = 1
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 } else {
                     FilledTonalButton(
                         onClick = onAddDebt,
                         shape = RoundedCornerShape(12.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
                         modifier = Modifier
                             .weight(1f)
                             .heightIn(min = 48.dp)
                     ) {
-                        Icon(Icons.Default.AddCircleOutline, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("+ قيد دين", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                        Icon(Icons.Default.AddCircleOutline, contentDescription = null, modifier = Modifier.size(17.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text("+ قيد دين", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                     }
                 }
 
@@ -1615,59 +1717,6 @@ fun PartyAccountCard(
                         .testTag("btn_whatsapp_party_${party.id}")
                 ) {
                     Icon(Icons.Default.Forum, contentDescription = "مشاركة كشف الحساب واتساب", modifier = Modifier.size(20.dp))
-                }
-
-                Box {
-                    IconButton(
-                        onClick = { showOverflowMenu = true },
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag("btn_more_party_${party.id}")
-                    ) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "المزيد من الخيارات", tint = SlateTextSecondary)
-                    }
-                    DropdownMenu(
-                        expanded = showOverflowMenu,
-                        onDismissRequest = { showOverflowMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("إضافة دين / رصيد جديد") },
-                            leadingIcon = { Icon(Icons.Default.AddCircleOutline, contentDescription = null, tint = PdfHeaderNavy) },
-                            onClick = {
-                                showOverflowMenu = false
-                                onAddDebt()
-                            }
-                        )
-                        if (party.phone.isNotBlank()) {
-                            DropdownMenuItem(
-                                text = { Text("اتصال بالهاتف (${party.phone})") },
-                                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = EmeraldProfit) },
-                                onClick = {
-                                    showOverflowMenu = false
-                                    val intent = Intent(Intent.ACTION_DIAL).apply {
-                                        data = Uri.parse("tel:${party.phone}")
-                                    }
-                                    context.startActivity(intent)
-                                }
-                            )
-                        }
-                        DropdownMenuItem(
-                            text = { Text("تعديل بيانات الحساب") },
-                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = SlateTextSecondary) },
-                            onClick = {
-                                showOverflowMenu = false
-                                onEdit()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("حذف الحساب", color = RubyExpense) },
-                            leadingIcon = { Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = RubyExpense) },
-                            onClick = {
-                                showOverflowMenu = false
-                                onDelete()
-                            }
-                        )
-                    }
                 }
             }
         }
@@ -1702,7 +1751,7 @@ fun AddOrEditPartyDialog(
     StoreOperationDialog(
         onDismissRequest = onDismiss,
         title = if (isNew) {
-            if (isCustomer) "فتح حساب عميل جديد" else "فتح حساب مورد جديد"
+            if (isCustomer) "عميل جديد" else "مورد جديد"
         } else {
             if (isCustomer) "تعديل بيانات العميل" else "تعديل بيانات المورد"
         },
@@ -2009,7 +2058,7 @@ fun PartyPaymentDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    items(exchangeAccounts) { acc ->
+                    items(exchangeAccounts, key = { it.id }) { acc ->
                         FilterChip(
                             selected = selectedExchangeAcc?.id == acc.id,
                             onClick = { selectedExchangeAcc = acc },
@@ -2551,10 +2600,10 @@ fun DebtItemCard(
                 }
 
                 Row {
-                    IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = onEdit, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Default.Edit, contentDescription = "تعديل", tint = BrandBlue)
                     }
-                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Default.DeleteOutline, contentDescription = "حذف", tint = SlateMuted)
                     }
                 }

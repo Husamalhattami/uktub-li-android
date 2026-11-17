@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
@@ -29,6 +31,8 @@ import java.io.File
 import java.io.FileOutputStream
 
 object LogoHelper {
+
+    private val imageBitmapCache = object : LruCache<String, ImageBitmap>(4) {}
 
     fun saveLogoFromUri(context: Context, uri: Uri, oldLogoPath: String = ""): String? {
         return try {
@@ -71,6 +75,7 @@ object LogoHelper {
 
     fun deleteLogoFile(context: Context, logoPath: String) {
         if (logoPath.isBlank()) return
+        imageBitmapCache.remove(logoPath)
         try {
             val file = File(logoPath)
             val filesDirPath = context.filesDir.canonicalPath
@@ -90,6 +95,15 @@ object LogoHelper {
             null
         }
     }
+
+    fun loadCachedImageBitmap(logoPath: String): ImageBitmap? {
+        if (logoPath.isBlank()) return null
+        imageBitmapCache.get(logoPath)?.let { return it }
+        val bmp = loadLogoBitmap(logoPath) ?: return null
+        val imgBmp = bmp.asImageBitmap()
+        imageBitmapCache.put(logoPath, imgBmp)
+        return imgBmp
+    }
 }
 
 @Composable
@@ -103,7 +117,7 @@ fun StoreLogoBadge(
     contentDescription: String = "شعار المحل"
 ) {
     val bitmap = remember(logoPath) {
-        LogoHelper.loadLogoBitmap(logoPath)?.asImageBitmap()
+        LogoHelper.loadCachedImageBitmap(logoPath)
     }
     val shape = RoundedCornerShape(cornerRadius)
     val baseModifier = modifier

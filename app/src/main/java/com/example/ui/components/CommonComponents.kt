@@ -1174,28 +1174,29 @@ fun PdfBottomNavigation(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .navigationBarsPadding(),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         color = Color.White,
-        shadowElevation = 8.dp,
+        shadowElevation = 4.dp,
         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF1F5F9))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 6.dp, horizontal = 4.dp),
+                .navigationBarsPadding()
+                .padding(vertical = 6.dp, horizontal = 6.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val navItems = listOf(
-                Triple("الرئيسية", Icons.Default.Home, com.example.ui.AppScreen.HOME),
-                Triple("البيع", Icons.Default.ShoppingCart, com.example.ui.AppScreen.SALE),
-                Triple("المخزون", Icons.Default.Inventory2, com.example.ui.AppScreen.INVENTORY),
-                Triple("الحسابات", Icons.Default.AccountBalanceWallet, com.example.ui.AppScreen.CASH_DRAWER),
-                Triple("التقارير", Icons.Default.BarChart, com.example.ui.AppScreen.REPORTS)
-            )
+            val navItems = remember {
+                listOf(
+                    Triple("الرئيسية", Icons.Default.Home, com.example.ui.AppScreen.HOME),
+                    Triple("البيع", Icons.Default.ShoppingCart, com.example.ui.AppScreen.SALE),
+                    Triple("المخزون", Icons.Default.Inventory2, com.example.ui.AppScreen.INVENTORY),
+                    Triple("الحسابات", Icons.Default.AccountBalanceWallet, com.example.ui.AppScreen.CASH_DRAWER),
+                    Triple("التقارير", Icons.Default.BarChart, com.example.ui.AppScreen.REPORTS)
+                )
+            }
 
             navItems.forEach { (label, icon, screen) ->
                 val isSelected = currentScreen == screen || (screen == AppScreen.CASH_DRAWER && (currentScreen == AppScreen.EXCHANGE_ACCOUNTS || currentScreen == AppScreen.TRANSACTIONS_LOG || currentScreen == AppScreen.DEBTS))
@@ -1205,6 +1206,7 @@ fun PdfBottomNavigation(
                 Box(
                     modifier = Modifier
                         .weight(1f)
+                        .heightIn(min = 48.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .background(bg)
                         .clickable { onNavigate(screen) }
@@ -1369,7 +1371,7 @@ fun CollectionReceiptDialog(
                 accentColor = FintechEmerald
             )
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(customerParties) { party ->
+                items(customerParties, key = { it.id }) { party ->
                     val isSelected = selectedParty?.id == party.id
                     FilterChip(
                         selected = isSelected,
@@ -1509,7 +1511,7 @@ fun CollectionReceiptDialog(
             } else {
                 Text("اختر حساب الصرافة / المحفظة:", fontSize = 11.sp, color = SlateTextSecondary, fontWeight = FontWeight.Bold)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(exchangeAccounts) { acc ->
+                    items(exchangeAccounts, key = { it.id }) { acc ->
                         FilterChip(
                             selected = selectedAccount?.id == acc.id,
                             onClick = { selectedAccount = acc },
@@ -1760,7 +1762,7 @@ fun SupplierPaymentDialog(
                 accentColor = FintechRose
             )
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(supplierParties) { party ->
+                items(supplierParties, key = { it.id }) { party ->
                     val isSelected = selectedParty?.id == party.id
                     FilterChip(
                         selected = isSelected,
@@ -1911,7 +1913,7 @@ fun SupplierPaymentDialog(
             } else {
                 Text("اختر حساب الصرافة / المحفظة:", fontSize = 11.sp, color = SlateTextSecondary, fontWeight = FontWeight.Bold)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(exchangeAccounts) { acc ->
+                    items(exchangeAccounts, key = { it.id }) { acc ->
                         FilterChip(
                             selected = selectedAccount?.id == acc.id,
                             onClick = { selectedAccount = acc },

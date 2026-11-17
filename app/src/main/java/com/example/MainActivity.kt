@@ -130,7 +130,14 @@ fun MainAppContent(viewModel: StoreViewModel) {
                     targetState = currentScreen,
                     modifier = Modifier.weight(1f).fillMaxSize(),
                     transitionSpec = {
-                        fadeIn() togetherWith fadeOut()
+                        fadeIn(
+                            animationSpec = androidx.compose.animation.core.tween(
+                                durationMillis = 120,
+                                easing = androidx.compose.animation.core.FastOutSlowInEasing
+                            )
+                        ) togetherWith fadeOut(
+                            animationSpec = androidx.compose.animation.core.tween(durationMillis = 80)
+                        ) using SizeTransform(clip = false)
                     },
                     label = "ScreenTransition"
                 ) { screen ->
@@ -199,6 +206,7 @@ fun MainAppContent(viewModel: StoreViewModel) {
                         )
                         AppScreen.SETTINGS, AppScreen.AUDIT_LOGS -> SettingsScreen(
                             viewModel = viewModel,
+                            initialSection = if (screen == AppScreen.AUDIT_LOGS) SettingsSection.AUDIT_TRAIL else SettingsSection.STORE_INFO,
                             onOpenOpeningBalances = { viewModel.navigateTo(AppScreen.OPENING_BALANCES) },
                             onBack = { viewModel.navigateBack() }
                         )

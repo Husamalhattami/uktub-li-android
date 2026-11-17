@@ -157,34 +157,34 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Reactive Data Streams ---
     val products: StateFlow<List<ProductItem>> = repository.allProducts
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val allConfigItems: StateFlow<List<StoreConfigItem>> = repository.allConfigItems
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val productCategoryItems: StateFlow<List<StoreConfigItem>> = allConfigItems.map { list ->
         list.filter { it.type == StoreConfigTypes.PRODUCT_CATEGORY }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val productSizeItems: StateFlow<List<StoreConfigItem>> = allConfigItems.map { list ->
         list.filter { it.type == StoreConfigTypes.PRODUCT_SIZE }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val expenseCategoryItems: StateFlow<List<StoreConfigItem>> = allConfigItems.map { list ->
         list.filter { it.type == StoreConfigTypes.EXPENSE_CATEGORY }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val accountTypeItems: StateFlow<List<StoreConfigItem>> = allConfigItems.map { list ->
         list.filter { it.type == StoreConfigTypes.ACCOUNT_TYPE }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val productColorItems: StateFlow<List<StoreConfigItem>> = allConfigItems.map { list ->
         list.filter { it.type == StoreConfigTypes.PRODUCT_COLOR }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val employeeRoleItems: StateFlow<List<StoreConfigItem>> = allConfigItems.map { list ->
         list.filter { it.type == StoreConfigTypes.EMPLOYEE_ROLE }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val allCategories: StateFlow<List<String>> = combine(products, productCategoryItems) { prods, catItems ->
         val fromConfig = catItems.map { it.name.trim() }.filter { it.isNotBlank() }
@@ -192,34 +192,34 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         (listOf("الكل") + fromConfig + fromProds).distinct().filter { it.isNotBlank() }
     }.stateIn(
         viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
+        SharingStarted.Lazily,
         listOf("الكل")
     )
 
     val productSizes: StateFlow<List<String>> = productSizeItems.map { items ->
-        val names = items.map { it.name.trim() }.filter { it.isNotBlank() }
+        val names = items.map { it.name.trim() }.filter { it.isNotBlank() }.distinct()
         names.ifEmpty { listOf("كبير", "شبابي", "وسط", "صغير") }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("كبير", "شبابي", "وسط", "صغير"))
+    }.stateIn(viewModelScope, SharingStarted.Lazily, listOf("كبير", "شبابي", "وسط", "صغير"))
 
     val expenseCategories: StateFlow<List<String>> = expenseCategoryItems.map { items ->
-        val names = items.map { it.name.trim() }.filter { it.isNotBlank() }
+        val names = items.map { it.name.trim() }.filter { it.isNotBlank() }.distinct()
         names.ifEmpty { listOf("صرفة يومية لعامل", "إيجار المحل", "الكهرباء", "مصروف متفرقات") }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("صرفة يومية لعامل", "إيجار المحل", "الكهرباء", "مصروف متفرقات"))
+    }.stateIn(viewModelScope, SharingStarted.Lazily, listOf("صرفة يومية لعامل", "إيجار المحل", "الكهرباء", "مصروف متفرقات"))
 
     val accountTypes: StateFlow<List<String>> = accountTypeItems.map { items ->
-        val names = items.map { it.name.trim() }.filter { it.isNotBlank() }
+        val names = items.map { it.name.trim() }.filter { it.isNotBlank() }.distinct()
         names.ifEmpty { listOf("صراف", "محفظة", "حساب بنكي") }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("صراف", "محفظة", "حساب بنكي"))
+    }.stateIn(viewModelScope, SharingStarted.Lazily, listOf("صراف", "محفظة", "حساب بنكي"))
 
     val productColors: StateFlow<List<String>> = productColorItems.map { items ->
-        val names = items.map { it.name.trim() }.filter { it.isNotBlank() }
+        val names = items.map { it.name.trim() }.filter { it.isNotBlank() }.distinct()
         names.ifEmpty { listOf("أسود", "أبيض", "كحلي", "بيج", "رمادي", "بني") }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("أسود", "أبيض", "كحلي", "بيج", "رمادي", "بني"))
+    }.stateIn(viewModelScope, SharingStarted.Lazily, listOf("أسود", "أبيض", "كحلي", "بيج", "رمادي", "بني"))
 
     val employeeRoles: StateFlow<List<String>> = employeeRoleItems.map { items ->
-        val names = items.map { it.name.trim() }.filter { it.isNotBlank() }
+        val names = items.map { it.name.trim() }.filter { it.isNotBlank() }.distinct()
         names.ifEmpty { listOf("بائع", "كاشير", "خياط", "محاسب") }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("بائع", "كاشير", "خياط", "محاسب"))
+    }.stateIn(viewModelScope, SharingStarted.Lazily, listOf("بائع", "كاشير", "خياط", "محاسب"))
 
     fun addNewCategory(name: String) {
         addConfigItem(StoreConfigTypes.PRODUCT_CATEGORY, name, "تمت إضافة نوع الصنف: ${name.trim()}")
@@ -273,74 +273,74 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     val sales: StateFlow<List<SaleTransaction>> = repository.allSales
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val purchases: StateFlow<List<PurchaseRecord>> = repository.allPurchases
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val expenses: StateFlow<List<ExpenseRecord>> = repository.allExpenses
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val employees: StateFlow<List<Employee>> = repository.allEmployees
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val employeesIncludingArchived: StateFlow<List<Employee>> = repository.allEmployeesIncludingArchived
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val employeeTransactions: StateFlow<List<EmployeeTransaction>> = repository.allEmployeeTransactions
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val debts: StateFlow<List<DebtRecord>> = repository.allDebts
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val debtPayments: StateFlow<List<DebtPayment>> = repository.allDebtPayments
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val activeShift: StateFlow<CashDrawerShift?> = repository.activeShift
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+        .stateIn(viewModelScope, SharingStarted.Lazily, null)
 
     val allShifts: StateFlow<List<CashDrawerShift>> = repository.allShifts
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val cashMovements: StateFlow<List<CashDrawerMovement>> = repository.allCashMovements
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val exchangeAccounts: StateFlow<List<ExchangeAccount>> = repository.allExchangeAccounts
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val exchangeAccountsIncludingArchived: StateFlow<List<ExchangeAccount>> = repository.allExchangeAccountsIncludingArchived
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val exchangeTransfers: StateFlow<List<ExchangeTransfer>> = repository.allExchangeTransfers
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val parties: StateFlow<List<PartyAccount>> = repository.allParties
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val partiesIncludingArchived: StateFlow<List<PartyAccount>> = repository.allPartiesIncludingArchived
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val customerParties: StateFlow<List<PartyAccount>> = parties.map { list ->
         list.filter { it.type == "CUSTOMER" }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val supplierParties: StateFlow<List<PartyAccount>> = parties.map { list ->
         list.filter { it.type == "SUPPLIER" }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val customerPartiesIncludingArchived: StateFlow<List<PartyAccount>> = partiesIncludingArchived.map { list ->
         list.filter { it.type == "CUSTOMER" }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val supplierPartiesIncludingArchived: StateFlow<List<PartyAccount>> = partiesIncludingArchived.map { list ->
         list.filter { it.type == "SUPPLIER" }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val auditLogs: StateFlow<List<AuditLogRecord>> = repository.allAuditLogs
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val returns: StateFlow<List<ReturnRecord>> = repository.allReturns
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     private val _pendingReturnTarget = MutableStateFlow<Pair<String, String?>?>(null)
     val pendingReturnTarget: StateFlow<Pair<String, String?>?> = _pendingReturnTarget.asStateFlow()
@@ -362,7 +362,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     val storeSettings: StateFlow<StoreSettings?> = repository.storeSettings
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+        .stateIn(viewModelScope, SharingStarted.Lazily, null)
 
     val canNavigateBack: StateFlow<Boolean> = combine(
         _backStack,
@@ -376,15 +376,15 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             stack.size > 1 || current != AppScreen.HOME
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    }.stateIn(viewModelScope, SharingStarted.Lazily, false)
 
     val isPinConfigured: StateFlow<Boolean> = storeSettings.map { settings ->
         settings != null && PinSecurityManager.isPinConfigured(settings)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    }.stateIn(viewModelScope, SharingStarted.Lazily, false)
 
     val mustChangePin: StateFlow<Boolean> = storeSettings.map { settings ->
         settings?.mustChangePin == true || (settings != null && !PinSecurityManager.isPinConfigured(settings))
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    }.stateIn(viewModelScope, SharingStarted.Lazily, false)
 
     // --- Completed Receipt Dialog Event ---
     private val _completedReceipt = MutableStateFlow<CompletedSaleReceipt?>(null)
@@ -538,11 +538,11 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
     // --- Computed Live Metrics ---
     val todaySalesTotal: StateFlow<Double> = sales.map { list ->
         list.filter { FormatUtils.isToday(it.timestamp) }.sumOf { it.totalAmount }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    }.stateIn(viewModelScope, SharingStarted.Lazily, 0.0)
 
     val todayProfitTotal: StateFlow<Double> = sales.map { list ->
         list.filter { FormatUtils.isToday(it.timestamp) }.sumOf { it.profit }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    }.stateIn(viewModelScope, SharingStarted.Lazily, 0.0)
 
     val currentCashBalance: StateFlow<Double> = cashMovements.map { list ->
         var balance = 0.0
@@ -550,31 +550,31 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
             if (m.isIncome) balance += m.amount else balance -= m.amount
         }
         balance
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    }.stateIn(viewModelScope, SharingStarted.Lazily, 0.0)
 
     val inventoryCostValue: StateFlow<Double> = products.map { list ->
         list.sumOf { it.buyPrice * it.quantity }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    }.stateIn(viewModelScope, SharingStarted.Lazily, 0.0)
 
     val inventoryExpectedSalesValue: StateFlow<Double> = products.map { list ->
         list.sumOf { it.sellPrice * it.quantity }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    }.stateIn(viewModelScope, SharingStarted.Lazily, 0.0)
 
     val lowStockCount: StateFlow<Int> = products.map { list ->
         list.count { it.quantity <= 3 }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    }.stateIn(viewModelScope, SharingStarted.Lazily, 0)
 
     val totalCustomerDebts: StateFlow<Double> = debts.map { list ->
         list.filter { it.type == "CUSTOMER" && !it.isSettled }.sumOf { it.remainingAmount }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    }.stateIn(viewModelScope, SharingStarted.Lazily, 0.0)
 
     val totalSupplierDebts: StateFlow<Double> = debts.map { list ->
         list.filter { it.type == "SUPPLIER" && !it.isSettled }.sumOf { it.remainingAmount }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    }.stateIn(viewModelScope, SharingStarted.Lazily, 0.0)
 
     val totalExchangeBalance: StateFlow<Double> = exchangeAccounts.map { list ->
         list.sumOf { it.balance }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    }.stateIn(viewModelScope, SharingStarted.Lazily, 0.0)
 
     // --- User Actions ---
 

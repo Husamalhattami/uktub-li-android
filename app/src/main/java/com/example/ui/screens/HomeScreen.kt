@@ -63,10 +63,7 @@ fun HomeScreen(
     val totalSupplierDebts by viewModel.totalSupplierDebts.collectAsStateWithLifecycle()
     val cashMovements by viewModel.cashMovements.collectAsStateWithLifecycle()
     val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
-    val customerParties by viewModel.customerParties.collectAsStateWithLifecycle()
-    val supplierParties by viewModel.supplierParties.collectAsStateWithLifecycle()
     val debts by viewModel.debts.collectAsStateWithLifecycle()
-    val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
     val products by viewModel.products.collectAsStateWithLifecycle()
     val activeShift by viewModel.activeShift.collectAsStateWithLifecycle()
     val isPinConfigured by viewModel.isPinConfigured.collectAsStateWithLifecycle()
@@ -117,10 +114,12 @@ fun HomeScreen(
             )
         },
         topBar = {
-            val subtitleText = listOfNotNull(
-                storeSettings?.address?.takeIf { it.isNotBlank() },
-                storeSettings?.phone?.takeIf { it.isNotBlank() }
-            ).joinToString(" • ").ifBlank { "إدارة أسهل .. لمحل أكثر نجاحاً" }
+            val subtitleText = remember(storeSettings) {
+                listOfNotNull(
+                    storeSettings?.address?.takeIf { it.isNotBlank() },
+                    storeSettings?.phone?.takeIf { it.isNotBlank() }
+                ).joinToString(" • ").ifBlank { "إدارة أسهل .. لمحل أكثر نجاحاً" }
+            }
             StoreTopBar(
                 title = storeSettings?.storeName?.ifBlank { "متجري" } ?: "متجري",
                 subtitle = subtitleText,
@@ -1336,6 +1335,8 @@ fun HomeScreen(
         }
 
         if (showCollectionDialog) {
+            val customerParties by viewModel.customerParties.collectAsStateWithLifecycle()
+            val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
             CollectionReceiptDialog(
                 customerParties = customerParties,
                 customerDebts = debts,
@@ -1359,6 +1360,8 @@ fun HomeScreen(
         }
 
         if (showSupplierPaymentDialog) {
+            val supplierParties by viewModel.supplierParties.collectAsStateWithLifecycle()
+            val exchangeAccounts by viewModel.exchangeAccounts.collectAsStateWithLifecycle()
             SupplierPaymentDialog(
                 supplierParties = supplierParties,
                 supplierDebts = debts,
