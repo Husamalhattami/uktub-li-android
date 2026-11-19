@@ -321,7 +321,9 @@ fun SaleScreen(
                             quantity = it.quantity,
                             unitPrice = it.unitPrice,
                             total = it.lineTotal,
-                            unit = it.unit
+                            unit = it.unit,
+                            piecePrice = it.unitPrice / it.multiplier.coerceAtLeast(1),
+                            productPrice = it.lineTotal
                         )
                     },
                     subtotal = subtotal,
@@ -1817,7 +1819,9 @@ fun SaleScreen(
                                     quantity = it.quantity,
                                     unitPrice = it.unitPrice,
                                     total = it.lineTotal,
-                                    unit = it.unit
+                                    unit = it.unit,
+                                    piecePrice = it.unitPrice / it.multiplier.coerceAtLeast(1),
+                                    productPrice = it.lineTotal
                                 )
                             },
                             subtotal = receipt.subtotal,
@@ -1860,7 +1864,9 @@ fun SaleScreen(
                                     quantity = it.quantity,
                                     unitPrice = it.unitPrice,
                                     total = it.lineTotal,
-                                    unit = it.unit
+                                    unit = it.unit,
+                                    piecePrice = it.unitPrice / it.multiplier.coerceAtLeast(1),
+                                    productPrice = it.lineTotal
                                 )
                             },
                             subtotal = receipt.subtotal,

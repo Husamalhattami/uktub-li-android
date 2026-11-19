@@ -16,6 +16,7 @@ import com.example.ui.util.PinSecurityManager
 import com.example.ui.util.EmployeeLedgerEntry
 import com.example.ui.util.EmployeeStatementSummary
 import com.example.ui.util.PartyLedgerEntry
+import com.example.ui.util.PartyLedgerRefType
 import com.example.ui.util.PartyStatementSummary
 import com.example.ui.util.StatementHelper
 import com.example.ui.util.StatementMode
@@ -60,12 +61,14 @@ class TestPdfDocumentShadow {
     private var closed = false
     private var activePage: PdfDocument.Page? = null
     private var finishedPageCount = 0
+    private val pageSizes = mutableListOf<String>()
 
     @Implementation
     fun __constructor__() {
         closed = false
         activePage = null
         finishedPageCount = 0
+        pageSizes.clear()
     }
 
     @Implementation
@@ -78,6 +81,7 @@ class TestPdfDocumentShadow {
         val pageShadow = Shadow.extract<TestPdfDocumentPageShadow>(page)
         pageShadow.shadowCanvas = canvas
         pageShadow.shadowInfo = pageInfo
+        pageSizes.add("${pageInfo.pageWidth}x${pageInfo.pageHeight}")
         activePage = page
         return page
     }
@@ -97,6 +101,7 @@ class TestPdfDocumentShadow {
         val header = buildString {
             appendLine("%PDF-1.4")
             appendLine("% FinishedPages=$finishedPageCount")
+            appendLine("% PageSizes=${pageSizes.joinToString(",")}")
             appendLine("1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj")
             appendLine("2 0 obj<< /Type /Pages /Count $finishedPageCount >>endobj")
             appendLine("%%EOF")
@@ -2691,4 +2696,385 @@ class StoreAccountingRobolectricTest {
         )
         assertTrue(supplierPayPdf.exists() && supplierPayPdf.length() > 50L)
     }
+
+    @Test
+    fun testBrandingDefaultsAndStatementEntryResolution() {
+        val defaultSettings = StoreSettings()
+        assertTrue(defaultSettings.shopNameAr.contains("الحطامي"))
+        assertEquals("Alhattami", defaultSettings.shopNameEn)
+        assertEquals("778383570", defaultSettings.phone)
+
+        val now = 1_770_000_000_000L
+        val customer = PartyAccount(id = 10L, type = "CUSTOMER", name = "عادل الحطامي", phone = "778383570", createdAt = now - 5_000)
+        val custSales = listOf(
+            SaleTransaction(
+                id = 101L,
+                productId = 1L,
+                productName = "ثوب مغربي",
+                category = "ثياب",
+                color = "أبيض",
+                size = "كبير",
+                quantity = 2,
+                unitBuyPrice = 4_000.0,
+                unitSellPrice = 6_000.0,
+                discount = 0.0,
+                totalAmount = 12_000.0,
+                profit = 4_000.0,
+                customerName = "عادل الحطامي",
+                paymentType = "آجل (دين)",
+                debtAmount = 12_000.0,
+                invoiceNumber = "INV-9001",
+                timestamp = now - 3_000
+            ),
+            SaleTransaction(
+                id = 102L,
+                productId = 2L,
+                productName = "جاكت شتوي",
+                category = "جاكت",
+                color = "أسود",
+                size = "وسط",
+                quantity = 1,
+                unitBuyPrice = 5_000.0,
+                unitSellPrice = 8_000.0,
+                discount = 0.0,
+                totalAmount = 8_000.0,
+                profit = 3_000.0,
+                customerName = "عادل الحطامي",
+                paymentType = "آجل (دين)",
+                debtAmount = 8_000.0,
+                invoiceNumber = "INV-9001",
+                timestamp = now - 2_900
+            )
+        )
+        val custDebt = DebtRecord(
+            id = 201L,
+            type = "CUSTOMER",
+            partyName = "عادل الحطامي",
+            originalAmount = 5_000.0,
+            remainingAmount = 5_000.0,
+            details = "رصيد سابق",
+            createdAt = now - 4_000
+        )
+        val custPayment = DebtPayment(
+            id = 301L,
+            debtId = 201L,
+            partyName = "عادل الحطامي",
+            amount = 5_000.0,
+            paymentMethod = "نقداً",
+            voucherNumber = "QBD-9001",
+            timestamp = now - 2_000
+        )
+        val custReturn = ReturnRecord(
+            id = 401L,
+            returnType = ReturnTypes.SALE_RETURN,
+            returnNumber = "RS-9001",
+            originalInvoiceNumber = "INV-9001",
+            originalLineId = 102L,
+            productId = 2L,
+            productName = "جاكت شتوي",
+            quantity = 1,
+            unitBuyPrice = 5_000.0,
+            unitSellPrice = 8_000.0,
+            totalAmount = 8_000.0,
+            partyName = "عادل الحطامي",
+            settlementMethod = ReturnSettlementMethods.DEBT_DEDUCTION,
+            debtReducedAmount = 8_000.0,
+            timestamp = now - 1_000
+        )
+
+        val custStmt = StatementHelper.buildPartyStatement(
+            party = customer,
+            sales = custSales,
+            purchases = emptyList(),
+            debts = listOf(custDebt),
+            payments = listOf(custPayment),
+            returns = listOf(custReturn)
+        )
+
+        val saleEntry = custStmt.entries.first { it.refType == PartyLedgerRefType.SALE_INVOICE }
+        val resolvedSales = StatementHelper.resolveSaleInvoiceItems(saleEntry, customer, custSales)
+        assertEquals(2, resolvedSales.size)
+        assertEquals(listOf("ثوب مغربي", "جاكت شتوي"), resolvedSales.map { it.productName })
+
+        val payEntry = custStmt.entries.first { it.refType == PartyLedgerRefType.PAYMENT_VOUCHER }
+        val resolvedPayments = StatementHelper.resolvePaymentRecords(payEntry, customer, listOf(custPayment))
+        assertEquals(1, resolvedPayments.size)
+        assertEquals("QBD-9001", resolvedPayments.first().voucherNumber)
+
+        val retEntry = custStmt.entries.first { it.refType == PartyLedgerRefType.SALE_RETURN }
+        val resolvedReturns = StatementHelper.resolveReturnItems(retEntry, customer, listOf(custReturn))
+        assertEquals(1, resolvedReturns.size)
+        assertEquals("RS-9001", resolvedReturns.first().returnNumber)
+
+        val debtEntry = custStmt.entries.first { it.refType == PartyLedgerRefType.DIRECT_DEBT }
+        val resolvedDebt = StatementHelper.resolveDebtRecord(debtEntry, listOf(custDebt))
+        assertNotNull(resolvedDebt)
+        assertEquals(201L, resolvedDebt?.id)
+
+        val supplier = PartyAccount(id = 20L, type = "SUPPLIER", name = "معمل النجاح", createdAt = now - 5_000)
+        val supPurchase = PurchaseRecord(
+            id = 501L,
+            supplierName = "معمل النجاح",
+            category = "ثياب",
+            modelName = "ثوب ملكي",
+            color = "أبيض",
+            size = "كبير",
+            quantity = 12,
+            unitBuyPrice = 3_000.0,
+            unitSellPrice = 4_500.0,
+            totalCost = 36_000.0,
+            paidAmount = 0.0,
+            remainingDebt = 36_000.0,
+            invoiceNumber = "PUR-9001",
+            paymentMethod = "آجل للمورد",
+            timestamp = now - 3_000
+        )
+        val supStmt = StatementHelper.buildPartyStatement(
+            party = supplier,
+            sales = emptyList(),
+            purchases = listOf(supPurchase),
+            debts = emptyList(),
+            payments = emptyList(),
+            returns = emptyList()
+        )
+        val purEntry = supStmt.entries.first { it.refType == PartyLedgerRefType.PURCHASE_INVOICE }
+        val resolvedPurchases = StatementHelper.resolvePurchaseInvoiceItems(purEntry, supplier, listOf(supPurchase))
+        assertEquals(1, resolvedPurchases.size)
+        assertEquals("ثوب ملكي", resolvedPurchases.first().modelName)
+    }
+
+    @Test
+    fun testArabicTafqeetAndDateRangeBounds() {
+        assertEquals("صفر ريال لا غير", FormatUtils.amountToArabicWords(0.0, "ريال"))
+
+        val w6250 = FormatUtils.amountToArabicWords(6250.0, "ريال")
+        assertTrue("Expected ستة آلاف and مئتان وخمسون in: $w6250", w6250.contains("ستة آلاف") && w6250.contains("مئتان وخمسون") && w6250.contains("ريال"))
+
+        val w75000 = FormatUtils.amountToArabicWords(75_000.0, "ريال")
+        assertTrue("Expected خمسة وسبعون ألف in: $w75000", w75000.contains("خمسة وسبعون ألف") && w75000.contains("ريال"))
+
+        val w125400 = FormatUtils.amountToArabicWords(125_400.0, "ريال")
+        assertTrue("Expected مئة وخمسة وعشرون ألف and أربعمئة in: $w125400", w125400.contains("مئة وخمسة وعشرون ألف") && w125400.contains("أربعمئة"))
+
+        val wDecimal = FormatUtils.amountToArabicWords(150.50, "ريال")
+        assertTrue("Expected مئة وخمسون ريال وخمسون فلس in: $wDecimal", wDecimal.contains("مئة وخمسون ريال") && wDecimal.contains("خمسون فلس"))
+
+        val sampleTime = 1_770_050_123_456L
+        val sod = FormatUtils.startOfDayMillis(sampleTime)
+        val eod = FormatUtils.endOfDayMillis(sampleTime)
+        assertTrue(sod < eod)
+        assertTrue(eod - sod == 86_399_999L)
+        assertTrue(FormatUtils.formatDateRangeLabel(sod, eod).startsWith("من "))
+    }
+
+    @Test
+    fun testDateRangeCarryOverAcrossPartyEmployeeAndCashDrawerLedgers() {
+        val dayMs = 86_400_000L
+        val base = FormatUtils.startOfDayMillis(1_770_000_000_000L)
+        val day1 = base + 3_600_000L
+        val day3 = base + 2 * dayMs + 3_600_000L
+        val day5 = base + 4 * dayMs + 3_600_000L
+
+        val periodStart = FormatUtils.startOfDayMillis(day3)
+        val periodEnd = FormatUtils.endOfDayMillis(day5)
+
+        // 1. Customer Statement with prior debt carry-over
+        val customer = PartyAccount(id = 1L, type = "CUSTOMER", name = "عميل اختباري", initialBalance = 5_000.0, createdAt = day1 - 10_000L)
+        val custSales = listOf(
+            SaleTransaction(
+                id = 1L, productId = 1L, productName = "صنف 1", category = "ثوب",
+                color = "أبيض", size = "كبير", quantity = 1, unitBuyPrice = 5_000.0,
+                unitSellPrice = 10_000.0, totalAmount = 10_000.0, profit = 5_000.0,
+                customerName = "عميل اختباري", paymentType = "آجل (دين)", debtAmount = 10_000.0,
+                invoiceNumber = "INV-1", timestamp = day1
+            ),
+            SaleTransaction(
+                id = 2L, productId = 2L, productName = "صنف 2", category = "ثوب",
+                color = "أسود", size = "وسط", quantity = 1, unitBuyPrice = 8_000.0,
+                unitSellPrice = 15_000.0, totalAmount = 15_000.0, profit = 7_000.0,
+                customerName = "عميل اختباري", paymentType = "آجل (دين)", debtAmount = 15_000.0,
+                invoiceNumber = "INV-2", timestamp = day3
+            )
+        )
+        val custPayment = DebtPayment(
+            id = 10L, debtId = 0L, partyName = "عميل اختباري", amount = 4_000.0,
+            paymentMethod = "نقداً", voucherNumber = "RC-1", timestamp = day5
+        )
+        val partyStmt = StatementHelper.buildPartyStatement(
+            party = customer,
+            sales = custSales,
+            purchases = emptyList(),
+            debts = emptyList(),
+            payments = listOf(custPayment),
+            returns = emptyList(),
+            startMillis = periodStart,
+            endMillis = periodEnd
+        )
+        assertTrue(partyStmt.periodLabel.isNotBlank())
+        assertEquals("رصيد سابق", partyStmt.entries.first().refKey)
+        assertEquals(15_000.0, partyStmt.entries.first().debit, 0.01) // opening 5k + day1 sale 10k
+        assertEquals(26_000.0, partyStmt.netBalance, 0.01) // 15k + 15k - 4k
+
+        // 2. Supplier Statement with prior carry-over
+        val supplier = PartyAccount(id = 2L, type = "SUPPLIER", name = "مورد اختباري", initialBalance = 20_000.0, createdAt = day1 - 10_000L)
+        val supPayment = DebtPayment(
+            id = 20L, debtId = 0L, partyName = "مورد اختباري", amount = 5_000.0,
+            paymentMethod = "نقداً", voucherNumber = "SRF-20", timestamp = day1
+        )
+        val supPurchase = PurchaseRecord(
+            id = 30L, supplierName = "مورد اختباري", category = "ثياب", modelName = "مديل",
+            color = "أبيض", size = "كبير", quantity = 10, unitBuyPrice = 1_000.0, unitSellPrice = 1_500.0,
+            totalCost = 10_000.0, paidAmount = 0.0, remainingDebt = 10_000.0,
+            invoiceNumber = "PUR-30", paymentMethod = "آجل للمورد", timestamp = day3
+        )
+        val supStmt = StatementHelper.buildPartyStatement(
+            party = supplier,
+            sales = emptyList(),
+            purchases = listOf(supPurchase),
+            debts = emptyList(),
+            payments = listOf(supPayment),
+            returns = emptyList(),
+            startMillis = periodStart,
+            endMillis = periodEnd
+        )
+        assertEquals("رصيد سابق", supStmt.entries.first().refKey)
+        assertEquals(15_000.0, supStmt.entries.first().credit, 0.01) // 20k - 5k paid on day1
+        assertEquals(25_000.0, supStmt.netBalance, 0.01) // 15k + 10k
+
+        // 3. Employee Statement with date-range carry-over
+        val emp = Employee(id = 3L, name = "موظف اختبار", role = "بائع", baseSalary = 100_000.0, salaryType = "شهري", startDate = day1 - 10_000L)
+        val empTxs = listOf(
+            EmployeeTransaction(id = 1L, employeeId = 3L, employeeName = "موظف اختبار", type = "صرفة يومية", amount = 2_000.0, timestamp = day1),
+            EmployeeTransaction(id = 2L, employeeId = 3L, employeeName = "موظف اختبار", type = "سلفة", amount = 8_000.0, timestamp = day3)
+        )
+        val empStmt = StatementHelper.buildEmployeeStatement(
+            employee = emp,
+            transactions = empTxs,
+            sales = emptyList(),
+            startMillis = periodStart,
+            endMillis = periodEnd
+        )
+        assertTrue(empStmt.periodLabel.isNotBlank())
+        assertTrue(empStmt.entries.any { it.type == "رصيد سابق" })
+        assertEquals(90_000.0, empStmt.remainingBalance, 0.01) // 100k - 2k - 8k
+
+        // 4. Cash Drawer 8-column Ledger with chronological running balance
+        val movements = listOf(
+            CashDrawerMovement(id = 1L, type = "SALE_CASH", title = "مبيعات يوم 1", isIncome = true, amount = 30_000.0, timestamp = day1),
+            CashDrawerMovement(id = 2L, type = "EXPENSE_PAID", title = "مصروف كهرباء", isIncome = false, amount = 5_000.0, timestamp = day3),
+            CashDrawerMovement(id = 3L, type = "DEBT_COLLECTED", title = "تحصيل عميل", isIncome = true, amount = 12_000.0, timestamp = day5)
+        )
+        val transfers = listOf(
+            ExchangeTransfer(id = 1L, accountId = 1L, type = "إيداع", accountName = "الكريمي", amount = 20_000.0, isCredit = true, title = "إيداع تحويل", timestamp = day3 + 10_000L),
+            ExchangeTransfer(id = 2L, accountId = 1L, type = "سحب", accountName = "الكريمي", amount = 4_000.0, isCredit = false, title = "سحب معكوس", timestamp = day5 + 10_000L, isReversed = true) // reversed must be excluded
+        )
+        // Suppose initial balance before day1 was 10,000 => after day1 (+30k)=40k, day3 (-5k, +20k)=55k, day5 (+12k)=67k
+        val ledger = StatementHelper.buildCashDrawerLedger(
+            movements = movements,
+            transfers = transfers,
+            currentCashBalance = 47_000.0,
+            currentExchangeBalance = 20_000.0,
+            startMillis = periodStart,
+            endMillis = periodEnd,
+            periodTitle = "فترة مخصصة"
+        )
+        assertEquals(40_000.0, ledger.openingBalance, 0.01)
+        assertEquals(3, ledger.rows.size) // 2 movements + 1 active transfer (reversed excluded)
+        assertEquals(32_000.0, ledger.totalCreditReceived, 0.01)
+        assertEquals(5_000.0, ledger.totalDebitPaid, 0.01)
+        assertEquals(67_000.0, ledger.closingBalance, 0.01)
+        assertEquals(67_000.0, ledger.rows.last().runningBalance, 0.01)
+    }
+
+    @Test
+    @Config(sdk = [36], shadows = [TestPdfDocumentShadow::class, TestPdfDocumentPageShadow::class])
+    fun testAllA4PdfsUseStandard595x842AndGenerateValidFiles() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val settings = StoreSettings(
+            shopNameAr = "الحطامي",
+            shopNameEn = "Alhattami",
+            phone = "778383570",
+            address = "صنعاء - باب السلام",
+            currency = "ريال",
+            taxNumber = "TX-9001"
+        )
+
+        val salePdf = InvoiceHelper.generateSaleInvoicePdf(
+            context = context,
+            invoiceNumber = "INV-A4-01",
+            customerName = "حسام الحطامي",
+            customerPhone = "778383570",
+            employeeName = "المدير",
+            paymentType = "آجل (دين)",
+            items = listOf(
+                InvoiceHelper.PdfSaleLineItem(
+                    name = "دجلات ابو شال",
+                    details = "درزن | رجالي | أبيض | مقاس كبير",
+                    quantity = 1,
+                    unitPrice = 75_000.0,
+                    total = 75_000.0,
+                    unit = "درزن",
+                    piecePrice = 6_250.0,
+                    productPrice = 75_000.0
+                )
+            ),
+            subtotal = 75_000.0,
+            discount = 0.0,
+            netTotal = 75_000.0,
+            cashPaid = 0.0,
+            transferPaid = 0.0,
+            debtAmount = 75_000.0,
+            exchangeAccountName = "",
+            transferRef = "",
+            timestamp = System.currentTimeMillis(),
+            settings = settings,
+            previousDebt = 0.0
+        )
+        assertTrue(salePdf.exists() && salePdf.readText(Charsets.UTF_8).contains("595x842"))
+
+        val ledger = StatementHelper.buildCashDrawerLedger(
+            movements = List(30) { idx ->
+                CashDrawerMovement(id = idx.toLong() + 1, type = if (idx % 2 == 0) "SALE_CASH" else "EXPENSE_PAID", title = "حركة صندوق #${idx + 1}", isIncome = idx % 2 == 0, amount = 1_500.0, timestamp = 1_770_000_000_000L + idx * 60_000L)
+            },
+            transfers = emptyList(),
+            currentCashBalance = 15_000.0,
+            currentExchangeBalance = 5_000.0,
+            periodTitle = "فترة اختبار"
+        )
+        val drawerPdf = InvoiceHelper.generateDailyMovementPdf(context, ledger, settings)
+        val drawerContent = drawerPdf.readText(Charsets.UTF_8)
+        assertTrue(drawerPdf.exists() && drawerContent.contains("595x842"))
+
+        val collectPdf = InvoiceHelper.generateCollectionVoucherPdf(
+            context = context,
+            receipt = CollectionReceiptResult(
+                voucherNumber = "RC-0001",
+                payerName = "حسام الحطامي",
+                amount = 10_000.0,
+                paymentMethod = "نقداً",
+                appliedToDebtAmount = 10_000.0,
+                remainingCustomerDebt = 0.0,
+                notes = "دفعة حساب"
+            ),
+            settings = settings
+        )
+        assertTrue(collectPdf.exists() && collectPdf.readText(Charsets.UTF_8).contains("595x842"))
+
+        val payPdf = InvoiceHelper.generateSupplierPaymentVoucherPdf(
+            context = context,
+            receipt = SupplierPaymentReceiptResult(
+                voucherNumber = "PV-0001",
+                supplierName = "مورد الأناقة",
+                amount = 25_000.0,
+                paymentMethod = "تحويل",
+                exchangeAccountName = "الكريمي",
+                appliedToDebtAmount = 25_000.0,
+                remainingSupplierDebt = 50_000.0,
+                notes = "سداد دفعة من المشتريات"
+            ),
+            settings = settings
+        )
+        assertTrue(payPdf.exists() && payPdf.readText(Charsets.UTF_8).contains("595x842"))
+    }
 }
+

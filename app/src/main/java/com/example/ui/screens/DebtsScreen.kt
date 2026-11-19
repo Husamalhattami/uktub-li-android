@@ -43,6 +43,8 @@ import com.example.ui.components.DialogInfoBanner
 import com.example.ui.components.DialogSectionHeader
 import com.example.ui.components.DialogSegmentedChoice
 import com.example.ui.components.PinVerificationDialog
+import com.example.ui.components.StatementDateRangeBar
+import com.example.ui.components.StatementEntryDetailDialog
 import com.example.ui.components.StoreOperationDialog
 import com.example.ui.components.StoreTopBar
 import com.example.ui.components.SupplierPaymentDialog
@@ -51,6 +53,8 @@ import com.example.ui.components.storeDialogTextFieldColors
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
 import com.example.ui.util.InvoiceHelper
+import com.example.ui.util.PartyLedgerEntry
+import com.example.ui.util.PartyLedgerRefType
 import com.example.ui.util.StatementHelper
 import com.example.ui.util.StatementMode
 
@@ -833,6 +837,7 @@ fun DebtsScreen(
             debts = debts,
             payments = debtPayments,
             returns = returns,
+            exchangeAccounts = exchangeAccounts,
             settings = storeSettings,
             onDismiss = { statementParty = null }
         )
@@ -2136,21 +2141,27 @@ fun PartyStatementDialog(
     debts: List<DebtRecord>,
     payments: List<DebtPayment>,
     returns: List<ReturnRecord> = emptyList(),
+    exchangeAccounts: List<ExchangeAccount> = emptyList(),
     settings: StoreSettings?,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     val currency = settings?.currency?.ifBlank { "ريال" } ?: "ريال"
     var mode by remember { mutableStateOf(StatementMode.DETAILED) }
+    var selectedEntry by remember(party.id) { mutableStateOf<PartyLedgerEntry?>(null) }
+    var startDateMillis by remember(party.id) { mutableStateOf<Long?>(null) }
+    var endDateMillis by remember(party.id) { mutableStateOf<Long?>(null) }
 
-    val summary = remember(party, sales, purchases, debts, payments, returns) {
+    val summary = remember(party, sales, purchases, debts, payments, returns, startDateMillis, endDateMillis) {
         StatementHelper.buildPartyStatement(
             party = party,
             sales = sales,
             purchases = purchases,
             debts = debts,
             payments = payments,
-            returns = returns
+            returns = returns,
+            startMillis = startDateMillis,
+            endMillis = endDateMillis
         )
     }
 
@@ -2254,6 +2265,16 @@ fun PartyStatementDialog(
                 modifier = Modifier.weight(1f).testTag("tab_statement_summary")
             )
         }
+
+        StatementDateRangeBar(
+            startMillis = startDateMillis,
+            endMillis = endDateMillis,
+            onRangeChange = { s, e ->
+                startDateMillis = s
+                endDateMillis = e
+            },
+            modifier = Modifier.testTag("party_statement_date_range")
+        )
 
         // 3-Column Summary: عليه | له | باقي
         Row(
@@ -2373,18 +2394,40 @@ fun PartyStatementDialog(
                         }
                     }
                 } else {
-                    Text("التفاصيل الكاملة لجميع العمليات:", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text(
+                        text = "التفاصيل الكاملة لجميع العمليات (اضغط على أي عملية لعرض الفاتورة):",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
                     if (summary.entries.isEmpty()) {
                         Text("لا توجد عمليات أو فواتير أو دفعات مسجلة لهذا الحساب بعد.", color = SlateMuted, fontSize = 12.sp)
                     } else {
-                        summary.entries.forEach { entry ->
+                        summary.entries.forEachIndexed { idx, entry ->
+                            val actionBadge = when (entry.refType) {
+                                PartyLedgerRefType.SALE_INVOICE,
+                                PartyLedgerRefType.PURCHASE_INVOICE -> "عرض الفاتورة"
+                                PartyLedgerRefType.SALE_RETURN,
+                                PartyLedgerRefType.PURCHASE_RETURN -> "تفاصيل المرتجع"
+                                PartyLedgerRefType.PAYMENT_VOUCHER -> "عرض السند"
+                                else -> when (entry.kind) {
+                                    "INVOICE" -> "عرض الفاتورة"
+                                    "RETURN" -> "تفاصيل المرتجع"
+                                    "PAYMENT" -> "عرض السند"
+                                    else -> "عرض التفاصيل"
+                                }
+                            }
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
                                 color = MaterialTheme.colorScheme.surface,
                                 border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder),
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { selectedEntry = entry }
+                                    .testTag("statement_entry_row_$idx")
                             ) {
-                                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -2409,7 +2452,8 @@ fun PartyStatementDialog(
                                     }
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         val amountLine = buildList {
                                             if (summary.isCustomer) {
@@ -2426,23 +2470,67 @@ fun PartyStatementDialog(
                                             fontWeight = FontWeight.Medium,
                                             color = if (entry.kind == "PAYMENT") EmeraldProfit else SlateTextPrimary
                                         )
-                                        val balStr = when {
-                                            entry.runningBalance > 0.01 -> "الرصيد: ${FormatUtils.formatNumber(entry.runningBalance)}"
-                                            entry.runningBalance < -0.01 -> "فائض: ${FormatUtils.formatNumber(-entry.runningBalance)}"
-                                            else -> "خالص"
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            val balStr = when {
+                                                entry.runningBalance > 0.01 -> "الرصيد: ${FormatUtils.formatNumber(entry.runningBalance)}"
+                                                entry.runningBalance < -0.01 -> "فائض: ${FormatUtils.formatNumber(-entry.runningBalance)}"
+                                                else -> "خالص"
+                                            }
+                                            Text(
+                                                text = balStr,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (entry.runningBalance > 0.01) LuxuryGold else EmeraldProfit
+                                            )
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = BrandBlueBg
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                                ) {
+                                                    Text(
+                                                        text = actionBadge,
+                                                        fontSize = 9.5.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = BrandBlue
+                                                    )
+                                                    Icon(
+                                                        imageVector = Icons.Default.OpenInNew,
+                                                        contentDescription = actionBadge,
+                                                        tint = BrandBlue,
+                                                        modifier = Modifier.size(11.dp)
+                                                    )
+                                                }
+                                            }
                                         }
-                                        Text(
-                                            text = balStr,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (entry.runningBalance > 0.01) LuxuryGold else EmeraldProfit
-                                        )
                                     }
                                 }
                             }
                         }
                     }
         }
+    }
+
+    selectedEntry?.let { entry ->
+        StatementEntryDetailDialog(
+            entry = entry,
+            party = party,
+            isCustomer = summary.isCustomer,
+            sales = sales,
+            purchases = purchases,
+            debts = debts,
+            payments = payments,
+            returns = returns,
+            exchangeAccounts = exchangeAccounts,
+            settings = settings,
+            onDismiss = { selectedEntry = null }
+        )
     }
 }
 

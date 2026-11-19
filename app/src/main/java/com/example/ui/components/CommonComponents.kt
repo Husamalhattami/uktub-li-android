@@ -777,7 +777,9 @@ fun SaleReceiptDialog(
                 quantity = sale.quantity,
                 unitPrice = sale.unitSellPrice,
                 total = sale.totalAmount,
-                unit = sale.unit
+                unit = sale.unit,
+                piecePrice = sale.unitSellPrice,
+                productPrice = sale.totalAmount
             )
         ),
         subtotal = sale.unitSellPrice * sale.quantity,
@@ -1167,6 +1169,14 @@ fun MovementItemRow(movement: CashDrawerMovement) {
     }
 }
 
+private val MainNavItems = listOf(
+    Triple("الرئيسية", Icons.Default.Home, AppScreen.HOME),
+    Triple("البيع", Icons.Default.ShoppingCart, AppScreen.SALE),
+    Triple("المخزون", Icons.Default.Inventory2, AppScreen.INVENTORY),
+    Triple("الحسابات", Icons.Default.AccountBalanceWallet, AppScreen.CASH_DRAWER),
+    Triple("التقارير", Icons.Default.BarChart, AppScreen.REPORTS)
+)
+
 @Composable
 fun PdfBottomNavigation(
     currentScreen: com.example.ui.AppScreen,
@@ -1188,17 +1198,7 @@ fun PdfBottomNavigation(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val navItems = remember {
-                listOf(
-                    Triple("الرئيسية", Icons.Default.Home, com.example.ui.AppScreen.HOME),
-                    Triple("البيع", Icons.Default.ShoppingCart, com.example.ui.AppScreen.SALE),
-                    Triple("المخزون", Icons.Default.Inventory2, com.example.ui.AppScreen.INVENTORY),
-                    Triple("الحسابات", Icons.Default.AccountBalanceWallet, com.example.ui.AppScreen.CASH_DRAWER),
-                    Triple("التقارير", Icons.Default.BarChart, com.example.ui.AppScreen.REPORTS)
-                )
-            }
-
-            navItems.forEach { (label, icon, screen) ->
+            MainNavItems.forEach { (label, icon, screen) ->
                 val isSelected = currentScreen == screen || (screen == AppScreen.CASH_DRAWER && (currentScreen == AppScreen.EXCHANGE_ACCOUNTS || currentScreen == AppScreen.TRANSACTIONS_LOG || currentScreen == AppScreen.DEBTS))
                 val tint = if (isSelected) PdfGoldDark else SlateTextSecondary
                 val bg = if (isSelected) PdfGoldBg else Color.Transparent
@@ -1245,13 +1245,7 @@ fun PdfNavigationRail(
     onNavigate: (AppScreen) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val navItems = listOf(
-        Triple("الرئيسية", Icons.Default.Home, AppScreen.HOME),
-        Triple("البيع", Icons.Default.ShoppingCart, AppScreen.SALE),
-        Triple("المخزون", Icons.Default.Inventory2, AppScreen.INVENTORY),
-        Triple("الحسابات", Icons.Default.AccountBalanceWallet, AppScreen.CASH_DRAWER),
-        Triple("التقارير", Icons.Default.BarChart, AppScreen.REPORTS)
-    )
+    val navItems = MainNavItems
 
     NavigationRail(
         modifier = modifier
@@ -2222,4 +2216,186 @@ fun PinVerificationDialog(
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun StatementDateRangeBar(
+    startMillis: Long?,
+    endMillis: Long?,
+    onRangeChange: (Long?, Long?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var pickingStart by remember { mutableStateOf(false) }
+    var pickingEnd by remember { mutableStateOf(false) }
+    val hasRange = startMillis != null || endMillis != null
+
+    fun utcPickerMillisToLocalDay(utcMillis: Long, endOfDay: Boolean): Long {
+        val utcCal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply {
+            timeInMillis = utcMillis
+        }
+        val localCal = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.YEAR, utcCal.get(java.util.Calendar.YEAR))
+            set(java.util.Calendar.MONTH, utcCal.get(java.util.Calendar.MONTH))
+            set(java.util.Calendar.DAY_OF_MONTH, utcCal.get(java.util.Calendar.DAY_OF_MONTH))
+        }
+        return if (endOfDay) {
+            FormatUtils.endOfDayMillis(localCal.timeInMillis)
+        } else {
+            FormatUtils.startOfDayMillis(localCal.timeInMillis)
+        }
+    }
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFFF8FAFC),
+        border = BorderStroke(1.dp, if (hasRange) PdfGoldPrimary else SlateBorder)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Surface(
+                onClick = { pickingStart = true },
+                shape = RoundedCornerShape(9.dp),
+                color = if (startMillis != null) Color.White else Color(0xFFF1F5F9),
+                border = BorderStroke(1.dp, if (startMillis != null) PdfHeaderNavy else Color(0xFFE2E8F0)),
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
+                    .testTag("btn_filter_start_date")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DateRange,
+                        contentDescription = "من تاريخ",
+                        tint = if (startMillis != null) PdfHeaderNavy else SlateMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Column {
+                        Text("من تاريخ", fontSize = 9.5.sp, color = SlateMuted)
+                        Text(
+                            text = startMillis?.let { FormatUtils.formatDate(it) } ?: "البداية",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = SlateTextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            Surface(
+                onClick = { pickingEnd = true },
+                shape = RoundedCornerShape(9.dp),
+                color = if (endMillis != null) Color.White else Color(0xFFF1F5F9),
+                border = BorderStroke(1.dp, if (endMillis != null) PdfHeaderNavy else Color(0xFFE2E8F0)),
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
+                    .testTag("btn_filter_end_date")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Event,
+                        contentDescription = "إلى تاريخ",
+                        tint = if (endMillis != null) PdfHeaderNavy else SlateMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Column {
+                        Text("إلى تاريخ", fontSize = 9.5.sp, color = SlateMuted)
+                        Text(
+                            text = endMillis?.let { FormatUtils.formatDate(it) } ?: "النهاية",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = SlateTextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            if (hasRange) {
+                IconButton(
+                    onClick = { onRangeChange(null, null) },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("btn_clear_date_range")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Clear,
+                        contentDescription = "مسح الفترة",
+                        tint = FintechRose
+                    )
+                }
+            }
+        }
+    }
+
+    if (pickingStart) {
+        val state = rememberDatePickerState(initialSelectedDateMillis = startMillis ?: System.currentTimeMillis())
+        DatePickerDialog(
+            onDismissRequest = { pickingStart = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    val chosen = state.selectedDateMillis?.let { utcPickerMillisToLocalDay(it, endOfDay = false) }
+                    if (chosen != null) {
+                        val safeEnd = if (endMillis != null && chosen > endMillis) {
+                            FormatUtils.endOfDayMillis(chosen)
+                        } else endMillis
+                        onRangeChange(chosen, safeEnd)
+                    }
+                    pickingStart = false
+                }) {
+                    Text("تأكيد", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pickingStart = false }) { Text("إلغاء") }
+            }
+        ) {
+            DatePicker(state = state)
+        }
+    }
+
+    if (pickingEnd) {
+        val state = rememberDatePickerState(initialSelectedDateMillis = endMillis ?: System.currentTimeMillis())
+        DatePickerDialog(
+            onDismissRequest = { pickingEnd = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    val chosen = state.selectedDateMillis?.let { utcPickerMillisToLocalDay(it, endOfDay = true) }
+                    if (chosen != null) {
+                        val safeStart = if (startMillis != null && chosen < startMillis) {
+                            FormatUtils.startOfDayMillis(chosen)
+                        } else startMillis
+                        onRangeChange(safeStart, chosen)
+                    }
+                    pickingEnd = false
+                }) {
+                    Text("تأكيد", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pickingEnd = false }) { Text("إلغاء") }
+            }
+        ) {
+            DatePicker(state = state)
+        }
+    }
+}
+
 

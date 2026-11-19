@@ -326,6 +326,7 @@ fun SettingsScreen(
                                     value = storeName,
                                     onValueChange = { storeName = it },
                                     label = { Text("اسم المحل (بالعربي)") },
+                                    placeholder = { Text("مثال: الحطامي للملابس الجاهزة") },
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .testTag("settings_store_name_input"),
@@ -337,6 +338,7 @@ fun SettingsScreen(
                                     value = storeNameEn,
                                     onValueChange = { storeNameEn = it },
                                     label = { Text("اسم المحل بالإنجليزية (اختياري)") },
+                                    placeholder = { Text("Example: Alhattami") },
                                     modifier = Modifier.fillMaxWidth(),
                                     singleLine = true,
                                     shape = RoundedCornerShape(12.dp)
@@ -350,6 +352,7 @@ fun SettingsScreen(
                                         value = phone,
                                         onValueChange = { phone = it },
                                         label = { Text("رقم الهاتف") },
+                                        placeholder = { Text("مثال: 778383570") },
                                         modifier = Modifier.weight(1.1f),
                                         singleLine = true,
                                         shape = RoundedCornerShape(12.dp)

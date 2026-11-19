@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.StoreViewModel
 import com.example.ui.components.StatCard
+import com.example.ui.components.StatementDateRangeBar
 import com.example.ui.components.StoreTopBar
 import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
@@ -45,9 +46,11 @@ fun ReportsScreen(
     val storeSettings by viewModel.storeSettings.collectAsStateWithLifecycle()
     val context = androidx.compose.ui.platform.LocalContext.current
 
-    var selectedPeriod by remember { mutableStateOf("اليوم") } // "اليوم", "أمس", "هذا الأسبوع", "هذا الشهر", "الكل"
+    var selectedPeriod by remember { mutableStateOf("اليوم") } // "اليوم", "أمس", "هذا الأسبوع", "هذا الشهر", "الكل", "فترة مخصصة"
+    var customStartMillis by remember { mutableStateOf<Long?>(null) }
+    var customEndMillis by remember { mutableStateOf<Long?>(null) }
 
-    val periodRange = remember(selectedPeriod) {
+    val periodRange = remember(selectedPeriod, customStartMillis, customEndMillis) {
         val todayStart = FormatUtils.todayStartMillis()
         val tomorrowStart = FormatUtils.tomorrowStartMillis()
         when (selectedPeriod) {
@@ -68,7 +71,20 @@ fun ReportsScreen(
                 }.timeInMillis
                 mStart to mEnd
             }
+            "فترة مخصصة" -> {
+                val s = customStartMillis ?: Long.MIN_VALUE
+                val e = customEndMillis?.plus(1L) ?: Long.MAX_VALUE
+                s to e
+            }
             else -> Long.MIN_VALUE to Long.MAX_VALUE
+        }
+    }
+
+    val effectivePeriodLabel = remember(selectedPeriod, customStartMillis, customEndMillis) {
+        if (selectedPeriod == "فترة مخصصة") {
+            FormatUtils.formatDateRangeLabel(customStartMillis, customEndMillis)
+        } else {
+            selectedPeriod
         }
     }
 
@@ -84,7 +100,7 @@ fun ReportsScreen(
     val filteredPayments = remember(debtPayments, periodRange) { debtPayments.filter { matchesSelectedPeriod(it.timestamp) } }
 
     val reportSummary = remember(
-        selectedPeriod,
+        effectivePeriodLabel,
         filteredSales,
         filteredReturns,
         filteredPurchases,
@@ -97,7 +113,7 @@ fun ReportsScreen(
         totalExchangeBalance
     ) {
         StatementHelper.buildDailyReportSummary(
-            periodTitle = selectedPeriod,
+            periodTitle = effectivePeriodLabel,
             filteredSales = filteredSales,
             filteredPurchases = filteredPurchases,
             filteredExpenses = filteredExpenses,
@@ -218,24 +234,37 @@ fun ReportsScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
             // Period selector
-            item {
-                val periods = remember { listOf("اليوم", "أمس", "هذا الأسبوع", "هذا الشهر", "الكل") }
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(periods, key = { it }) { period ->
-                        FilterChip(
-                            selected = selectedPeriod == period,
-                            onClick = { selectedPeriod = period },
-                            label = { Text(period, fontWeight = FontWeight.Bold) },
-                            modifier = Modifier.testTag("report_period_$period")
+            item(key = "reports_period_chips") {
+                val periods = remember { listOf("اليوم", "أمس", "هذا الأسبوع", "هذا الشهر", "الكل", "فترة مخصصة") }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(periods, key = { it }) { period ->
+                            FilterChip(
+                                selected = selectedPeriod == period,
+                                onClick = { selectedPeriod = period },
+                                label = { Text(period, fontWeight = FontWeight.Bold) },
+                                modifier = Modifier.testTag("report_period_$period")
+                            )
+                        }
+                    }
+                    if (selectedPeriod == "فترة مخصصة") {
+                        StatementDateRangeBar(
+                            startMillis = customStartMillis,
+                            endMillis = customEndMillis,
+                            onRangeChange = { s, e ->
+                                customStartMillis = s
+                                customEndMillis = e
+                            },
+                            modifier = Modifier.testTag("reports_custom_date_range")
                         )
                     }
                 }
             }
 
             // Export & Share Action Bar (PDF + WhatsApp + Copy)
-            item {
+            item(key = "reports_export_bar") {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
@@ -248,7 +277,7 @@ fun ReportsScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "تصدير ومشاركة تقرير ($selectedPeriod)",
+                            text = "تصدير ومشاركة تقرير ($effectivePeriodLabel)",
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
                             color = PdfHeaderNavy

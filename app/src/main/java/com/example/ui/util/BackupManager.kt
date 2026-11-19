@@ -844,7 +844,7 @@ object BackupManager {
                 val obj = root.getJSONObject("storeSettings")
                 StoreSettings(
                     id = obj.optInt("id", 1),
-                    shopNameAr = obj.optString("shopNameAr", "الجرادي للملابس الجاهزة"),
+                    shopNameAr = obj.optString("shopNameAr", "الحطامي للملابس الجاهزة"),
                     shopNameEn = obj.optString("shopNameEn", ""),
                     phone = obj.optString("phone", ""),
                     address = obj.optString("address", ""),

@@ -33,6 +33,7 @@ import com.example.ui.components.CollectionReceiptDialog
 import com.example.ui.components.DialogInfoBanner
 import com.example.ui.components.DialogSectionHeader
 import com.example.ui.components.DialogSegmentedChoice
+import com.example.ui.components.StatementDateRangeBar
 import com.example.ui.components.StoreOperationDialog
 import com.example.ui.components.StoreTopBar
 import com.example.ui.components.SupplierPaymentDialog
@@ -42,16 +43,6 @@ import com.example.ui.theme.*
 import com.example.ui.util.FormatUtils
 import com.example.ui.util.InvoiceHelper
 import com.example.ui.util.StatementHelper
-
-data class StatementRow(
-    val rowKey: String,
-    val dateStr: String,
-    val description: String,
-    val accountName: String,
-    val isIncome: Boolean,
-    val amount: Double,
-    val timestamp: Long
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,65 +69,62 @@ fun CashDrawerScreen(
     var showCollectionDialog by remember { mutableStateOf(false) }
     var showSupplierPaymentDialog by remember { mutableStateOf(false) }
 
-    var selectedPeriod by remember { mutableStateOf("آخر 7 أيام") } // "اليوم", "أمس", "آخر 7 أيام", "هذا الشهر", "الكل"
+    var selectedPeriod by remember { mutableStateOf("آخر 7 أيام") } // "اليوم", "آخر 7 أيام", "هذا الشهر", "الكل", "فترة مخصصة"
+    var customStartMillis by remember { mutableStateOf<Long?>(null) }
+    var customEndMillis by remember { mutableStateOf<Long?>(null) }
+    var showPeriodMenu by remember { mutableStateOf(false) }
 
     val totalTransferBalance = remember(exchangeAccounts) { exchangeAccounts.sumOf { it.balance } }
     val totalAllBalances = cashBalance + totalTransferBalance
 
-    // Combined Statement rows (كشف الحساب)
-    val statementRows = remember(cashMovements, exchangeTransfers, selectedPeriod) {
+    val effectiveRange = remember(selectedPeriod, customStartMillis, customEndMillis) {
         val now = System.currentTimeMillis()
-        val sevenDaysAgo = now - 7L * 86_400_000L
+        val sevenDaysAgo = FormatUtils.startOfDayMillis(now - 6L * 86_400_000L)
         val todayStart = FormatUtils.todayStartMillis()
-        val tomorrowStart = FormatUtils.tomorrowStartMillis()
+        val tomorrowEnd = FormatUtils.tomorrowStartMillis() - 1L
         val monthStart = FormatUtils.monthStartMillis()
-        val nextMonthStart = java.util.Calendar.getInstance().apply {
+        val nextMonthEnd = java.util.Calendar.getInstance().apply {
             timeInMillis = monthStart
             add(java.util.Calendar.MONTH, 1)
-        }.timeInMillis
-
-        val list = ArrayList<StatementRow>(cashMovements.size + exchangeTransfers.size)
-
-        cashMovements.forEach { m ->
-            list.add(
-                StatementRow(
-                    rowKey = "CASH_${m.id}",
-                    dateStr = FormatUtils.formatDate(m.timestamp),
-                    description = m.title,
-                    accountName = "الصندوق",
-                    isIncome = m.isIncome,
-                    amount = m.amount,
-                    timestamp = m.timestamp
-                )
-            )
+        }.timeInMillis - 1L
+        when (selectedPeriod) {
+            "اليوم" -> todayStart to tomorrowEnd
+            "آخر 7 أيام" -> sevenDaysAgo to tomorrowEnd
+            "هذا الشهر" -> monthStart to nextMonthEnd
+            "فترة مخصصة" -> customStartMillis to customEndMillis
+            else -> null to null
         }
-
-        exchangeTransfers.forEach { t ->
-            if (!t.isReversed && !t.isReversalEntry) {
-                list.add(
-                    StatementRow(
-                        rowKey = "EX_${t.id}",
-                        dateStr = FormatUtils.formatDate(t.timestamp),
-                        description = t.title,
-                        accountName = t.accountName,
-                        isIncome = t.isCredit,
-                        amount = t.amount,
-                        timestamp = t.timestamp
-                    )
-                )
-            }
-        }
-
-        val filtered = list.filter { r ->
-            when (selectedPeriod) {
-                "اليوم" -> r.timestamp in todayStart until tomorrowStart
-                "آخر 7 أيام" -> r.timestamp >= sevenDaysAgo
-                "هذا الشهر" -> r.timestamp in monthStart until nextMonthStart
-                else -> true
-            }
-        }
-        filtered.sortedByDescending { it.timestamp }
     }
+
+    val effectivePeriodLabel = remember(selectedPeriod, customStartMillis, customEndMillis) {
+        if (selectedPeriod == "فترة مخصصة") {
+            FormatUtils.formatDateRangeLabel(customStartMillis, customEndMillis)
+        } else {
+            selectedPeriod
+        }
+    }
+
+    val ledgerSummary = remember(
+        cashMovements,
+        exchangeTransfers,
+        cashBalance,
+        totalTransferBalance,
+        effectiveRange,
+        effectivePeriodLabel
+    ) {
+        StatementHelper.buildCashDrawerLedger(
+            movements = cashMovements,
+            transfers = exchangeTransfers,
+            currentCashBalance = cashBalance,
+            currentExchangeBalance = totalTransferBalance,
+            startMillis = effectiveRange.first,
+            endMillis = effectiveRange.second,
+            periodTitle = effectivePeriodLabel
+        )
+    }
+
+    // Display newest first in UI while preserving each row's exact chronological runningBalance
+    val displayLedgerRows = remember(ledgerSummary) { ledgerSummary.rows.asReversed() }
 
     Scaffold(
         topBar = {
@@ -560,25 +548,21 @@ fun CashDrawerScreen(
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        // Print Daily Movement PDF
+                        // Print Daily Movement PDF (A4 8-Column RTL + ملخص الحساب)
                         IconButton(
                             onClick = {
                                 val file = InvoiceHelper.generateDailyMovementPdf(
                                     context = context,
-                                    movements = cashMovements,
-                                    transfers = exchangeTransfers,
-                                    currentCash = cashBalance,
-                                    currentExchange = totalTransferBalance,
-                                    periodTitle = selectedPeriod,
+                                    summary = ledgerSummary,
                                     settings = storeSettings
                                 )
-                                InvoiceHelper.printPdfFile(context, file, "كشف_حركة_الصندوق_$selectedPeriod")
+                                InvoiceHelper.printPdfFile(context, file, "كشف_حركة_الصندوق_${effectivePeriodLabel}")
                             },
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(48.dp).testTag("btn_print_cash_drawer_pdf")
                         ) {
-                            Icon(Icons.Default.Print, contentDescription = "طباعة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Print, contentDescription = "طباعة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(20.dp))
                         }
 
                         // Share Daily Movement PDF
@@ -586,74 +570,155 @@ fun CashDrawerScreen(
                             onClick = {
                                 val file = InvoiceHelper.generateDailyMovementPdf(
                                     context = context,
-                                    movements = cashMovements,
-                                    transfers = exchangeTransfers,
-                                    currentCash = cashBalance,
-                                    currentExchange = totalTransferBalance,
-                                    periodTitle = selectedPeriod,
+                                    summary = ledgerSummary,
                                     settings = storeSettings
                                 )
                                 InvoiceHelper.sharePdfFile(context, file, "مشاركة كشف الحركة")
                             },
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(48.dp).testTag("btn_share_cash_drawer_pdf")
                         ) {
-                            Icon(Icons.Default.Share, contentDescription = "مشاركة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Share, contentDescription = "مشاركة PDF", tint = PdfHeaderNavy, modifier = Modifier.size(20.dp))
                         }
 
                         // Share Cash Movement Text (WhatsApp)
                         IconButton(
                             onClick = {
-                                val income = statementRows.filter { it.isIncome }.sumOf { it.amount }
-                                val expense = statementRows.filter { !it.isIncome }.sumOf { it.amount }
-                                val recent = statementRows.take(15).map { r ->
-                                    "${r.dateStr} | ${r.description} (${r.accountName}): ${if (r.isIncome) "+" else "-"}${FormatUtils.formatNumber(r.amount)}"
+                                val recent = displayLedgerRows.take(15).map { r ->
+                                    val amtPrefix = if (r.isIncome) "+${FormatUtils.formatNumber(r.creditReceived)}" else "-${FormatUtils.formatNumber(r.debitPaid)}"
+                                    "${FormatUtils.formatDate(r.timestamp)} | ${r.title} (${r.accountLabel}): $amtPrefix | رصيد: ${FormatUtils.formatNumber(r.runningBalance)}"
                                 }
                                 val txt = StatementHelper.formatCashMovementSummaryText(
-                                    periodTitle = selectedPeriod,
+                                    periodTitle = effectivePeriodLabel,
                                     cashBalance = cashBalance,
                                     exchangeBalance = totalTransferBalance,
-                                    incomeTotal = income,
-                                    expenseTotal = expense,
+                                    incomeTotal = ledgerSummary.totalCreditReceived,
+                                    expenseTotal = ledgerSummary.totalDebitPaid,
                                     recentLines = recent,
                                     settings = storeSettings
                                 )
                                 StatementHelper.shareText(context, txt, "مشاركة حركة الصندوق والحسابات")
                             },
-                            modifier = Modifier.size(36.dp).testTag("btn_share_cash_drawer_text")
+                            modifier = Modifier.size(48.dp).testTag("btn_share_cash_drawer_text")
                         ) {
-                            Icon(Icons.Default.Forum, contentDescription = "مشاركة واتساب", tint = FintechEmerald, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Forum, contentDescription = "مشاركة واتساب", tint = FintechEmerald, modifier = Modifier.size(20.dp))
                         }
 
-                        // Period Dropdown Pill
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = Color.White,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                            modifier = Modifier.clickable {
-                                selectedPeriod = when (selectedPeriod) {
-                                    "آخر 7 أيام" -> "هذا الشهر"
-                                    "هذا الشهر" -> "اليوم"
-                                    "اليوم" -> "الكل"
-                                    else -> "آخر 7 أيام"
+                        // Period Dropdown Selector
+                        Box {
+                            Surface(
+                                onClick = { showPeriodMenu = true },
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color.White,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .testTag("btn_cash_drawer_period_picker")
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(Icons.Default.FilterList, contentDescription = null, tint = Color(0xFF475569), modifier = Modifier.size(14.dp))
+                                    Text(selectedPeriod, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF334155))
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color(0xFF475569), modifier = Modifier.size(14.dp))
                                 }
                             }
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            DropdownMenu(
+                                expanded = showPeriodMenu,
+                                onDismissRequest = { showPeriodMenu = false }
                             ) {
-                                Icon(Icons.Default.FilterList, contentDescription = null, tint = Color(0xFF475569), modifier = Modifier.size(14.dp))
-                                Text(selectedPeriod, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF334155))
-                                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color(0xFF475569), modifier = Modifier.size(14.dp))
+                                listOf("اليوم", "آخر 7 أيام", "هذا الشهر", "فترة مخصصة", "الكل").forEach { option ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = option,
+                                                fontWeight = if (selectedPeriod == option) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (selectedPeriod == option) PdfHeaderNavy else SlateTextPrimary
+                                            )
+                                        },
+                                        onClick = {
+                                            selectedPeriod = option
+                                            showPeriodMenu = false
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
 
+            if (selectedPeriod == "فترة مخصصة") {
+                item(key = "cash_custom_date_range") {
+                    StatementDateRangeBar(
+                        startMillis = customStartMillis,
+                        endMillis = customEndMillis,
+                        onRangeChange = { s, e ->
+                            customStartMillis = s
+                            customEndMillis = e
+                        },
+                        modifier = Modifier.testTag("cash_drawer_date_range")
+                    )
+                }
+            }
+
+            // Period Totals Summary Strip (ملخص الحساب السريع)
+            item(key = "cash_period_summary_strip") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFFDCFCE7),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("دائن قبض (+)", fontSize = 10.sp, color = Color(0xFF166534), fontWeight = FontWeight.Bold)
+                            Text(
+                                text = FormatUtils.formatNumber(ledgerSummary.totalCreditReceived),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF166534)
+                            )
+                        }
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFFFEE2E2),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("مدين دفع (-)", fontSize = 10.sp, color = Color(0xFF991B1B), fontWeight = FontWeight.Bold)
+                            Text(
+                                text = FormatUtils.formatNumber(ledgerSummary.totalDebitPaid),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF991B1B)
+                            )
+                        }
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFFEFF6FF),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("الرصيد الختامي", fontSize = 10.sp, color = Color(0xFF1E3A8A), fontWeight = FontWeight.Bold)
+                            Text(
+                                text = FormatUtils.formatNumber(ledgerSummary.closingBalance),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF1E3A8A)
+                            )
+                        }
+                    }
+                }
+            }
+
             // Table Header
-            item {
+            item(key = "cash_table_header") {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
@@ -662,22 +727,21 @@ fun CashDrawerScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("التاريخ", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF475569), modifier = Modifier.weight(1.1f))
-                        Text("الوصف", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF475569), modifier = Modifier.weight(1.6f))
-                        Text("الحساب", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF475569), modifier = Modifier.weight(1.2f))
-                        Text("النوع", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF475569), modifier = Modifier.weight(1f))
-                        Text("المبلغ", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF475569), modifier = Modifier.weight(1.3f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
+                        Text("التاريخ", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color(0xFF475569), modifier = Modifier.weight(1.0f))
+                        Text("البيان / الحساب", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color(0xFF475569), modifier = Modifier.weight(1.8f))
+                        Text("قبض / دفع", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color(0xFF475569), modifier = Modifier.weight(1.1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        Text("الرصيد", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color(0xFF475569), modifier = Modifier.weight(1.1f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
                     }
                 }
             }
 
             // Table Rows
-            if (statementRows.isEmpty()) {
-                item {
+            if (displayLedgerRows.isEmpty()) {
+                item(key = "cash_empty_state") {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp),
@@ -691,7 +755,7 @@ fun CashDrawerScreen(
                     }
                 }
             } else {
-                items(statementRows.take(15), key = { it.rowKey }) { row ->
+                items(displayLedgerRows.take(25), key = { it.rowKey }) { row ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(0.dp),
@@ -701,38 +765,48 @@ fun CashDrawerScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                .padding(horizontal = 10.dp, vertical = 9.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(row.dateStr, fontSize = 10.sp, color = Color(0xFF64748B), modifier = Modifier.weight(1.1f))
-                            Text(row.description, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = Color(0xFF0F172A), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1.6f))
-                            Text(row.accountName, fontSize = 10.sp, color = Color(0xFF475569), modifier = Modifier.weight(1.2f))
-
-                            // Type Pill
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = if (row.isIncome) Color(0xFFDCFCE7) else Color(0xFFFEE2E2),
-                                modifier = Modifier.weight(1f)
-                            ) {
+                            Text(
+                                text = FormatUtils.formatDate(row.timestamp),
+                                fontSize = 9.5.sp,
+                                color = Color(0xFF64748B),
+                                modifier = Modifier.weight(1.0f)
+                            )
+                            Column(modifier = Modifier.weight(1.8f)) {
                                 Text(
-                                    text = if (row.isIncome) "مقبوضات" else "مصروفات",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (row.isIncome) Color(0xFF16A34A) else Color(0xFFDC2626),
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                    modifier = Modifier.padding(vertical = 2.dp)
+                                    text = row.title,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF0F172A),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${row.accountLabel} • ${row.kindLabel}",
+                                    fontSize = 9.5.sp,
+                                    color = Color(0xFF64748B),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
-
-                            // Amount
                             Text(
-                                text = (if (row.isIncome) "+ " else "- ") + FormatUtils.formatNumber(row.amount),
-                                fontSize = 11.sp,
+                                text = if (row.isIncome) "+${FormatUtils.formatNumber(row.creditReceived)}" else "-${FormatUtils.formatNumber(row.debitPaid)}",
+                                fontSize = 10.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (row.isIncome) Color(0xFF16A34A) else Color(0xFFDC2626),
-                                modifier = Modifier.weight(1.3f),
-                                textAlign = androidx.compose.ui.text.style.TextAlign.End
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                modifier = Modifier.weight(1.1f)
+                            )
+                            Text(
+                                text = FormatUtils.formatNumber(row.runningBalance),
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF0F172A),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                modifier = Modifier.weight(1.1f)
                             )
                         }
                     }

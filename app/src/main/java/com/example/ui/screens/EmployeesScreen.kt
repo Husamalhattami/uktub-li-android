@@ -33,6 +33,7 @@ import com.example.ui.components.DialogInfoBanner
 import com.example.ui.components.DialogSectionHeader
 import com.example.ui.components.DialogSegmentedChoice
 import com.example.ui.components.PinVerificationDialog
+import com.example.ui.components.StatementDateRangeBar
 import com.example.ui.components.StoreOperationDialog
 import com.example.ui.components.StoreTopBar
 import com.example.ui.components.TransactionDatePickerField
@@ -428,8 +429,16 @@ fun EmployeesScreen(
         val txs = remember(emp.id, employeeTransactions) {
             employeeTransactions.filter { it.employeeId == emp.id }.sortedByDescending { it.timestamp }
         }
-        val empSummary = remember(emp, employeeTransactions, sales) {
-            StatementHelper.buildEmployeeStatement(emp, employeeTransactions, sales)
+        var startDateMillis by remember(emp.id) { mutableStateOf<Long?>(null) }
+        var endDateMillis by remember(emp.id) { mutableStateOf<Long?>(null) }
+        val empSummary = remember(emp, employeeTransactions, sales, startDateMillis, endDateMillis) {
+            StatementHelper.buildEmployeeStatement(
+                employee = emp,
+                transactions = employeeTransactions,
+                sales = sales,
+                startMillis = startDateMillis,
+                endMillis = endDateMillis
+            )
         }
         var statementMode by remember(emp.id) { mutableStateOf(StatementMode.DETAILED) }
 
@@ -473,6 +482,16 @@ fun EmployeesScreen(
                     modifier = Modifier.weight(1f).testTag("btn_emp_mode_summary")
                 )
             }
+
+            StatementDateRangeBar(
+                startMillis = startDateMillis,
+                endMillis = endDateMillis,
+                onRangeChange = { s, e ->
+                    startDateMillis = s
+                    endDateMillis = e
+                },
+                modifier = Modifier.testTag("employee_statement_date_range")
+            )
 
             // 3 KPI Boxes: كم له / كم عليه / كم باقي
             Row(

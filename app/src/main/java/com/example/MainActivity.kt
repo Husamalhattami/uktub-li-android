@@ -51,6 +51,16 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private val MAIN_NAV_SCREENS = setOf(
+    AppScreen.HOME,
+    AppScreen.SALE,
+    AppScreen.INVENTORY,
+    AppScreen.CASH_DRAWER,
+    AppScreen.REPORTS,
+    AppScreen.EXCHANGE_ACCOUNTS,
+    AppScreen.DEBTS
+)
+
 @Composable
 fun MainAppContent(viewModel: StoreViewModel) {
     val isInitialized by viewModel.isInitialized.collectAsStateWithLifecycle()
@@ -88,15 +98,7 @@ fun MainAppContent(viewModel: StoreViewModel) {
         }
     }
 
-    val showMainNav = currentScreen in listOf(
-        AppScreen.HOME,
-        AppScreen.SALE,
-        AppScreen.INVENTORY,
-        AppScreen.CASH_DRAWER,
-        AppScreen.REPORTS,
-        AppScreen.EXCHANGE_ACCOUNTS,
-        AppScreen.DEBTS
-    )
+    val showMainNav = currentScreen in MAIN_NAV_SCREENS
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val useNavigationRail = maxWidth >= 600.dp
@@ -129,15 +131,13 @@ fun MainAppContent(viewModel: StoreViewModel) {
                 AnimatedContent(
                     targetState = currentScreen,
                     modifier = Modifier.weight(1f).fillMaxSize(),
+                    contentKey = { it },
                     transitionSpec = {
                         fadeIn(
-                            animationSpec = androidx.compose.animation.core.tween(
-                                durationMillis = 120,
-                                easing = androidx.compose.animation.core.FastOutSlowInEasing
-                            )
+                            animationSpec = androidx.compose.animation.core.tween(durationMillis = 75)
                         ) togetherWith fadeOut(
-                            animationSpec = androidx.compose.animation.core.tween(durationMillis = 80)
-                        ) using SizeTransform(clip = false)
+                            animationSpec = androidx.compose.animation.core.tween(durationMillis = 45)
+                        )
                     },
                     label = "ScreenTransition"
                 ) { screen ->

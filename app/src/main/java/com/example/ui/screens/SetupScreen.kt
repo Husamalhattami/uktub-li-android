@@ -384,7 +384,7 @@ fun SetupScreen(
                                 value = shopNameAr,
                                 onValueChange = { shopNameAr = it },
                                 label = { Text("اسم المحل / النظام (بالعربي) *") },
-                                placeholder = { Text("مثال: الجرادي للملابس الجاهزة") },
+                                placeholder = { Text("مثال: الحطامي للملابس الجاهزة") },
                                 leadingIcon = { Icon(Icons.Default.Store, contentDescription = null, tint = PdfGoldDark) },
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -397,7 +397,7 @@ fun SetupScreen(
                                 value = shopNameEn,
                                 onValueChange = { shopNameEn = it },
                                 label = { Text("اسم المحل بالإنجليزية (اختياري)") },
-                                placeholder = { Text("Example: Al-Asala Fashion") },
+                                placeholder = { Text("Example: Alhattami") },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                                 shape = RoundedCornerShape(12.dp)
@@ -412,7 +412,7 @@ fun SetupScreen(
                                         value = phone,
                                         onValueChange = { phone = it },
                                         label = { Text("رقم هاتف المحل *") },
-                                        placeholder = { Text("مثال: 777000000") },
+                                        placeholder = { Text("مثال: 778383570") },
                                         leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = PdfGoldDark) },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                                         modifier = Modifier
@@ -435,7 +435,7 @@ fun SetupScreen(
                                     value = phone,
                                     onValueChange = { phone = it },
                                     label = { Text("رقم هاتف المحل *") },
-                                    placeholder = { Text("مثال: 777000000") },
+                                    placeholder = { Text("مثال: 778383570") },
                                     leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = PdfGoldDark) },
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                                     modifier = Modifier

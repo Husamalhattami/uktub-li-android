@@ -12,6 +12,16 @@ enum class StatementMode {
     SUMMARY   // تقرير نهائي / ملخص الرصيد
 }
 
+enum class PartyLedgerRefType {
+    SALE_INVOICE,
+    PURCHASE_INVOICE,
+    SALE_RETURN,
+    PURCHASE_RETURN,
+    PAYMENT_VOUCHER,
+    DIRECT_DEBT,
+    OPENING_BALANCE
+}
+
 data class PartyLedgerEntry(
     val timestamp: Long,
     val title: String,
@@ -19,7 +29,10 @@ data class PartyLedgerEntry(
     val debit: Double,  // عليه (العميل: مبيعات/ديون مسجلة عليه؛ المورد: مسدد له نقداً/تحويلاً/سندات صرف)
     val credit: Double, // له (العميل: دفعات مسددة/تحصيل؛ المورد: بضاعة موردة/ديون مستحقة له)
     val runningBalance: Double, // موجب = رصيد مستحق أساسي (على العميل / للمورد)، سالب = فائض مدفوع مقدماً
-    val kind: String // "INVOICE", "DEBT", "PAYMENT"
+    val kind: String, // "INVOICE", "DEBT", "PAYMENT", "RETURN"
+    val refType: PartyLedgerRefType? = null,
+    val refKey: String = "",
+    val refIds: List<Long> = emptyList()
 )
 
 data class PartyStatementSummary(
@@ -32,7 +45,8 @@ data class PartyStatementSummary(
     val invoicesCount: Int,
     val paymentsCount: Int,
     val unsettledDebtsCount: Int,
-    val returnsCount: Int = 0
+    val returnsCount: Int = 0,
+    val periodLabel: String = ""
 )
 
 data class EmployeeLedgerEntry(
@@ -59,7 +73,33 @@ data class EmployeeStatementSummary(
     val remainingBalance: Double,     // صافي المتبقي له
     val entries: List<EmployeeLedgerEntry>,
     val openingCredit: Double = 0.0,
-    val openingDebit: Double = 0.0
+    val openingDebit: Double = 0.0,
+    val periodLabel: String = ""
+)
+
+data class CashDrawerLedgerRow(
+    val rowKey: String,
+    val timestamp: Long,
+    val title: String,
+    val accountLabel: String,
+    val kindLabel: String,
+    val isIncome: Boolean,
+    val debitPaid: Double,      // مدين دفع
+    val creditReceived: Double, // دائن قبض
+    val runningBalance: Double
+)
+
+data class CashDrawerLedgerSummary(
+    val periodTitle: String,
+    val periodLabel: String,
+    val rows: List<CashDrawerLedgerRow>,
+    val openingBalance: Double,
+    val totalCreditReceived: Double, // دائن قبض
+    val totalDebitPaid: Double,      // مدين دفع
+    val netChange: Double,
+    val closingBalance: Double,
+    val currentCashBalance: Double,
+    val currentExchangeBalance: Double
 )
 
 data class DailyReportSummary(
@@ -96,13 +136,28 @@ data class DailyReportSummary(
 
 object StatementHelper {
 
+    fun formatPartyVoucherRef(entry: PartyLedgerEntry): String {
+        val key = entry.refKey.trim()
+        return when {
+            key == "رصيد سابق" -> "سابق"
+            key.startsWith("PARTY:") || entry.refType == PartyLedgerRefType.OPENING_BALANCE -> "افتتاحي"
+            key.startsWith("ID:") -> "#${key.removePrefix("ID:")}"
+            key.startsWith("DEBT:") -> "#D-${key.removePrefix("DEBT:")}"
+            key.isNotBlank() -> if (key.startsWith("#")) key else "#$key"
+            entry.refIds.isNotEmpty() -> "#${entry.refIds.first()}"
+            else -> "-"
+        }
+    }
+
     fun buildPartyStatement(
         party: PartyAccount,
         sales: List<SaleTransaction>,
         purchases: List<PurchaseRecord>,
         debts: List<DebtRecord>,
         payments: List<DebtPayment>,
-        returns: List<ReturnRecord> = emptyList()
+        returns: List<ReturnRecord> = emptyList(),
+        startMillis: Long? = null,
+        endMillis: Long? = null
     ): PartyStatementSummary {
         val isCustomer = party.type == "CUSTOMER"
         val normalizedName = party.name.trim()
@@ -154,7 +209,10 @@ object StatementHelper {
                         debit = totalInv,
                         credit = paidUpfront,
                         runningBalance = 0.0,
-                        kind = "INVOICE"
+                        kind = "INVOICE",
+                        refType = PartyLedgerRefType.SALE_INVOICE,
+                        refKey = if (first.invoiceNumber.isNotBlank()) first.invoiceNumber.trim() else "ID:${first.id}",
+                        refIds = group.map { it.id }
                     )
                 )
             }
@@ -177,7 +235,10 @@ object StatementHelper {
                         debit = party.initialBalance,
                         credit = 0.0,
                         runningBalance = 0.0,
-                        kind = "DEBT"
+                        kind = "DEBT",
+                        refType = PartyLedgerRefType.OPENING_BALANCE,
+                        refKey = "PARTY:${party.id}",
+                        refIds = listOf(party.id)
                     )
                 )
             } else if (party.initialBalance < -0.01) {
@@ -189,7 +250,10 @@ object StatementHelper {
                         debit = 0.0,
                         credit = kotlin.math.abs(party.initialBalance),
                         runningBalance = 0.0,
-                        kind = "DEBT"
+                        kind = "DEBT",
+                        refType = PartyLedgerRefType.OPENING_BALANCE,
+                        refKey = "PARTY:${party.id}",
+                        refIds = listOf(party.id)
                     )
                 )
             }
@@ -206,7 +270,10 @@ object StatementHelper {
                         debit = d.originalAmount,
                         credit = 0.0,
                         runningBalance = 0.0,
-                        kind = "DEBT"
+                        kind = "DEBT",
+                        refType = PartyLedgerRefType.DIRECT_DEBT,
+                        refKey = "DEBT:${d.id}",
+                        refIds = listOf(d.id)
                     )
                 )
             }
@@ -238,7 +305,10 @@ object StatementHelper {
                         debit = 0.0,
                         credit = amount,
                         runningBalance = 0.0,
-                        kind = "PAYMENT"
+                        kind = "PAYMENT",
+                        refType = PartyLedgerRefType.PAYMENT_VOUCHER,
+                        refKey = first.voucherNumber.trim(),
+                        refIds = group.map { it.id }
                     )
                 )
             }
@@ -277,7 +347,10 @@ object StatementHelper {
                         debit = refundedNow,
                         credit = totalReturn,
                         runningBalance = 0.0,
-                        kind = "RETURN"
+                        kind = "RETURN",
+                        refType = PartyLedgerRefType.SALE_RETURN,
+                        refKey = first.returnNumber.trim(),
+                        refIds = group.map { it.id }
                     )
                 )
             }
@@ -289,21 +362,56 @@ object StatementHelper {
                 row.copy(runningBalance = running)
             }
 
-            val totalOnParty = withRunning.sumOf { it.debit }
-            val totalForParty = withRunning.sumOf { it.credit }
+            val periodLabel = FormatUtils.formatDateRangeLabel(startMillis, endMillis)
+            val isDateFiltered = startMillis != null || endMillis != null
+            val displayEntries = if (!isDateFiltered) {
+                withRunning
+            } else {
+                val effectiveStart = startMillis ?: Long.MIN_VALUE
+                val effectiveEnd = endMillis ?: Long.MAX_VALUE
+                val priorRows = withRunning.filter { it.timestamp < effectiveStart }
+                val inPeriodRows = withRunning.filter { it.timestamp in effectiveStart..effectiveEnd }
+                val priorBal = priorRows.lastOrNull()?.runningBalance ?: 0.0
+                if (startMillis != null && (priorRows.isNotEmpty() || kotlin.math.abs(priorBal) > 0.01)) {
+                    listOf(
+                        PartyLedgerEntry(
+                            timestamp = startMillis,
+                            title = "رصيد سابق قبل الفترة (${FormatUtils.formatDate(startMillis)})",
+                            subDetails = "صافي الرصيد المرحّل من الحركات السابقة",
+                            debit = if (priorBal > 0.01) priorBal else 0.0,
+                            credit = if (priorBal < -0.01) -priorBal else 0.0,
+                            runningBalance = priorBal,
+                            kind = "DEBT",
+                            refType = PartyLedgerRefType.OPENING_BALANCE,
+                            refKey = "رصيد سابق",
+                            refIds = emptyList()
+                        )
+                    ) + inPeriodRows
+                } else {
+                    inPeriodRows
+                }
+            }
+
+            val totalOnParty = displayEntries.sumOf { it.debit }
+            val totalForParty = displayEntries.sumOf { it.credit }
             val netBalance = totalOnParty - totalForParty
+
+            val periodInvCount = if (!isDateFiltered) invoicesCount else displayEntries.count { it.kind == "INVOICE" }
+            val periodPayCount = if (!isDateFiltered) groupedPayments.size else displayEntries.count { it.kind == "PAYMENT" }
+            val periodRetCount = if (!isDateFiltered) returnsCount else displayEntries.count { it.kind == "RETURN" }
 
             return PartyStatementSummary(
                 party = party,
                 isCustomer = true,
-                entries = withRunning,
+                entries = displayEntries,
                 totalOnParty = totalOnParty,
                 totalForParty = totalForParty,
                 netBalance = netBalance,
-                invoicesCount = invoicesCount,
-                paymentsCount = groupedPayments.size,
+                invoicesCount = periodInvCount,
+                paymentsCount = periodPayCount,
                 unsettledDebtsCount = partyDebts.count { !it.isSettled },
-                returnsCount = returnsCount
+                returnsCount = periodRetCount,
+                periodLabel = periodLabel
             )
         } else {
             // SUPPLIER
@@ -348,7 +456,10 @@ object StatementHelper {
                         debit = paidUpfront,  // المسدد للمورد عند الشراء
                         credit = totalCost,   // المستحق للمورد قيمة البضاعة
                         runningBalance = 0.0,
-                        kind = "INVOICE"
+                        kind = "INVOICE",
+                        refType = PartyLedgerRefType.PURCHASE_INVOICE,
+                        refKey = if (first.invoiceNumber.isNotBlank()) first.invoiceNumber.trim() else "ID:${first.id}",
+                        refIds = group.map { it.id }
                     )
                 )
             }
@@ -371,7 +482,10 @@ object StatementHelper {
                         debit = 0.0,
                         credit = party.initialBalance,
                         runningBalance = 0.0,
-                        kind = "DEBT"
+                        kind = "DEBT",
+                        refType = PartyLedgerRefType.OPENING_BALANCE,
+                        refKey = "PARTY:${party.id}",
+                        refIds = listOf(party.id)
                     )
                 )
             } else if (party.initialBalance < -0.01) {
@@ -383,7 +497,10 @@ object StatementHelper {
                         debit = kotlin.math.abs(party.initialBalance),
                         credit = 0.0,
                         runningBalance = 0.0,
-                        kind = "DEBT"
+                        kind = "DEBT",
+                        refType = PartyLedgerRefType.OPENING_BALANCE,
+                        refKey = "PARTY:${party.id}",
+                        refIds = listOf(party.id)
                     )
                 )
             }
@@ -399,7 +516,10 @@ object StatementHelper {
                         debit = 0.0,
                         credit = d.originalAmount,
                         runningBalance = 0.0,
-                        kind = "DEBT"
+                        kind = "DEBT",
+                        refType = PartyLedgerRefType.DIRECT_DEBT,
+                        refKey = "DEBT:${d.id}",
+                        refIds = listOf(d.id)
                     )
                 )
             }
@@ -417,7 +537,7 @@ object StatementHelper {
             groupedPayments.values.forEach { group ->
                 val first = group.first()
                 val amount = group.sumOf { it.amount }
-                val voucherTag = if (first.voucherNumber.isNotBlank()) "سند صرف #${first.voucherNumber}" else "سداد للمورد"
+                val voucherTag = if (first.voucherNumber.isNotBlank()) "سند صرف #${first.voucherNumber}" else "سند صرف / سداد للمورد"
                 rawRows.add(
                     PartyLedgerEntry(
                         timestamp = first.timestamp,
@@ -433,7 +553,10 @@ object StatementHelper {
                         debit = amount, // ما دفعناه للمورد
                         credit = 0.0,
                         runningBalance = 0.0,
-                        kind = "PAYMENT"
+                        kind = "PAYMENT",
+                        refType = PartyLedgerRefType.PAYMENT_VOUCHER,
+                        refKey = first.voucherNumber.trim(),
+                        refIds = group.map { it.id }
                     )
                 )
             }
@@ -472,7 +595,10 @@ object StatementHelper {
                         debit = totalReturn,
                         credit = receivedNow,
                         runningBalance = 0.0,
-                        kind = "RETURN"
+                        kind = "RETURN",
+                        refType = PartyLedgerRefType.PURCHASE_RETURN,
+                        refKey = first.returnNumber.trim(),
+                        refIds = group.map { it.id }
                     )
                 )
             }
@@ -484,21 +610,56 @@ object StatementHelper {
                 row.copy(runningBalance = running)
             }
 
-            val totalPaidToSupplier = withRunning.sumOf { it.debit }
-            val totalForSupplier = withRunning.sumOf { it.credit }
+            val periodLabel = FormatUtils.formatDateRangeLabel(startMillis, endMillis)
+            val isDateFiltered = startMillis != null || endMillis != null
+            val displayEntries = if (!isDateFiltered) {
+                withRunning
+            } else {
+                val effectiveStart = startMillis ?: Long.MIN_VALUE
+                val effectiveEnd = endMillis ?: Long.MAX_VALUE
+                val priorRows = withRunning.filter { it.timestamp < effectiveStart }
+                val inPeriodRows = withRunning.filter { it.timestamp in effectiveStart..effectiveEnd }
+                val priorBal = priorRows.lastOrNull()?.runningBalance ?: 0.0
+                if (startMillis != null && (priorRows.isNotEmpty() || kotlin.math.abs(priorBal) > 0.01)) {
+                    listOf(
+                        PartyLedgerEntry(
+                            timestamp = startMillis,
+                            title = "رصيد سابق قبل الفترة (${FormatUtils.formatDate(startMillis)})",
+                            subDetails = "صافي الرصيد المرحّل من الحركات السابقة",
+                            debit = if (priorBal < -0.01) -priorBal else 0.0,
+                            credit = if (priorBal > 0.01) priorBal else 0.0,
+                            runningBalance = priorBal,
+                            kind = "DEBT",
+                            refType = PartyLedgerRefType.OPENING_BALANCE,
+                            refKey = "رصيد سابق",
+                            refIds = emptyList()
+                        )
+                    ) + inPeriodRows
+                } else {
+                    inPeriodRows
+                }
+            }
+
+            val totalPaidToSupplier = displayEntries.sumOf { it.debit }
+            val totalForSupplier = displayEntries.sumOf { it.credit }
             val netBalance = totalForSupplier - totalPaidToSupplier
+
+            val periodInvCount = if (!isDateFiltered) invoicesCount else displayEntries.count { it.kind == "INVOICE" }
+            val periodPayCount = if (!isDateFiltered) groupedPayments.size else displayEntries.count { it.kind == "PAYMENT" }
+            val periodRetCount = if (!isDateFiltered) returnsCount else displayEntries.count { it.kind == "RETURN" }
 
             return PartyStatementSummary(
                 party = party,
                 isCustomer = false,
-                entries = withRunning,
+                entries = displayEntries,
                 totalOnParty = totalPaidToSupplier,
                 totalForParty = totalForSupplier,
                 netBalance = netBalance,
-                invoicesCount = invoicesCount,
-                paymentsCount = groupedPayments.size,
+                invoicesCount = periodInvCount,
+                paymentsCount = periodPayCount,
                 unsettledDebtsCount = partyDebts.count { !it.isSettled },
-                returnsCount = returnsCount
+                returnsCount = periodRetCount,
+                periodLabel = periodLabel
             )
         }
     }
@@ -506,10 +667,23 @@ object StatementHelper {
     fun buildEmployeeStatement(
         employee: Employee,
         transactions: List<EmployeeTransaction>,
-        sales: List<SaleTransaction>
+        sales: List<SaleTransaction>,
+        startMillis: Long? = null,
+        endMillis: Long? = null
     ): EmployeeStatementSummary {
-        val empTxs = transactions.filter { it.employeeId == employee.id }
-        val empSales = sales.filter { it.employeeId == employee.id }
+        val allEmpTxs = transactions.filter { it.employeeId == employee.id }
+        val allEmpSales = sales.filter { it.employeeId == employee.id }
+        val isDateFiltered = startMillis != null || endMillis != null
+        val effectiveStart = startMillis ?: Long.MIN_VALUE
+        val effectiveEnd = endMillis ?: Long.MAX_VALUE
+        val periodLabel = FormatUtils.formatDateRangeLabel(startMillis, endMillis)
+
+        val empTxs = if (!isDateFiltered) allEmpTxs else allEmpTxs.filter { it.timestamp in effectiveStart..effectiveEnd }
+        val empSales = if (!isDateFiltered) allEmpSales else allEmpSales.filter { it.timestamp in effectiveStart..effectiveEnd }
+
+        val fullTotalSalesAmount = allEmpSales.sumOf { it.totalAmount }
+        val fullCommissionEarned = fullTotalSalesAmount * (employee.commissionPercent / 100.0)
+
         val totalSalesAmount = empSales.sumOf { it.totalAmount }
         val commissionEarned = totalSalesAmount * (employee.commissionPercent / 100.0)
 
@@ -520,10 +694,6 @@ object StatementHelper {
         val dailyStipends = empTxs.filter { it.type == "صرفة يومية" }.sumOf { it.amount }
         val deductions = empTxs.filter { it.type == "خصم غياب" }.sumOf { it.amount }
         val salaryPaid = empTxs.filter { it.type == "صرف راتب" }.sumOf { it.amount }
-
-        val totalEarned = employee.baseSalary + commissionEarned + bonuses + openingCredit
-        val totalDeductedAndPaid = advances + openingDebit + dailyStipends + deductions + salaryPaid
-        val remainingBalance = totalEarned - totalDeductedAndPaid
 
         val rawEntries = mutableListOf<EmployeeLedgerEntry>()
         if (employee.baseSalary > 0) {
@@ -538,20 +708,20 @@ object StatementHelper {
                 )
             )
         }
-        if (commissionEarned > 0.01) {
+        if (fullCommissionEarned > 0.01) {
             rawEntries.add(
                 EmployeeLedgerEntry(
-                    timestamp = empSales.maxOfOrNull { it.timestamp } ?: System.currentTimeMillis(),
-                    title = "عمولة مبيعات (${employee.commissionPercent}% من ${FormatUtils.formatNumber(totalSalesAmount)})",
+                    timestamp = allEmpSales.maxOfOrNull { it.timestamp } ?: System.currentTimeMillis(),
+                    title = "عمولة مبيعات (${employee.commissionPercent}% من ${FormatUtils.formatNumber(fullTotalSalesAmount)})",
                     type = "عمولة مبيعات",
-                    creditEarned = commissionEarned,
+                    creditEarned = fullCommissionEarned,
                     debitTaken = 0.0,
                     runningBalance = 0.0
                 )
             )
         }
 
-        empTxs.sortedBy { it.timestamp }.forEach { tx ->
+        allEmpTxs.sortedBy { it.timestamp }.forEach { tx ->
             val isCredit = tx.type == "مكافأة" || tx.type == "رصيد افتتاحي (له)"
             rawEntries.add(
                 EmployeeLedgerEntry(
@@ -566,10 +736,44 @@ object StatementHelper {
         }
 
         var running = 0.0
-        val finalEntries = rawEntries.sortedBy { it.timestamp }.map { entry ->
+        val fullEntries = rawEntries.sortedBy { it.timestamp }.map { entry ->
             running += (entry.creditEarned - entry.debitTaken)
             entry.copy(runningBalance = running)
         }
+
+        val displayEntries = if (!isDateFiltered) {
+            fullEntries
+        } else {
+            val priorRows = fullEntries.filter { it.timestamp < effectiveStart }
+            val inPeriodRows = fullEntries.filter { it.timestamp in effectiveStart..effectiveEnd }
+            val priorBal = priorRows.lastOrNull()?.runningBalance ?: 0.0
+            if (startMillis != null && (priorRows.isNotEmpty() || kotlin.math.abs(priorBal) > 0.01)) {
+                listOf(
+                    EmployeeLedgerEntry(
+                        timestamp = startMillis,
+                        title = "رصيد سابق قبل الفترة (${FormatUtils.formatDate(startMillis)})",
+                        type = "رصيد سابق",
+                        creditEarned = if (priorBal > 0.01) priorBal else 0.0,
+                        debitTaken = if (priorBal < -0.01) -priorBal else 0.0,
+                        runningBalance = priorBal
+                    )
+                ) + inPeriodRows
+            } else {
+                inPeriodRows
+            }
+        }
+
+        val totalEarned = if (!isDateFiltered) {
+            employee.baseSalary + commissionEarned + bonuses + openingCredit
+        } else {
+            displayEntries.sumOf { it.creditEarned }
+        }
+        val totalDeductedAndPaid = if (!isDateFiltered) {
+            advances + openingDebit + dailyStipends + deductions + salaryPaid
+        } else {
+            displayEntries.sumOf { it.debitTaken }
+        }
+        val remainingBalance = totalEarned - totalDeductedAndPaid
 
         return EmployeeStatementSummary(
             employee = employee,
@@ -584,9 +788,106 @@ object StatementHelper {
             totalEarned = totalEarned,
             totalDeductedAndPaid = totalDeductedAndPaid,
             remainingBalance = remainingBalance,
-            entries = finalEntries,
+            entries = displayEntries,
             openingCredit = openingCredit,
-            openingDebit = openingDebit
+            openingDebit = openingDebit,
+            periodLabel = periodLabel
+        )
+    }
+
+    fun buildCashDrawerLedger(
+        movements: List<CashDrawerMovement>,
+        transfers: List<ExchangeTransfer>,
+        currentCashBalance: Double,
+        currentExchangeBalance: Double,
+        startMillis: Long? = null,
+        endMillis: Long? = null,
+        periodTitle: String = "الكل"
+    ): CashDrawerLedgerSummary {
+        val activeTransfers = transfers.filter { !it.isReversed && !it.isReversalEntry }
+        val raw = ArrayList<CashDrawerLedgerRow>(movements.size + activeTransfers.size)
+
+        movements.forEach { m ->
+            val desc = m.title + (if (m.details.isNotBlank()) " — ${m.details}" else "")
+            raw.add(
+                CashDrawerLedgerRow(
+                    rowKey = "CASH_${m.id}",
+                    timestamp = m.timestamp,
+                    title = desc,
+                    accountLabel = "الصندوق",
+                    kindLabel = if (m.isIncome) "مقبوضات" else "مدفوعات",
+                    isIncome = m.isIncome,
+                    debitPaid = if (m.isIncome) 0.0 else m.amount,
+                    creditReceived = if (m.isIncome) m.amount else 0.0,
+                    runningBalance = 0.0
+                )
+            )
+        }
+
+        activeTransfers.forEach { t ->
+            val isIn = t.isCredit
+            val desc = "${t.type}: ${t.notes.ifBlank { t.title.ifBlank { t.accountName } }}" +
+                (if (t.referenceNumber.isNotBlank()) " (#${t.referenceNumber})" else "")
+            raw.add(
+                CashDrawerLedgerRow(
+                    rowKey = "EX_${t.id}",
+                    timestamp = t.timestamp,
+                    title = desc,
+                    accountLabel = t.accountName.ifBlank { "صرافة" },
+                    kindLabel = if (isIn) "مقبوضات" else "مدفوعات",
+                    isIncome = isIn,
+                    debitPaid = if (isIn) 0.0 else t.amount,
+                    creditReceived = if (isIn) t.amount else 0.0,
+                    runningBalance = 0.0
+                )
+            )
+        }
+
+        val chronological = raw.sortedBy { it.timestamp }
+        val netAllTime = chronological.sumOf { it.creditReceived - it.debitPaid }
+        val totalCurrentLiquidity = currentCashBalance + currentExchangeBalance
+        val initialBalance = totalCurrentLiquidity - netAllTime
+
+        var running = initialBalance
+        val allWithRunning = chronological.map { row ->
+            running += (row.creditReceived - row.debitPaid)
+            row.copy(runningBalance = running)
+        }
+
+        val effectiveStart = startMillis ?: Long.MIN_VALUE
+        val effectiveEnd = endMillis ?: Long.MAX_VALUE
+        val priorRows = if (startMillis != null) allWithRunning.filter { it.timestamp < effectiveStart } else emptyList()
+        val openingBeforePeriod = if (startMillis != null) {
+            priorRows.lastOrNull()?.runningBalance ?: initialBalance
+        } else {
+            initialBalance
+        }
+
+        val inPeriodRows = allWithRunning.filter { it.timestamp in effectiveStart..effectiveEnd }
+        val totalCredit = inPeriodRows.sumOf { it.creditReceived }
+        val totalDebit = inPeriodRows.sumOf { it.debitPaid }
+        val netChange = totalCredit - totalDebit
+        val closingBalance = if (inPeriodRows.isNotEmpty()) {
+            inPeriodRows.last().runningBalance
+        } else if (endMillis != null) {
+            allWithRunning.lastOrNull { it.timestamp <= effectiveEnd }?.runningBalance ?: openingBeforePeriod
+        } else {
+            openingBeforePeriod
+        }
+
+        val periodLabel = FormatUtils.formatDateRangeLabel(startMillis, endMillis).ifBlank { periodTitle }
+
+        return CashDrawerLedgerSummary(
+            periodTitle = periodTitle,
+            periodLabel = periodLabel,
+            rows = inPeriodRows,
+            openingBalance = openingBeforePeriod,
+            totalCreditReceived = totalCredit,
+            totalDebitPaid = totalDebit,
+            netChange = netChange,
+            closingBalance = closingBalance,
+            currentCashBalance = currentCashBalance,
+            currentExchangeBalance = currentExchangeBalance
         )
     }
 
@@ -711,6 +1012,7 @@ object StatementHelper {
             appendLine("━━━━━━━━━━━━━━━━━━━━━━")
             appendLine(if (summary.isCustomer) "👤 العميل: *${summary.party.name}*" else "🚚 المورد: *${summary.party.name}*")
             if (summary.party.phone.isNotBlank()) appendLine("📱 الهاتف: ${summary.party.phone}")
+            if (summary.periodLabel.isNotBlank()) appendLine("🗓️ الفترة: ${summary.periodLabel}")
             appendLine("📅 تاريخ الكشف: $nowStr")
             appendLine("━━━━━━━━━━━━━━━━━━━━━━")
 
@@ -788,6 +1090,7 @@ object StatementHelper {
             appendLine("🏪 *$storeName*")
             appendLine("━━━━━━━━━━━━━━━━━━━━━━")
             appendLine("👤 العامل: *${emp.name}* (${emp.role})")
+            if (summary.periodLabel.isNotBlank()) appendLine("🗓️ الفترة: ${summary.periodLabel}")
             appendLine("📅 التاريخ: ${FormatUtils.formatDateTime(System.currentTimeMillis())}")
             appendLine("━━━━━━━━━━━━━━━━━━━━━━")
             appendLine("🟢 *كم له (إجمالي المستحقات):* ${FormatUtils.formatCurrency(summary.totalEarned, currency)}")
@@ -1122,5 +1425,118 @@ object StatementHelper {
         } catch (e: Exception) {
             Toast.makeText(context, "تعذر النسخ: ${e.message}", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    // ====================================================
+    // Statement Entry Detail Lookups
+    // ====================================================
+
+    fun resolveSaleInvoiceItems(
+        entry: PartyLedgerEntry,
+        party: PartyAccount,
+        sales: List<SaleTransaction>
+    ): List<SaleTransaction> {
+        val refIdSet = entry.refIds.toSet()
+        val byIds = if (refIdSet.isNotEmpty()) sales.filter { it.id in refIdSet } else emptyList()
+        if (byIds.isNotEmpty()) return byIds.sortedBy { it.id }
+
+        val normParty = party.name.trim()
+        val key = entry.refKey.trim()
+        if (key.startsWith("ID:")) {
+            val targetId = key.removePrefix("ID:").toLongOrNull()
+            if (targetId != null) {
+                return sales.filter { it.id == targetId }
+            }
+        }
+        if (key.isNotBlank()) {
+            val byInv = sales.filter {
+                it.invoiceNumber.trim().equals(key, ignoreCase = true) &&
+                    it.customerName.trim().equals(normParty, ignoreCase = true)
+            }
+            if (byInv.isNotEmpty()) return byInv.sortedBy { it.id }
+        }
+        return emptyList()
+    }
+
+    fun resolvePurchaseInvoiceItems(
+        entry: PartyLedgerEntry,
+        party: PartyAccount,
+        purchases: List<PurchaseRecord>
+    ): List<PurchaseRecord> {
+        val refIdSet = entry.refIds.toSet()
+        val byIds = if (refIdSet.isNotEmpty()) purchases.filter { it.id in refIdSet } else emptyList()
+        if (byIds.isNotEmpty()) return byIds.sortedBy { it.id }
+
+        val normParty = party.name.trim()
+        val key = entry.refKey.trim()
+        if (key.startsWith("ID:")) {
+            val targetId = key.removePrefix("ID:").toLongOrNull()
+            if (targetId != null) {
+                return purchases.filter { it.id == targetId }
+            }
+        }
+        if (key.isNotBlank()) {
+            val byInv = purchases.filter {
+                it.invoiceNumber.trim().equals(key, ignoreCase = true) &&
+                    it.supplierName.trim().equals(normParty, ignoreCase = true)
+            }
+            if (byInv.isNotEmpty()) return byInv.sortedBy { it.id }
+        }
+        return emptyList()
+    }
+
+    fun resolveReturnItems(
+        entry: PartyLedgerEntry,
+        party: PartyAccount,
+        returns: List<ReturnRecord>
+    ): List<ReturnRecord> {
+        val refIdSet = entry.refIds.toSet()
+        val byIds = if (refIdSet.isNotEmpty()) returns.filter { it.id in refIdSet } else emptyList()
+        if (byIds.isNotEmpty()) return byIds.sortedBy { it.id }
+
+        val normParty = party.name.trim()
+        val key = entry.refKey.trim()
+        if (key.isNotBlank()) {
+            return returns.filter {
+                it.returnNumber.trim().equals(key, ignoreCase = true) &&
+                    it.partyName.trim().equals(normParty, ignoreCase = true)
+            }.sortedBy { it.id }
+        }
+        return emptyList()
+    }
+
+    fun resolvePaymentRecords(
+        entry: PartyLedgerEntry,
+        party: PartyAccount,
+        payments: List<DebtPayment>
+    ): List<DebtPayment> {
+        val refIdSet = entry.refIds.toSet()
+        val byIds = if (refIdSet.isNotEmpty()) payments.filter { it.id in refIdSet } else emptyList()
+        if (byIds.isNotEmpty()) return byIds.sortedBy { it.id }
+
+        val normParty = party.name.trim()
+        val key = entry.refKey.trim()
+        if (key.isNotBlank()) {
+            return payments.filter {
+                it.voucherNumber.trim().equals(key, ignoreCase = true) &&
+                    it.partyName.trim().equals(normParty, ignoreCase = true)
+            }.sortedBy { it.id }
+        }
+        return emptyList()
+    }
+
+    fun resolveDebtRecord(
+        entry: PartyLedgerEntry,
+        debts: List<DebtRecord>
+    ): DebtRecord? {
+        val firstId = entry.refIds.firstOrNull()
+        if (firstId != null) {
+            debts.firstOrNull { it.id == firstId }?.let { return it }
+        }
+        if (entry.refKey.startsWith("DEBT:")) {
+            val id = entry.refKey.removePrefix("DEBT:").toLongOrNull()
+            if (id != null) return debts.firstOrNull { it.id == id }
+        }
+        return null
     }
 }

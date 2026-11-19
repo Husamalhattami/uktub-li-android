@@ -233,7 +233,9 @@ fun TransactionsManagerScreen(
                                                 quantity = line.quantity,
                                                 unitPrice = line.unitSellPrice,
                                                 total = line.totalAmount,
-                                                unit = line.unit
+                                                unit = line.unit,
+                                                piecePrice = line.unitSellPrice,
+                                                productPrice = line.totalAmount
                                             )
                                         },
                                         subtotal = subtotal,
